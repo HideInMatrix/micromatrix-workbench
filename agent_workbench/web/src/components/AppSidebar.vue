@@ -68,9 +68,14 @@ function subNavClass(name: AppRouteName): string[] {
     ]"
   >
     <div :class="['flex min-h-8 items-start gap-2', collapsed ? 'justify-center' : 'justify-between px-1.5']">
-      <div v-if="!collapsed" class="grid min-w-0 gap-0.5">
-        <strong class="text-[15px] leading-5 font-semibold tracking-[-0.015em]">MicroMatrix Workbench</strong>
-        <span class="text-[11px] leading-4 font-normal text-muted-foreground">Desktop Manager</span>
+      <div v-if="!collapsed" class="flex min-w-0 items-center gap-2.5">
+        <div class="grid size-9 flex-none place-items-center rounded-md border border-sidebar-border bg-background/40">
+          <img src="/workbench-mark.svg" alt="" class="size-6 dark:invert" />
+        </div>
+        <div class="grid min-w-0 gap-0.5">
+          <strong class="truncate text-[15px] leading-5 font-semibold tracking-[-0.015em]">MicroMatrix Workbench</strong>
+          <span class="text-[11px] leading-4 font-normal text-muted-foreground">Desktop Manager</span>
+        </div>
       </div>
       <div v-if="!collapsed" class="flex items-center gap-1">
         <small class="flex-none font-mono text-[10px] leading-4 font-normal text-muted-foreground">v{{ version || '—' }}</small>
@@ -78,9 +83,12 @@ function subNavClass(name: AppRouteName): string[] {
           <PanelLeftClose :size="15" />
         </Button>
       </div>
-      <Button v-else variant="ghost" size="icon" class="h-8 w-8" title="展开侧边栏" @click="toggleCollapsed">
-        <PanelLeftOpen :size="16" />
-      </Button>
+      <div v-else class="grid gap-2">
+        <img src="/workbench-mark.svg" alt="WorkBench" class="mx-auto size-7 dark:invert" />
+        <Button variant="ghost" size="icon" class="h-8 w-8" title="展开侧边栏" @click="toggleCollapsed">
+          <PanelLeftOpen :size="16" />
+        </Button>
+      </div>
     </div>
 
     <nav :class="['grid gap-1', collapsed ? 'mt-5' : 'mt-7']" aria-label="主导航">

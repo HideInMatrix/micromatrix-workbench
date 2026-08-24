@@ -39,7 +39,9 @@ function formatBytes(value: number): string {
       <p class="mt-[3px] mb-0 text-xs leading-[18px] text-muted-foreground">MicroMatrix Workbench 版本与更新信息</p>
     </div>
     <div class="mt-5 max-w-[430px] overflow-hidden rounded-lg border border-border bg-popover p-5 shadow-sm">
-      <div class="mb-3.5 grid size-10 place-items-center rounded-lg bg-primary text-xs font-semibold text-primary-foreground">CT</div>
+      <div class="mb-3.5 grid size-10 place-items-center rounded-lg border border-border bg-background">
+        <img src="/workbench-mark.svg" alt="WorkBench" class="size-7 dark:invert" />
+      </div>
       <h2 class="mt-0 mb-2.5 text-sm font-medium">MicroMatrix Workbench</h2>
       <div class="flex justify-between gap-4 border-b border-border py-2.5 text-[11px]"><span>当前版本</span><strong>{{ version || '—' }}</strong></div>
       <div class="flex justify-between gap-4 border-b border-border py-2.5 text-[11px]"><span>GitHub 最新版本</span><strong>{{ release?.latest_version || '未检查' }}</strong></div>
