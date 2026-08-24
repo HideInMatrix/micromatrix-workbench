@@ -24,6 +24,7 @@ from agent_workbench.version import current_version  # noqa: E402
 DIST_DIR = ROOT / "dist"
 APP_NAME = "MicroMatrix Workbench"
 INNO_SCRIPT = ROOT / "deploy" / "windows" / "MicroMatrixWorkbench.iss"
+WINDOWS_ICON = ROOT / "deploy" / "icons" / "workbench-app-icon.ico"
 HDIUTIL_CREATE_ATTEMPTS = 4
 HDIUTIL_RETRY_BASE_SECONDS = 2.0
 
@@ -129,6 +130,8 @@ def package_windows(output_base: Path, *, version: str | None = None) -> list[Pa
         raise SystemExit(f"PyInstaller onedir output not found: {source}")
     if not INNO_SCRIPT.is_file():
         raise SystemExit(f"Inno Setup script not found: {INNO_SCRIPT}")
+    if not WINDOWS_ICON.is_file():
+        raise SystemExit(f"Windows installer icon not found: {WINDOWS_ICON}")
 
     installer = Path(f"{output_base}.exe")
     installer.unlink(missing_ok=True)
@@ -142,6 +145,7 @@ def package_windows(output_base: Path, *, version: str | None = None) -> list[Pa
             "MICROMATRIX_WORKBENCH_INSTALLER_OUTPUT_DIR": str(output_base.parent.resolve()),
             "MICROMATRIX_WORKBENCH_INSTALLER_OUTPUT_BASE": output_base.name,
             "MICROMATRIX_WORKBENCH_INSTALLER_ARCH": _inno_architecture(),
+            "MICROMATRIX_WORKBENCH_INSTALLER_ICON": str(WINDOWS_ICON.resolve()),
         }
     )
     subprocess.run(

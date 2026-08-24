@@ -22,6 +22,9 @@ ROOT = Path(__file__).resolve().parent
 MACOS_BUNDLE_IDENTIFIER = "org.micromatrix.workbench"
 DEFAULT_WEB_DIR = ROOT / "agent_workbench" / "web"
 DEFAULT_WEB_DIST = DEFAULT_WEB_DIR / "dist"
+ICON_DIR = ROOT / "deploy" / "icons"
+WINDOWS_ICON = ICON_DIR / "workbench-app-icon.ico"
+MACOS_ICON = ICON_DIR / "workbench-app-icon.icns"
 
 
 def build_web_frontend() -> None:
@@ -156,9 +159,23 @@ def main(argv: list[str] | None = None) -> int:
         "--add-data",
         f"{web_dist}{separator}agent_workbench/web/dist",
     ]
+    if sys.platform.startswith("win"):
+        if not WINDOWS_ICON.is_file():
+            raise SystemExit(
+                f"缺少 Windows 应用图标: {WINDOWS_ICON}\n"
+                "请先运行: python scripts/generate_app_icons.py"
+            )
+        command.extend(["--icon", str(WINDOWS_ICON)])
     if sys.platform == "darwin":
+        if not MACOS_ICON.is_file():
+            raise SystemExit(
+                f"缺少 macOS 应用图标: {MACOS_ICON}\n"
+                "请先运行: python scripts/generate_app_icons.py"
+            )
         command.extend(
             [
+                "--icon",
+                str(MACOS_ICON),
                 "--osx-bundle-identifier",
                 MACOS_BUNDLE_IDENTIFIER,
             ]

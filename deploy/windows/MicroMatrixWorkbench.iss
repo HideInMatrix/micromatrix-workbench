@@ -5,6 +5,7 @@
 #define MyOutputDir GetEnv("MICROMATRIX_WORKBENCH_INSTALLER_OUTPUT_DIR")
 #define MyOutputBaseName GetEnv("MICROMATRIX_WORKBENCH_INSTALLER_OUTPUT_BASE")
 #define MyArchitecture GetEnv("MICROMATRIX_WORKBENCH_INSTALLER_ARCH")
+#define MyIconFile GetEnv("MICROMATRIX_WORKBENCH_INSTALLER_ICON")
 
 [Setup]
 AppId=MicroMatrix.Workbench
@@ -24,6 +25,7 @@ OutputBaseFilename={#MyOutputBaseName}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile={#MyIconFile}
 CloseApplications=yes
 RestartApplications=no
 UninstallDisplayName={#MyAppName}
