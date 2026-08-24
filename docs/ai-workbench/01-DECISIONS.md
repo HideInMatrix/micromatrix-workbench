@@ -1,5 +1,7 @@
 # AI Workbench 决策文档
 
+> 2026-08-24 架构修订：本文件中早期的“Orchestration Layer”表述不再代表一个负责意图识别和能力路由的 AI 中枢。MicroMatrix Workbench 的唯一上层决策者是连接它的 AI Client；Workbench 负责能力暴露、能力管理、安全执行与确定性 Workflow Runtime。
+
 ## 1. 背景
 
 当前 MicroMatrix Workbench 已经解决了 AI 安全访问本地 Workspace 的基础能力：
@@ -27,33 +29,62 @@
 - 可视化 Workflow；
 - AI 通过自然语言生成或修改 Workflow。
 
-因此决定新增 **AI Workbench / Orchestration Layer**。
+因此决定新增 **AI Workbench Capability Layer**。它提供方法、扩展能力与确定性编排，但不接管 AI Client 的任务理解、意图识别或能力选择。
 
 ---
 
 ## 2. 核心决策
 
-### ADR-001：保留 Tool 原子化，在 Tool 之上增加 Orchestration Layer
+### ADR-000：AI Client 是唯一任务决策者
+
+系统入口固定为：
+
+```text
+User
+  ↓
+AI Client (ChatGPT / Claude / Codex / ...)
+  ↓ MCP
+MicroMatrix Workbench
+```
+
+Workbench 不实现 Prompt Router、关键词路由器或第二套 Agent Planner。Workbench 只向 AI 描述“有哪些能力、如何调用、需要什么权限”，由 AI 根据用户当前对话决定是否调用 Tool、Skill、External MCP 或 Workflow。
+
+统一原则：
+
+```text
+Tool      = Action
+Skill     = Knowledge / Method
+MCP       = Extension
+Workflow  = Deterministic Orchestration
+AI Client = Decision Maker
+```
+
+禁止通过 `prompt.includes(...)`、关键词规则或 Workbench 内部分类器自动替 AI 选择 Skill / Workflow。
+
+### ADR-001：保留 Tool 原子化，在 Tool 之上增加 Capability Layer
 
 Tool 继续回答“AI 能做什么”，不新增 `reverse_engineer_project()`、`develop_feature()` 这类巨型 Tool。
 
-新增四类一等资源：
+Workbench 将以下能力统一暴露为 AI 可发现的 Capability：
 
 ```text
-Prompt
+Built-in Tool
 Skill
+External MCP Tool
 Workflow
-Workflow Run
 ```
 
 关系：
 
 ```text
-Prompt       定义模型应如何思考和输出
-Skill        定义处理某类问题的方法、约束、模板和允许工具
-Workflow     编排多个步骤、Skill、Prompt、审批和条件
-Workflow Run 保存一次真实执行的状态、结果和历史
+Built-in Tool      Workbench 原子动作
+Skill              给 AI 的知识、方法、约束与推荐能力
+External MCP Tool  由外部 MCP Server 扩展的动作
+Workflow           对已有 Capability 的确定性编排
+Workflow Run       Workflow 的执行状态、结果与审计历史
 ```
+
+Capability Catalog 是“描述目录”，不是路由器。它必须允许 AI 一次发现上述能力的 description、input schema、来源与调用方式。
 
 ### ADR-002：Workflow Definition 是唯一权威数据，Vue Flow 只是编辑器
 

@@ -11,6 +11,13 @@ from .mcp_connection_store import (
 from .mcp_connection_service import MCPConnectionService
 from .mcp_connection_client import MCPConnectionProbe, probe_connection
 from .effective_tools import EffectiveTool, build_effective_tool_catalog
+from .capability_catalog import (
+    build_capability_catalog,
+    capability_catalog_revision,
+    filter_capability_catalog,
+    is_valid_capability_id,
+    validate_capability_references,
+)
 from .tool_references import (
     ToolReference,
     is_workbench_control_tool,
@@ -56,6 +63,11 @@ __all__ = [
     "probe_connection",
     "EffectiveTool",
     "build_effective_tool_catalog",
+    "build_capability_catalog",
+    "capability_catalog_revision",
+    "filter_capability_catalog",
+    "is_valid_capability_id",
+    "validate_capability_references",
     "ToolReference",
     "is_workbench_control_tool",
     "tool_reference_from_node_config",

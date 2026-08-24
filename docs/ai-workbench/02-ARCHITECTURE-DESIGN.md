@@ -3,41 +3,44 @@
 ## 1. 总体架构
 
 ```text
-                              AI Client
-                                  │
-                              MCP Protocol
-                                  │
-                 ┌────────────────┼────────────────┐
-                 ▼                ▼                ▼
-               Tools           Prompts         Resources
-                 │                │                │
-                 └────────────────┼────────────────┘
-                                  ▼
-                         AI Workbench Core
-                                  │
-            ┌─────────────────────┼─────────────────────┐
-            ▼                     ▼                     ▼
-      Prompt Registry        Skill Registry       Workflow Registry
-                                                        │
-                                                        ▼
-                                                 Workflow Validator
-                                                        │
-                                                        ▼
-                                                  Workflow Engine
-                                                        │
-                                  ┌─────────────────────┼──────────────┐
-                                  ▼                     ▼              ▼
-                               Runs                 Approvals       Artifacts
-                                  │
-                                  ▼
-                          Permission / Tool Layer
-                                  │
-                                  ▼
-                               Sandbox
-                                  │
-                                  ▼
-                              Workspace
+                       User Conversation
+                              │
+                              ▼
+                         AI Client
+                 (decision / planning owner)
+                              │
+                         MCP Protocol
+                              │
+                              ▼
+                MicroMatrix Workbench Gateway
+                              │
+                    Capability Discovery
+                              │
+          ┌───────────────────┼───────────────────┐
+          ▼                   ▼                   ▼
+    Built-in Tools          Skills        External MCP Tools
+          │                   │                   │
+          └───────────────────┼───────────────────┘
+                              │
+                              ▼
+                         Workflows
+                  (deterministic composition)
+                              │
+                              ▼
+                Permission / Sandbox Runtime
+                              │
+                              ▼
+                          Workspace
 ```
+
+核心边界：
+
+- AI Client 理解用户意图并选择 Capability；
+- Workbench 不做关键词路由、不实现第二套 Agent Planner；
+- Capability Catalog 只负责描述和发现；
+- Workflow Engine 只执行 AI 已明确选择的 Workflow；
+- Skill 主要向 AI 提供知识、方法、约束和推荐能力，不承担自主决策；
+- External MCP Tool 作为 Workbench 能力扩展参与统一发现与权限控制。
 
 前端：
 
@@ -46,12 +49,41 @@ Vue Router
   └── /workbench
        ├── Workflows
        ├── Skills
-       ├── Prompts
+       ├── MCP Connections
        └── Runs
 
 Workflow Editor
   └── Vue Flow
 ```
+
+Vue Flow 的定位是 **Workflow Definition Editor**，不是任务执行入口和 AI 编排中枢。
+
+### 1.1 AI-facing Capability Catalog
+
+AI 通过 MCP 可获取统一 Capability 目录：
+
+```json
+{
+  "id": "workflow:reverse-engineering",
+  "type": "workflow",
+  "name": "Reverse Engineering",
+  "description": "Analyze an existing project with a repeatable workflow",
+  "input_schema": {"type": "object"},
+  "source": {"workflow_id": "reverse-engineering"},
+  "invocation": {"kind": "workflow", "workflow_id": "reverse-engineering"}
+}
+```
+
+首版统一类型：
+
+```text
+builtin_tool
+skill
+mcp_tool
+workflow
+```
+
+Catalog 不返回“推荐结果”“匹配分数”或“自动选择结果”，避免把 AI 的决策职责重新搬回 Workbench。
 
 ---
 

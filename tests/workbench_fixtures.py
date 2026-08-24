@@ -19,7 +19,7 @@ def install_project_development_fixture(runtime: Any) -> WorkflowDefinition:
         scope=ResourceScope.GLOBAL,
         source="test-fixture",
     )
-    runtime.skill_registry.register(skill, replace=True)
+    runtime.capability_assets.save_skill(skill.to_dict(), expected_version=0)
 
     workflow = WorkflowDefinition.from_mapping(
         {

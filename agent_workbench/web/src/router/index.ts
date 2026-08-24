@@ -3,6 +3,7 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 export type AppRouteName =
   | 'services'
   | 'workbench'
+  | 'workbench-workflows'
   | 'workbench-skills'
   | 'workbench-mcp-connections'
   | 'oauth'
@@ -24,6 +25,11 @@ export const router = createRouter({
     {
       path: '/workbench',
       name: 'workbench',
+      component: () => import('../components/CapabilityWorkbenchView.vue'),
+    },
+    {
+      path: '/workbench/workflows',
+      name: 'workbench-workflows',
       component: () => import('../components/WorkflowWorkbenchView.vue'),
     },
     {

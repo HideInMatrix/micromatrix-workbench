@@ -26,6 +26,8 @@ class SkillRegistryTests(unittest.TestCase):
                         "id": "code-review",
                         "name": "Global Review",
                         "description": "Review changes",
+                        "usage_hint": "Use for structured code review, not for unrelated implementation tasks.",
+                        "recommended_capabilities": ["system:read_file", "system:git_diff"],
                         "version": 1,
                         "artifacts": ["review.md"],
                     }
@@ -39,6 +41,18 @@ class SkillRegistryTests(unittest.TestCase):
         assert skill is not None
         self.assertEqual(skill.name, "Global Review")
         self.assertEqual(skill.scope, ResourceScope.GLOBAL)
+        self.assertEqual(
+            skill.usage_hint,
+            "Use for structured code review, not for unrelated implementation tasks.",
+        )
+        self.assertEqual(
+            skill.recommended_capabilities,
+            ("system:read_file", "system:git_diff"),
+        )
+        self.assertEqual(
+            skill.summary()["recommended_capabilities"],
+            ["system:read_file", "system:git_diff"],
+        )
 
 
 class SkillToolTests(unittest.TestCase):

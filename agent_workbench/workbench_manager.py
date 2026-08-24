@@ -11,9 +11,12 @@ from agent_runtime.workbench import (
     RunStore,
     WorkflowDefinition,
     WorkflowStore,
+    build_capability_catalog,
+    capability_catalog_revision,
     build_effective_tool_catalog,
     build_workflow_registry,
     is_workbench_control_tool,
+    validate_capability_references,
     validate_workflow,
 )
 
@@ -148,6 +151,11 @@ class DesktopWorkbenchManager:
             self._system_tool_definitions(enable_view_image=target.enable_view_image),
             connections,
         )
+        capabilities = build_capability_catalog(
+            tools=effective_tools,
+            skills=skills.list(),
+            workflows=workflows.list(),
+        )
         return {
             "target": target.to_dict(),
             "skills": [item.summary() for item in skills.list()],
@@ -155,6 +163,8 @@ class DesktopWorkbenchManager:
             "effective_tools": [item.to_dict() for item in effective_tools],
             "mcp_connections": [item.summary() for item in connections],
             "workflows": [item.summary() for item in workflows.list()],
+            "capabilities": list(capabilities),
+            "revision": capability_catalog_revision(capabilities),
         }
 
     def capability_catalog(self) -> dict[str, object]:
@@ -164,11 +174,18 @@ class DesktopWorkbenchManager:
             self._system_tool_definitions(enable_view_image=True),
             connections,
         )
+        capabilities = build_capability_catalog(
+            tools=effective_tools,
+            skills=assets.skill_registry.list(),
+            workflows=(),
+        )
         return {
             "skills": [item.summary() for item in assets.skill_registry.list()],
             "tools": sorted(tools),
             "effective_tools": [item.to_dict() for item in effective_tools],
             "mcp_connections": [item.summary() for item in connections],
+            "capabilities": list(capabilities),
+            "revision": capability_catalog_revision(capabilities),
         }
 
     def get_mcp_connection(self, connection_id: str) -> dict[str, object]:
@@ -246,9 +263,22 @@ class DesktopWorkbenchManager:
             raise KeyError(f"找不到 Skill: {skill_id}")
         return definition.to_dict()
 
+    def _validate_skill_capability_references(self, definition) -> None:
+        catalog = self.capability_catalog()
+        invalid = validate_capability_references(
+            definition.recommended_capabilities,
+            available_ids={str(item["id"]) for item in catalog["capabilities"]},
+        )
+        if invalid:
+            raise ValueError(
+                "Skill recommended_capabilities contains invalid or unavailable Capability IDs: "
+                + ", ".join(invalid)
+            )
+
     def validate_skill(self, raw: dict[str, Any]) -> dict[str, object]:
         assets, _tool_names = self._global_asset_service()
         definition = assets.validate_skill(raw)
+        self._validate_skill_capability_references(definition)
         return {"ok": True, "skill": definition.to_dict()}
 
     def save_skill(
@@ -258,6 +288,8 @@ class DesktopWorkbenchManager:
         expected_version: int,
     ) -> dict[str, object]:
         assets, _tool_names = self._global_asset_service()
+        definition = assets.validate_skill(raw)
+        self._validate_skill_capability_references(definition)
         saved = assets.save_skill(raw, expected_version=expected_version)
         return {"ok": True, "saved": True, "skill": saved.to_dict()}
 

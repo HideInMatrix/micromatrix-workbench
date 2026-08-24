@@ -1,5 +1,133 @@
 # AI Workbench 实施计划
 
+> 2026-08-24 修订：后续实施以“AI Client 决策、Workbench Capability Gateway”为主线。旧计划中任何要求 Workbench 主动识别用户意图、强制每个任务优先运行 Workflow、或形成独立 Agent Planner 的内容均废止。
+
+## Phase 0：架构归位
+
+- [x] 明确 AI Client 为唯一 Task Decision Maker；
+- [x] 将 Workbench 定位从 Orchestration Core 调整为 Capability Gateway；
+- [x] 定义统一 Capability 类型：builtin_tool / skill / mcp_tool / workflow；
+- [x] 新增 AI-facing `capability_catalog` MCP Tool；
+- [x] 移除 `workflow_list` / `workflow_start` 描述中的“每个任务必须优先调用”语义；
+- [x] 前端信息架构改为 Capability 管理视角；
+- [x] Workflow Editor 明确只编辑 Definition，不承担自然语言路由；
+- [x] Skill Schema 增加 usage / recommended capabilities 等 AI discovery 元数据；
+- [x] 为 Capability Catalog 增加契约测试与文档验收。
+
+完成标准：Workbench 不包含任务关键词路由器；AI 能通过 MCP 获取统一能力目录，并自主决定直接调用 Tool、读取 Skill、调用 External MCP 或启动 Workflow。
+
+## Phase A：Capability 生命周期一致性
+
+状态：已完成
+
+- [x] Capability ID 使用稳定命名：`system:*` / `skill:*` / `mcp:<connection>:<tool>` / `workflow:*`；
+- [x] Capability Catalog 生成内容哈希 revision；
+- [x] Skill 保存时校验 `recommended_capabilities` 当前可解析；
+- [x] Capability 后续消失时不阻断删除，而是在 Catalog 中标记 unresolved reference；
+- [x] External MCP Tool discovery 后 Catalog revision 自动变化；
+- [x] Workflow 保存/删除后 Catalog revision 自动变化；
+- [x] Desktop Capability Workbench 显示 revision 与 unresolved reference 状态。
+
+设计原则：`recommended_capabilities` 是软引用，不建立资源删除锁。Capability Provider 被禁用、删除或重新发现时，Skill 仍可保留，但 AI 与用户必须能发现该推荐能力当前不可用。
+
+## Phase 1：统一 Capability Discovery Contract
+
+- [x] `capability_catalog` 支持 `types` 与 `query` 过滤；
+- [x] 增加稳定 `capability_id` 的 `capability_get`；
+- [x] `capability_get` 对 Skill 返回完整方法正文，对 Workflow 返回完整 Definition；
+- [x] Capability `invocation` 改为真实 MCP Tool + arguments 契约，不再暴露抽象内部 kind；
+- [x] External MCP Tool invocation 指向 `mcp_connection_manage(action=call_tool)`；
+- [x] Skill invocation 指向 `skill_manage(action=get)`，执行决策仍归 AI Client；
+- [x] Workflow invocation 指向 `workflow_run(action=start)`；
+- [x] `workflow_authoring_context` 复用 Capability Contract；
+- [x] 增加筛选、detail、invocation 契约回归测试。
+
+完成标准：AI 可以用 `catalog -> get -> invoke` 的统一认知模型发现所有 Workbench Capability，不需要为 Skill、Workflow、External MCP 分别建立发现逻辑。
+
+## Phase 2：Capability 生命周期与一致性
+
+状态：已完成
+
+- [x] 固定 stable Capability ID：`system:<tool>`、`skill:<id>`、`mcp:<connection>:<tool>`、`workflow:<id>`；
+- [x] Capability Catalog 增加内容派生 `revision`；
+- [x] `types/query` 过滤结果仍携带完整 Catalog revision，避免筛选条件制造伪版本；
+- [x] MCP Runtime 与 Desktop 对 Skill `recommended_capabilities` 使用同一引用校验规则；
+- [x] Skill / Workflow 保存、删除后下一次 Catalog 读取立即反映变化；
+- [x] External MCP discover 后 discovered Tool 立即进入 Capability Catalog 并改变 revision；
+- [x] 增加 Workflow 生命周期、错误 Skill 引用、External MCP discovery 的回归测试。
+
+完成标准：Capability 的变化不依赖 Runtime 重启；相同能力集合得到稳定 revision；能力集合或定义发生变化时 revision 改变；不存在或格式错误的 Capability 引用不能持久化。
+
+## Phase 3：Capability Execution Contract
+
+状态：已完成
+
+- [x] Built-in Tool 将 ToolDefinition capabilities 与 MCP annotations 映射到 Capability；
+- [x] External MCP Tool 保留远端 MCP Tool annotations；
+- [x] External HTTP MCP 标记 `network` Operation Permission，stdio MCP 标记 `privileged_executable`；
+- [x] Skill 明确 `execution.owner=ai_client`，读取 Skill 本身不等价于执行其推荐能力；
+- [x] Workflow 汇总实际 Tool Node 的 required capabilities / operation permissions / risk annotations；
+- [x] Workflow Approval Node 显式体现在 `approval_boundary`；
+- [x] Desktop TypeScript DTO 同步 Execution Contract；
+- [x] Execution Contract 纳入 Capability Catalog 回归测试。
+
+执行契约字段：
+
+```text
+execution
+├── owner
+├── required_capabilities[]
+├── required_operation_permissions[]
+├── annotations
+│   ├── read_only
+│   ├── destructive
+│   ├── idempotent
+│   └── open_world
+├── permission_boundary
+└── approval_boundary
+```
+
+完成标准：AI 在真正调用 Capability 前即可看到执行主体、静态能力需求、已知 Operation Permission 与风险提示；实际授权仍由 Runtime Permission Profile / Permission Broker / Sandbox 决定，Catalog 不授予权限。
+
+## Phase 4：Capability Dependency / Composition Contract
+
+状态：已完成
+
+- [x] Skill `recommended_capabilities` 映射为 `recommended` soft dependency；
+- [x] Workflow Skill Node 映射为 `workflow_skill` required dependency；
+- [x] Workflow Tool Node 映射为 `workflow_tool` required dependency；
+- [x] Catalog 自动生成反向 `dependents`；
+- [x] `capability_get` 返回 required / soft impact analysis；
+- [x] 删除被 Workflow 必需引用的 Skill 时返回 `CAPABILITY_DEPENDENCY_CONFLICT`；
+- [x] 删除其 Tool 被 Workflow 必需引用的 MCP Connection 时返回相同冲突；
+- [x] recommended soft dependency 不阻止资源生命周期操作；
+- [x] Desktop Capability Workbench 展示必需依赖和受依赖保护的 Capability 数量；
+- [x] 增加依赖图和 required delete guard 回归测试。
+
+完成标准：required dependency 不允许被静默破坏；recommended dependency 可以悬空并通过状态提示暴露；Capability Catalog 本身就是依赖图的唯一事实来源，不新增第二套 Dependency Registry。
+
+## Phase 5：Capability Availability / Health Contract
+
+状态：已完成
+
+- [x] 所有 Capability 统一暴露 `availability.status` 与 `availability.reasons`；
+- [x] Skill 推荐能力缺失标记为 `degraded`，不阻止 Skill 继续作为方法资源被读取；
+- [x] Workflow required dependency 缺失标记为 `unavailable`；
+- [x] External MCP Tool 的连接最近错误映射为 `degraded`；
+- [x] Permission / Operation Permission 不错误映射为不可用，仍由 Execution Contract + Permission Broker 表达；
+- [x] Desktop Capability Workbench 显示 available / degraded / unavailable 数量；
+- [x] Availability Contract 纳入回归测试。
+
+状态定义：
+
+```text
+available    结构与已知运行依赖完整
+degraded     能力仍可发现/部分使用，但存在 soft dependency 或连接健康告警
+unavailable  required dependency 已缺失，当前定义无法可靠执行
+```
+
+完成标准：AI 在 Discovery 阶段即可区分“存在”与“当前可用”；权限请求不与健康状态混淆。
+
 ## 1. 原则
 
 按可验证的垂直切片推进，不先做一个只有 UI 的 Workflow 画布。

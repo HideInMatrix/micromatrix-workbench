@@ -112,7 +112,7 @@ const nodeDefinitions: Record<WorkflowNodeKind, {
   label: string
   description: string
 }> = {
-  skill: { label: 'Skill', description: '调用用户定义的 AI 方法论与能力包' },
+  skill: { label: 'Skill', description: '让宿主 AI 使用用户定义的方法、约束与知识' },
   tool: { label: 'Tool', description: '执行 System Tool 或外部 MCP Tool' },
   approval: { label: 'Approval', description: '等待 Desktop 用户签名批准' },
   condition: { label: 'Condition', description: '使用受限表达式选择分支' },
@@ -124,7 +124,7 @@ const nodeGroups: Array<{
   description: string
   kinds: WorkflowNodeKind[]
 }> = [
-  { label: 'AI', description: '让宿主 AI 按可复用能力工作。', kinds: ['skill'] },
+  { label: 'AI Knowledge', description: '为宿主 AI 提供方法、约束与知识，不在 Workbench 内部做任务决策。', kinds: ['skill'] },
   { label: 'Actions', description: '执行确定性的本地或外部能力。', kinds: ['tool'] },
   {
     label: 'Flow Control',
@@ -667,9 +667,9 @@ onBeforeUnmount(() => {
   <section class="flex min-h-0 w-full flex-1 flex-col gap-3">
     <header class="flex min-h-10 items-start justify-between gap-4">
       <div>
-        <h1 class="m-0 text-xl leading-7 font-medium tracking-[-0.02em]">AI 工作台</h1>
+        <h1 class="m-0 text-xl leading-7 font-medium tracking-[-0.02em]">Workflow Editor</h1>
         <p class="mt-1 mb-0 text-xs leading-[18px] text-muted-foreground">
-          Vue Flow 与 AI 共用同一份 Workflow Definition。拖拽编辑、AI 生成和 Runtime 执行不会产生第二套流程数据。
+          Workflow 是可被 AI 选择的 Capability。Vue Flow 只编辑 Definition，Runtime 只执行 Graph，不负责理解用户意图或自动路由任务。
         </p>
       </div>
       <div class="flex items-center gap-2">

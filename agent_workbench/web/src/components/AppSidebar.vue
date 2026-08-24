@@ -98,13 +98,22 @@ function subNavClass(name: AppRouteName): string[] {
         variant="ghost"
         size="sm"
         :class="navClass('workbench')"
-        :title="collapsed ? 'AI 工作台' : undefined"
+        :title="collapsed ? '能力工作台' : undefined"
         @click="router.push({ name: 'workbench' })"
       >
         <Workflow class="flex-none" :size="16" :stroke-width="1.8" />
-        <span v-if="!collapsed" class="leading-none">AI 工作台</span>
+        <span v-if="!collapsed" class="leading-none">能力工作台</span>
       </Button>
       <template v-if="!collapsed">
+        <Button
+          variant="ghost"
+          size="sm"
+          :class="subNavClass('workbench-workflows')"
+          @click="router.push({ name: 'workbench-workflows' })"
+        >
+          <Workflow class="flex-none" :size="14" :stroke-width="1.8" />
+          <span class="leading-none">Workflows</span>
+        </Button>
         <Button
           variant="ghost"
           size="sm"
@@ -121,7 +130,7 @@ function subNavClass(name: AppRouteName): string[] {
           @click="router.push({ name: 'workbench-mcp-connections' })"
         >
           <Server class="flex-none" :size="14" :stroke-width="1.8" />
-          <span class="leading-none">MCP 服务</span>
+          <span class="leading-none">外部 MCP</span>
         </Button>
       </template>
       <Button

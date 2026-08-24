@@ -291,9 +291,10 @@ class CustomMCPServerContractTests(unittest.TestCase):
 
         self.assertLessEqual(len(names), 20)
         for name in (
+            "capability_catalog",
+            "capability_get",
             "process_control",
             "git_inspect",
-            "workflow_authoring_context",
             "skill_manage",
             "mcp_connection_manage",
             "workflow_manage",
@@ -301,6 +302,7 @@ class CustomMCPServerContractTests(unittest.TestCase):
         ):
             self.assertIn(name, names)
         for hidden in (
+            "workflow_authoring_context",
             "write_stdin",
             "git_log",
             "skill_save",

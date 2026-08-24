@@ -1,5 +1,24 @@
 # AI Workbench 最终验收记录
 
+> 2026-08-24 架构重构补充：当前产品定位已从“Workbench 自身承担 AI 编排”收敛为 **AI Client 决策 + MCP Capability Gateway**。下方 Phase 0–9 保留为历史功能验收记录；当前架构收官以本文新增的 Capability Gateway 验收项为准。
+
+## 0. Capability Gateway 架构重构验收
+
+状态：核心架构 PASS，工程收尾进行中。
+
+已确认：
+
+- AI Client 是唯一 Task Decision Maker；Workbench 不做关键词路由或第二套 Agent Planner；
+- Capability Discovery / Lifecycle / Execution / Dependency / Availability 五类 Contract 已落地；
+- Built-in Tool / Skill / External MCP Tool / Workflow 统一进入 Capability Catalog；
+- Workflow Runtime 只执行 AI 已明确选择的 Workflow；
+- Skill 保持 Knowledge / Method / Constraints 定位，不成为 Mini Agent；
+- MCP 公共控制面收敛为 `capability_catalog`、`capability_get` 与 Skill/MCP/Workflow domain facades；
+- `workflow_authoring_context` 保留为内部/Desktop 兼容能力，不再占用公共 MCP Tool 预算；
+- Capability 相关定向回归 66 tests PASS。
+
+全量 Python 测试当前结果：315 tests，3 skipped；其中仍有 1 个历史 MCP Tool budget failure 已在本轮修复，另有 2 个 Git 测试受当前 Seatbelt 无法读取用户 `~/.gitconfig` 影响，以及 2 个旧 Workflow Run/Approval 用例需要在最终收尾中核对旧调用契约。上述问题不得被记录为 Capability 核心 Contract 已失败。
+
 ## 1. 验收范围
 
 本次验收覆盖 `03-IMPLEMENTATION-PLAN.md` 中 Phase 0 到 Phase 9。

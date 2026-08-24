@@ -12,6 +12,7 @@ const catalog = ref<CapabilityCatalogDto | null>(null)
 const selectedId = ref('')
 const draft = ref<SkillDefinitionDto>(emptySkill())
 const artifactsText = ref('')
+const recommendedCapabilitiesText = ref('')
 const busy = ref(false)
 const error = ref('')
 const notice = ref('')
@@ -22,6 +23,8 @@ function emptySkill(): SkillDefinitionDto {
     id: '',
     name: '',
     description: '',
+    usage_hint: '',
+    recommended_capabilities: [],
     version: 1,
     scope: 'global',
     artifacts: [],
@@ -38,6 +41,7 @@ function applySkill(value: SkillDefinitionDto) {
   draft.value = { ...value }
   selectedId.value = value.id
   artifactsText.value = value.artifacts.join('\n')
+  recommendedCapabilitiesText.value = value.recommended_capabilities.join('\n')
 }
 
 async function refreshCatalog(preferredId = selectedId.value) {
@@ -69,6 +73,7 @@ function newSkill() {
   selectedId.value = ''
   draft.value = emptySkill()
   artifactsText.value = ''
+  recommendedCapabilitiesText.value = ''
   error.value = ''
   notice.value = '新 Skill 尚未保存。'
 }
@@ -78,9 +83,14 @@ function definition(): SkillDefinitionDto {
     .split('\n')
     .map(item => item.trim())
     .filter(Boolean)
+  const recommendedCapabilities = recommendedCapabilitiesText.value
+    .split('\n')
+    .map(item => item.trim())
+    .filter(Boolean)
   return {
     ...draft.value,
     artifacts,
+    recommended_capabilities: recommendedCapabilities,
   }
 }
 
@@ -147,7 +157,7 @@ onMounted(() => refreshCatalog())
       <div>
         <h1 class="m-0 text-xl font-medium tracking-[-0.02em]">Skills</h1>
         <p class="mt-1 mb-0 text-xs leading-[18px] text-muted-foreground">
-          管理完整的 AI 方法论、执行指令和预期 Artifact。
+          管理提供给宿主 AI 的方法、约束、知识和预期 Artifact。Skill 不负责自行触发，也不替 AI 选择后续能力。
         </p>
       </div>
       <div class="flex items-center gap-2">
@@ -199,6 +209,21 @@ onMounted(() => refreshCatalog())
           <label class="field">
             <span>说明</span>
             <input v-model="draft.description" placeholder="告诉 AI 这个 Skill 什么时候应该使用" />
+          </label>
+
+          <label class="field">
+            <span>Usage Hint</span>
+            <input v-model="draft.usage_hint" placeholder="例如：用于遗留系统模块逆向分析，不用于简单单文件修改" />
+          </label>
+
+          <label class="field">
+            <span>Recommended Capabilities（每行一个 Capability ID）</span>
+            <textarea
+              v-model="recommendedCapabilitiesText"
+              class="min-h-24 resize-y font-mono"
+              placeholder="system:read_file\nsystem:search_text"
+              spellcheck="false"
+            />
           </label>
 
           <label class="field">

@@ -197,6 +197,8 @@ export interface SkillSummaryDto {
   id: string
   name: string
   description: string
+  usage_hint: string
+  recommended_capabilities: string[]
   version: number
   scope: 'built-in' | 'global'
   artifacts: string[]
@@ -334,6 +336,56 @@ export interface WorkbenchCatalogDto {
   effective_tools: EffectiveToolDto[]
   mcp_connections: MCPConnectionSummaryDto[]
   workflows: WorkflowSummaryDto[]
+  capabilities: CapabilityDto[]
+}
+
+export interface CapabilityDto {
+  id: string
+  type: 'builtin_tool' | 'skill' | 'mcp_tool' | 'workflow'
+  name: string
+  description: string
+  usage_hint?: string
+  recommended_capabilities?: string[]
+  recommended_capability_status?: {
+    resolved: string[]
+    unresolved: string[]
+    ok: boolean
+  }
+  dependencies?: Array<{
+    capability_id: string
+    relation: string
+    required: boolean
+  }>
+  dependents?: Array<{
+    capability_id: string
+    relation: string
+    required: boolean
+  }>
+  input_schema: Record<string, unknown>
+  tags?: string[]
+  source: Record<string, unknown>
+  availability: {
+    status: 'available' | 'degraded' | 'unavailable'
+    reasons: Array<{
+      code: string
+      message?: string
+      capability_ids?: string[]
+    }>
+  }
+  execution: {
+    owner: 'workbench_runtime' | 'external_mcp' | 'ai_client' | 'workflow_runtime'
+    required_capabilities: string[]
+    required_operation_permissions: string[]
+    annotations: {
+      read_only: boolean
+      destructive: boolean
+      idempotent: boolean
+      open_world: boolean
+    }
+    permission_boundary: string
+    approval_boundary: string
+  }
+  invocation: Record<string, unknown>
 }
 
 export interface CapabilityCatalogDto {
@@ -341,6 +393,8 @@ export interface CapabilityCatalogDto {
   tools: string[]
   effective_tools: EffectiveToolDto[]
   mcp_connections: MCPConnectionSummaryDto[]
+  capabilities: CapabilityDto[]
+  revision: string
 }
 
 export interface WorkflowRunDto {

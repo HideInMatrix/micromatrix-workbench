@@ -41,6 +41,7 @@ class DiscoveredMCPTool:
     name: str
     description: str = ""
     input_schema: dict[str, Any] = field(default_factory=dict)
+    annotations: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "DiscoveredMCPTool":
@@ -50,10 +51,14 @@ class DiscoveredMCPTool:
         raw_schema = value.get("input_schema", value.get("inputSchema", {}))
         if not isinstance(raw_schema, dict):
             raise ValueError("discovered MCP tool input schema must be an object")
+        raw_annotations = value.get("annotations", {})
+        if not isinstance(raw_annotations, dict):
+            raise ValueError("discovered MCP tool annotations must be an object")
         return cls(
             name=name,
             description=str(value.get("description") or "").strip(),
             input_schema=dict(raw_schema),
+            annotations=dict(raw_annotations),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -61,6 +66,7 @@ class DiscoveredMCPTool:
             "name": self.name,
             "description": self.description,
             "input_schema": dict(self.input_schema),
+            "annotations": dict(self.annotations),
         }
 
 

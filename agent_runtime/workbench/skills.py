@@ -18,6 +18,8 @@ class SkillDefinition:
     id: str
     name: str
     description: str
+    usage_hint: str
+    recommended_capabilities: tuple[str, ...]
     artifacts: tuple[str, ...]
     method_document: str
     version: int = 1
@@ -46,6 +48,15 @@ class SkillDefinition:
         if not name:
             raise ValueError("skill name must not be empty")
         description = str(value.get("description") or "").strip()
+        usage_hint = str(value.get("usage_hint") or "").strip()
+        raw_recommended = value.get("recommended_capabilities", [])
+        if not isinstance(raw_recommended, list) or any(
+            not isinstance(item, str) or not item.strip() for item in raw_recommended
+        ):
+            raise ValueError("skill recommended_capabilities must be a list of non-empty strings")
+        recommended_capabilities = tuple(dict.fromkeys(item.strip() for item in raw_recommended))
+        if len(recommended_capabilities) != len(raw_recommended):
+            raise ValueError("skill recommended_capabilities must be unique")
         version = int(value.get("version", 1))
         if version < 1:
             raise ValueError("skill version must be >= 1")
@@ -71,6 +82,8 @@ class SkillDefinition:
             id=skill_id,
             name=name,
             description=description,
+            usage_hint=usage_hint,
+            recommended_capabilities=recommended_capabilities,
             artifacts=artifacts,
             method_document=method,
             version=version,
@@ -84,6 +97,8 @@ class SkillDefinition:
             "id": self.id,
             "name": self.name,
             "description": self.description,
+            "usage_hint": self.usage_hint,
+            "recommended_capabilities": list(self.recommended_capabilities),
             "version": self.version,
             "scope": self.scope.value,
             "artifacts": list(self.artifacts),
@@ -95,6 +110,8 @@ class SkillDefinition:
             "id": self.id,
             "name": self.name,
             "description": self.description,
+            "usage_hint": self.usage_hint,
+            "recommended_capabilities": list(self.recommended_capabilities),
             "version": self.version,
             "artifacts": list(self.artifacts),
         }

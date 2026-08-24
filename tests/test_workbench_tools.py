@@ -57,6 +57,230 @@ def skill_asset() -> dict[str, object]:
 
 
 class WorkflowToolTests(unittest.TestCase):
+    def test_capability_catalog_unifies_ai_facing_capabilities(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            runtime = Runtime(
+                workspace,
+                global_asset_root=workspace / "global-assets",
+            )
+            try:
+                runtime.skill_save({"skill": skill_asset(), "expected_version": 0})
+                runtime.workflow_save({"workflow": workflow(), "expected_version": 0})
+
+                tool_names = {item["name"] for item in runtime.list_tools()["tools"]}
+                self.assertIn("capability_catalog", tool_names)
+                self.assertIn("capability_get", tool_names)
+
+                catalog = runtime.call_tool("capability_catalog", {})["structuredContent"]
+                filtered = runtime.call_tool(
+                    "capability_catalog",
+                    {"types": ["workflow"], "query": "generated"},
+                )["structuredContent"]
+                skill_detail = runtime.call_tool(
+                    "capability_get",
+                    {"capability_id": "skill:ai-skill"},
+                )["structuredContent"]
+            finally:
+                runtime.close()
+
+        self.assertEqual(catalog["decision_owner"], "ai_client")
+        self.assertEqual(catalog["routing"], "descriptive_only")
+        by_id = {item["id"]: item for item in catalog["capabilities"]}
+        self.assertEqual(by_id["system:read_file"]["type"], "builtin_tool")
+        self.assertEqual(
+            by_id["system:read_file"]["execution"]["owner"],
+            "workbench_runtime",
+        )
+        self.assertIn(
+            "filesystem.read",
+            by_id["system:read_file"]["execution"]["required_capabilities"],
+        )
+        self.assertTrue(
+            by_id["system:read_file"]["execution"]["annotations"]["read_only"]
+        )
+        self.assertEqual(by_id["skill:ai-skill"]["type"], "skill")
+        self.assertEqual(
+            by_id["skill:ai-skill"]["execution"]["owner"],
+            "ai_client",
+        )
+        self.assertEqual(by_id["workflow:ai-generated"]["type"], "workflow")
+        self.assertEqual(
+            by_id["workflow:ai-generated"]["execution"]["owner"],
+            "workflow_runtime",
+        )
+        self.assertIn(
+            "system.inspect",
+            by_id["workflow:ai-generated"]["execution"]["required_capabilities"],
+        )
+        self.assertTrue(
+            by_id["workflow:ai-generated"]["execution"]["annotations"]["read_only"]
+        )
+        self.assertEqual(
+            by_id["workflow:ai-generated"]["invocation"],
+            {
+                "mcp_tool": "workflow_run",
+                "arguments": {
+                    "action": "start",
+                    "workflow_id": "ai-generated",
+                    "inputs": "<capability input>",
+                },
+            },
+        )
+        self.assertEqual(filtered["count"], 1)
+        self.assertEqual(filtered["capabilities"][0]["id"], "workflow:ai-generated")
+        self.assertTrue(skill_detail["ok"])
+        self.assertEqual(skill_detail["capability"]["id"], "skill:ai-skill")
+        self.assertIn("method_document", skill_detail["detail"])
+        self.assertEqual(
+            skill_detail["capability"]["invocation"]["mcp_tool"],
+            "skill_manage",
+        )
+
+    def test_capability_revision_changes_when_workflow_lifecycle_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            runtime = Runtime(workspace, global_asset_root=workspace / "global-assets")
+            try:
+                initial = runtime.call_tool("capability_catalog", {})["structuredContent"]
+                runtime.workflow_save({"workflow": workflow(), "expected_version": 0})
+                after_save = runtime.call_tool("capability_catalog", {})["structuredContent"]
+                runtime.workflow_delete({"workflow_id": "ai-generated"})
+                after_delete = runtime.call_tool("capability_catalog", {})["structuredContent"]
+            finally:
+                runtime.close()
+
+        self.assertNotEqual(initial["revision"], after_save["revision"])
+        self.assertEqual(initial["revision"], after_delete["revision"])
+
+    def test_capability_get_detects_stale_catalog_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            runtime = Runtime(workspace, global_asset_root=workspace / "global-assets")
+            try:
+                initial = runtime.call_tool("capability_catalog", {})["structuredContent"]
+                runtime.workflow_save({"workflow": workflow(), "expected_version": 0})
+                stale = runtime.call_tool(
+                    "capability_get",
+                    {
+                        "capability_id": "system:read_file",
+                        "expected_revision": initial["revision"],
+                    },
+                )["structuredContent"]
+            finally:
+                runtime.close()
+
+        self.assertFalse(stale["ok"])
+        self.assertEqual(stale["error"], "CAPABILITY_CATALOG_CHANGED")
+        self.assertNotEqual(stale["revision"], initial["revision"])
+
+    def test_skill_rejects_unknown_recommended_capability(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            runtime = Runtime(workspace, global_asset_root=workspace / "global-assets")
+            invalid = skill_asset()
+            invalid["recommended_capabilities"] = ["system:not-a-real-tool"]
+            try:
+                result = runtime.call_tool(
+                    "skill_manage",
+                    {"action": "validate", "skill": invalid},
+                )
+            finally:
+                runtime.close()
+
+        self.assertTrue(result["isError"])
+        self.assertEqual(
+            result["structuredContent"]["error"]["code"],
+            "SKILL_CAPABILITY_REFERENCE_INVALID",
+        )
+
+    def test_capability_dependency_graph_and_required_delete_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            runtime = Runtime(workspace, global_asset_root=workspace / "global-assets")
+            dependent_workflow = {
+                "schema_version": 1,
+                "id": "skill-dependent",
+                "name": "Skill Dependent",
+                "description": "Requires the AI Skill capability",
+                "version": 1,
+                "entry_node_id": "skill",
+                "inputs_schema": {"type": "object", "additionalProperties": True},
+                "tags": ["dependency"],
+                "nodes": [
+                    {
+                        "id": "skill",
+                        "type": "skill",
+                        "name": "AI Skill",
+                        "position": {"x": 0, "y": 0},
+                        "config": {"skill_id": "ai-skill"},
+                    }
+                ],
+                "edges": [],
+            }
+            try:
+                runtime.skill_save({"skill": skill_asset(), "expected_version": 0})
+                runtime.workflow_save({"workflow": dependent_workflow, "expected_version": 0})
+                catalog = runtime.call_tool("capability_catalog", {})["structuredContent"]
+                detail = runtime.call_tool(
+                    "capability_get", {"capability_id": "skill:ai-skill"}
+                )["structuredContent"]
+                deletion = runtime.call_tool(
+                    "skill_manage", {"action": "delete", "skill_id": "ai-skill"}
+                )
+            finally:
+                runtime.close()
+
+        by_id = {item["id"]: item for item in catalog["capabilities"]}
+        self.assertIn(
+            {"capability_id": "skill:ai-skill", "relation": "workflow_skill", "required": True},
+            by_id["workflow:skill-dependent"]["dependencies"],
+        )
+        self.assertIn(
+            {"capability_id": "workflow:skill-dependent", "relation": "workflow_skill", "required": True},
+            by_id["skill:ai-skill"]["dependents"],
+        )
+        self.assertEqual(
+            detail["impact"]["required_dependents"][0]["capability_id"],
+            "workflow:skill-dependent",
+        )
+        self.assertTrue(deletion["isError"])
+        self.assertEqual(
+            deletion["structuredContent"]["error"]["code"],
+            "CAPABILITY_DEPENDENCY_CONFLICT",
+        )
+
+    def test_skill_catalog_marks_reference_unresolved_after_capability_disappears(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            runtime = Runtime(workspace, global_asset_root=workspace / "global-assets")
+            skill = skill_asset()
+            skill["recommended_capabilities"] = ["system:read_file"]
+            try:
+                runtime.skill_save({"skill": skill, "expected_version": 0})
+                before = runtime.call_tool("capability_catalog", {})["structuredContent"]
+
+                original_tools = runtime._tools
+                runtime._tools = tuple(item for item in runtime._tools if item.name != "read_file")
+                after = runtime.call_tool("capability_catalog", {})["structuredContent"]
+                runtime._tools = original_tools
+            finally:
+                runtime.close()
+
+        before_skill = next(item for item in before["capabilities"] if item["id"] == "skill:ai-skill")
+        after_skill = next(item for item in after["capabilities"] if item["id"] == "skill:ai-skill")
+        self.assertTrue(before_skill["recommended_capability_status"]["ok"])
+        self.assertFalse(after_skill["recommended_capability_status"]["ok"])
+        self.assertEqual(
+            after_skill["recommended_capability_status"]["unresolved"],
+            ["system:read_file"],
+        )
+        self.assertEqual(after_skill["availability"]["status"], "degraded")
+        self.assertEqual(
+            after_skill["availability"]["reasons"][0]["code"],
+            "RECOMMENDED_CAPABILITY_UNRESOLVED",
+        )
+
     def test_ai_can_manage_and_discover_global_mcp_connection(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
@@ -91,6 +315,9 @@ class WorkflowToolTests(unittest.TestCase):
                 )["structuredContent"]
                 self.assertTrue(saved["saved"])
                 self.assertEqual(saved["connection"]["scope"], "global")
+                before_discovery = local_runtime.call_tool(
+                    "capability_catalog", {}
+                )["structuredContent"]
 
                 discovered = local_runtime.call_tool(
                     "mcp_connection_discover_tools",
@@ -101,6 +328,14 @@ class WorkflowToolTests(unittest.TestCase):
                 self.assertIn(
                     "mcp:test-server:read_file",
                     {item["key"] for item in discovered["effective_tools"]},
+                )
+                after_discovery = local_runtime.call_tool(
+                    "capability_catalog", {}
+                )["structuredContent"]
+                self.assertNotEqual(before_discovery["revision"], after_discovery["revision"])
+                self.assertIn(
+                    "mcp:test-server:read_file",
+                    {item["id"] for item in after_discovery["capabilities"]},
                 )
 
                 listed = local_runtime.call_tool(

@@ -96,7 +96,8 @@ class WorkflowRunTests(unittest.TestCase):
             "project-development": {"feature": "visual workflow editor"},
         }
         with tempfile.TemporaryDirectory() as temporary:
-            runtime = Runtime(Path(temporary))
+            workspace = Path(temporary)
+            runtime = Runtime(workspace, global_asset_root=workspace / "global-assets")
             try:
                 install_project_development_fixture(runtime)
                 for workflow_id, workflow_inputs in inputs.items():
@@ -127,7 +128,8 @@ class WorkflowRunTests(unittest.TestCase):
                 runtime.close()
     def test_model_action_continue_and_human_approval(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            runtime = Runtime(Path(temporary))
+            workspace = Path(temporary)
+            runtime = Runtime(workspace, global_asset_root=workspace / "global-assets")
             try:
                 install_project_development_fixture(runtime)
                 run = runtime.workflow_runs.start("project-development")
@@ -159,7 +161,7 @@ class WorkflowRunTests(unittest.TestCase):
     def test_run_snapshot_survives_workflow_override_and_runtime_restart(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)
-            runtime = Runtime(workspace)
+            runtime = Runtime(workspace, global_asset_root=workspace / "global-assets")
             try:
                 install_project_development_fixture(runtime)
                 run = runtime.workflow_runs.start("project-development")
@@ -303,7 +305,8 @@ class WorkflowRunTests(unittest.TestCase):
 
     def test_spec_workflow_waits_on_skill_model_action_and_preserves_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            runtime = Runtime(Path(temporary))
+            workspace = Path(temporary)
+            runtime = Runtime(workspace, global_asset_root=workspace / "global-assets")
             try:
                 install_project_development_fixture(runtime)
                 result = runtime.call_tool(
@@ -327,7 +330,7 @@ class WorkflowRunTests(unittest.TestCase):
     def test_cancel_is_persisted(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)
-            runtime = Runtime(workspace)
+            runtime = Runtime(workspace, global_asset_root=workspace / "global-assets")
             try:
                 install_project_development_fixture(runtime)
                 run = runtime.workflow_runs.start("project-development")

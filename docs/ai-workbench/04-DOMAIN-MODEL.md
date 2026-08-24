@@ -9,6 +9,7 @@
 ## 2. 核心对象
 
 ```text
+Capability
 Tool
 Tool Reference
 MCP Connection
@@ -20,11 +21,122 @@ Artifact
 Approval
 ```
 
-System Tool 由现有 MCP Tool Framework 提供；外部 MCP Tool 由用户管理的 MCP Connection Discovery 提供。Workflow 和 Skill 都通过稳定 Tool Reference 引用能力，不复制 Tool 实现。
+`Capability` 是 AI-facing 的统一发现模型，不是新的执行引擎。System Tool 由现有 MCP Tool Framework 提供；外部 MCP Tool 由用户管理的 MCP Connection Discovery 提供。Skill 与 Workflow 作为更高层 Capability 与 Tool 一起暴露给 AI，但实际执行仍进入各自现有实现。
+
+AI Client 是唯一任务决策者。领域层不保存聊天意图、关键词路由结果或“推荐 Workflow”状态。
 
 ---
 
-## 3. Tool
+## 3. Capability
+
+Capability 回答 AI 的问题是：当前 Workbench 有什么能力，以及应该通过哪个 MCP Tool 调用。
+
+首版类型：
+
+```text
+builtin_tool
+skill
+mcp_tool
+workflow
+```
+
+统一发现结构：
+
+```text
+Capability
+├── id                 # stable capability_id
+├── type
+├── name
+├── description
+├── input_schema
+├── source
+├── availability
+├── execution
+├── dependencies[]
+├── dependents[]
+└── invocation
+```
+
+Availability / Health Contract：
+
+```text
+availability.status = available | degraded | unavailable
+availability.reasons[]
+```
+
+`degraded` 用于 soft dependency 缺失、External MCP 最近连接错误等仍可部分使用的状态；`unavailable` 用于 Workflow required dependency 缺失等结构性不可执行状态。需要 network、privileged executable 等授权并不等价于 degraded/unavailable，授权要求继续由 `execution.required_operation_permissions` 与 Permission Broker 表达。
+
+Capability 依赖关系分为 required 与 soft 两类：
+
+```text
+Workflow -> Tool    workflow_tool   required=true
+Workflow -> Skill   workflow_skill  required=true
+Skill -> Capability recommended     required=false
+```
+
+`required=true` 表示删除目标 Capability 会破坏现有 Workflow Definition，因此管理层必须返回影响分析并拒绝静默删除。`required=false` 是推荐关系，可以暂时 unresolved，并由 Catalog 状态显式暴露。
+
+`dependents` 不持久化，而是在 Catalog 构建时从 `dependencies` 反向推导，保证 Capability Catalog 是唯一依赖事实来源。
+
+`execution` 是描述性安全契约，不是授权结果：
+
+```text
+execution.owner
+execution.required_capabilities[]
+execution.required_operation_permissions[]
+execution.annotations.read_only
+execution.annotations.destructive
+execution.annotations.idempotent
+execution.annotations.open_world
+execution.permission_boundary
+execution.approval_boundary
+```
+
+Builtin Tool 的字段直接来自 `ToolDefinition`；External MCP Tool 的 annotations 来自远端 `tools/list`，并叠加本地连接执行所需的 Operation Permission。Workflow 的执行契约由当前可解析 Tool Node 聚合得到。最终是否允许执行仍由 Permission Profile、Permission Broker 与 Sandbox 决定。
+
+标准发现流程：
+
+```text
+capability_catalog(types?, query?)
+        ↓
+stable capability_id
+        ↓
+capability_get(capability_id)
+        ↓
+invocation.mcp_tool + invocation.arguments
+        ↓
+AI Client 自主决定是否调用
+```
+
+`invocation` 描述真实 AI-facing MCP 调用：
+
+```text
+builtin_tool -> 原生 MCP Tool，例如 read_file({...})
+skill        -> skill_manage(action=get, skill_id=...)
+mcp_tool     -> mcp_connection_manage(action=call_tool, ...)
+workflow     -> workflow_run(action=start, workflow_id=..., inputs=...)
+```
+
+不提供统一 `capability_invoke` 巨型代理。Built-in Tool 原有 JSON Schema、权限 Capability 与 read-only/destructive annotations 必须继续由原生 MCP Tool 保留，不能被代理层抹平。
+
+Catalog 只描述，不做推荐、关键词匹配、打分或自动路由；权限仍由真实执行入口控制。
+
+Capability ID 由领域来源确定，不使用随机 ID：
+
+```text
+system:<tool-name>
+skill:<skill-id>
+mcp:<connection-id>:<tool-name>
+workflow:<workflow-id>
+```
+
+Catalog 返回 `revision`。Revision 是完整 Capability 集合规范化后的内容摘要，而不是数据库自增版本：同一能力集合产生相同 revision，能力新增、删除或定义变化会产生不同 revision。`capability_catalog(types/query)` 的筛选只影响返回项，不影响 revision 的计算范围。
+
+Skill 的 `recommended_capabilities` 只属于 discovery hint，不会触发自动执行；验证和保存时每个引用都必须满足 stable Capability ID 格式，并且能在当前可见 Catalog 中解析。
+
+---
+
+## 4. Tool
 
 Tool 是最小可执行能力，例如：
 
@@ -67,7 +179,7 @@ mcp:github:create_issue
 
 ---
 
-## 4. Prompt
+## 5. Prompt
 
 Prompt 是可参数化的模型输入模板，不直接执行 Tool。
 
@@ -105,7 +217,7 @@ prompts/get
 
 ---
 
-## 5. Skill
+## 6. Skill
 
 Skill 是“完成某类工程任务的方法包”，不是单条 Prompt。
 
@@ -114,6 +226,8 @@ SkillDefinition
 ├── id
 ├── name
 ├── description
+├── usage_hint
+├── recommended_capabilities[]
 ├── entry_prompt?
 ├── tool_references[]
 ├── artifacts[]
@@ -138,6 +252,8 @@ Skill 可以：
 - 引用 Prompt；
 - 定义方法论；
 - 定义建议/允许使用的 Tool；
+- 通过 `usage_hint` 补充 AI discovery 的适用边界；
+- 通过 `recommended_capabilities` 声明推荐搭配能力，但该字段仅作为建议，不触发自动调用；
 - 定义预期 Artifact。
 
 Skill 不可以：
@@ -149,7 +265,7 @@ Skill 不可以：
 
 ---
 
-## 6. Workflow Definition
+## 7. Workflow Definition
 
 Workflow Definition 是工作流唯一权威定义。
 
@@ -189,7 +305,7 @@ Workflow Definition 本身没有“当前执行到哪里”的状态。
 
 ---
 
-## 7. Workflow Run
+## 8. Workflow Run
 
 Run 是某个 Workflow Definition Version 的一次真实执行实例。
 
@@ -227,7 +343,7 @@ Run 同时保存创建时的完整 `workflow_snapshot`，用于跨版本恢复�
 
 ---
 
-## 8. Artifact
+## 9. Artifact
 
 Artifact 是 Workflow/Skill 产生的可复用中间成果，例如：
 
@@ -255,7 +371,7 @@ ArtifactRef
 
 ---
 
-## 9. Approval
+## 10. Approval
 
 Approval 是显式的人机边界，而不是普通 Prompt。
 
@@ -284,7 +400,7 @@ AI 的 `workflow_continue` 不能解决 Approval。Approval Resolution 属于 De
 
 ---
 
-## 10. 对象关系
+## 11. 对象关系
 
 ```text
 Prompt <──── Skill
@@ -307,7 +423,7 @@ Workflow Node 只能引用 Registry 中存在的 Prompt / Skill / Tool。
 
 ---
 
-## 11. AI 与 Vue Flow 的统一写入模型
+## 12. AI 与 Vue Flow 的统一写入模型
 
 ```text
 用户拖拽 Vue Flow
@@ -332,7 +448,7 @@ AI 不直接操作 Vue Flow 节点组件；Vue Flow 也不直接绕过后端 Val
 
 ---
 
-## 12. 权限模型
+## 13. 权限模型
 
 执行有效权限是交集，而不是叠加：
 
@@ -352,7 +468,7 @@ Sandbox policy
 
 ---
 
-## 13. 版本与兼容
+## 14. 版本与兼容
 
 所有持久化资源必须至少包含：
 
@@ -375,7 +491,7 @@ version
 
 ---
 
-## 14. Phase 依赖
+## 15. Phase 依赖
 
 ```text
 Prompt

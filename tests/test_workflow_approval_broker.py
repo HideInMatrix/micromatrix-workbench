@@ -97,7 +97,10 @@ class WorkflowApprovalBrokerTests(unittest.TestCase):
             environment = broker.child_environment("server-company")
             try:
                 with patch.dict(os.environ, environment, clear=False):
-                    runtime = Runtime(workspace)
+                    runtime = Runtime(
+                        workspace,
+                        global_asset_root=workspace / "global-assets",
+                    )
                     try:
                         install_project_development_fixture(runtime)
                         started = runtime.call_tool(
@@ -163,7 +166,10 @@ class WorkflowApprovalBrokerTests(unittest.TestCase):
                     first_broker.child_environment("server-company"),
                     clear=False,
                 ):
-                    runtime = Runtime(workspace)
+                    runtime = Runtime(
+                        workspace,
+                        global_asset_root=workspace / "global-assets",
+                    )
                     try:
                         install_project_development_fixture(runtime)
                         run = runtime.workflow_runs.start("project-development")

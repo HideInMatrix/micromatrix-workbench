@@ -5,6 +5,12 @@ from typing import Any
 
 from ...errors import ToolError
 from ...protocol import current_request_context
+from ...workbench.capability_catalog import (
+    build_capability_catalog,
+    capability_catalog_revision,
+    filter_capability_catalog,
+    validate_capability_references,
+)
 from ...workbench.effective_tools import build_effective_tool_catalog
 from ...workbench.mcp_connection_store import MCPConnectionVersionConflictError
 from ...workbench.models import ResourceScope
@@ -50,6 +56,118 @@ class WorkbenchHandlers:
             scope=ResourceScope.WORKSPACE,
         )
 
+    def _current_capabilities(self) -> tuple[dict[str, Any], ...]:
+        self._refresh_capability_assets()
+        self._refresh_workspace_workflows()
+        system_tools = [
+            definition
+            for definition in self._tools
+            if not is_workbench_control_tool(definition.name)
+        ]
+        effective_tools = build_effective_tool_catalog(
+            system_tools,
+            self.mcp_connections.list(),
+        )
+        return build_capability_catalog(
+            tools=effective_tools,
+            skills=self.skill_registry.list(),
+            workflows=self.workflow_registry.list(),
+        )
+
+    def capability_catalog(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        current = self._current_capabilities()
+        capabilities = filter_capability_catalog(
+            current,
+            types=arguments.get("types") or (),
+            query=str(arguments.get("query") or ""),
+        )
+        return {
+            "schema_version": 1,
+            "decision_owner": "ai_client",
+            "routing": "descriptive_only",
+            "revision": capability_catalog_revision(current),
+            "capabilities": list(capabilities),
+            "count": len(capabilities),
+            "ok": True,
+        }
+
+    def capability_get(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        capability_id = str(arguments.get("capability_id") or "").strip()
+        current = self._current_capabilities()
+        revision = capability_catalog_revision(current)
+        expected_revision = str(arguments.get("expected_revision") or "").strip()
+        if expected_revision and expected_revision != revision:
+            return {
+                "schema_version": 1,
+                "decision_owner": "ai_client",
+                "capability_id": capability_id,
+                "capability": None,
+                "revision": revision,
+                "expected_revision": expected_revision,
+                "ok": False,
+                "error": "CAPABILITY_CATALOG_CHANGED",
+            }
+        capability = next(
+            (item for item in current if item["id"] == capability_id),
+            None,
+        )
+        if capability is None:
+            return {
+                "capability_id": capability_id,
+                "capability": None,
+                "revision": revision,
+                "ok": False,
+                "error": "CAPABILITY_NOT_FOUND",
+            }
+
+        detail: dict[str, Any] | None = None
+        if capability["type"] == "skill":
+            skill_id = str(capability["source"]["skill_id"])
+            skill = self.skill_registry.get(skill_id)
+            detail = skill.to_dict() if skill is not None else None
+        elif capability["type"] == "workflow":
+            workflow_id = str(capability["source"]["workflow_id"])
+            workflow = self.workflow_registry.get(workflow_id)
+            detail = workflow.to_dict() if workflow is not None else None
+
+        return {
+            "schema_version": 1,
+            "decision_owner": "ai_client",
+            "revision": revision,
+            "capability": capability,
+            "detail": detail,
+            "impact": {
+                "required_dependents": [
+                    item
+                    for item in capability.get("dependents", [])
+                    if item.get("required")
+                ],
+                "soft_dependents": [
+                    item
+                    for item in capability.get("dependents", [])
+                    if not item.get("required")
+                ],
+            },
+            "ok": True,
+        }
+
+    def _required_capability_dependents(self, capability_ids: set[str]) -> list[dict[str, Any]]:
+        affected: list[dict[str, Any]] = []
+        for capability in self._current_capabilities():
+            for dependency in capability.get("dependencies", []):
+                if not dependency.get("required"):
+                    continue
+                if str(dependency.get("capability_id") or "") not in capability_ids:
+                    continue
+                affected.append(
+                    {
+                        "dependent_capability_id": capability["id"],
+                        "dependency_capability_id": dependency["capability_id"],
+                        "relation": dependency.get("relation", "depends_on"),
+                    }
+                )
+        return affected
+
     def workflow_authoring_context(self, _arguments: dict[str, Any]) -> dict[str, Any]:
         self._refresh_capability_assets()
         self._refresh_workspace_workflows()
@@ -60,8 +178,20 @@ class WorkbenchHandlers:
         ]
         connections = self.mcp_connections.list()
         effective_tools = build_effective_tool_catalog(system_tools, connections)
+        capabilities = build_capability_catalog(
+            tools=effective_tools,
+            skills=self.skill_registry.list(),
+            workflows=self.workflow_registry.list(),
+        )
         return {
             "schema_version": 1,
+            "capability_contract": {
+                "decision_owner": "ai_client",
+                "routing": "descriptive_only",
+                "stable_id_field": "id",
+                "detail_tool": "capability_get",
+                "catalog_tool": "capability_catalog",
+            },
             "workflow_contract": {
                 "required_fields": [
                     "id",
@@ -110,7 +240,9 @@ class WorkbenchHandlers:
             "tools": [item.to_dict() for item in effective_tools],
             "mcp_connections": [item.summary() for item in connections],
             "workflows": [item.summary() for item in self.workflow_registry.list()],
+            "capabilities": list(capabilities),
             "rules": [
+                "Use Capability IDs from capability_catalog/capability_get as the AI-facing discovery contract; skills/tools/workflows fields here are authoring compatibility views.",
                 "Workflow must be a DAG and every node must be reachable from entry_node_id.",
                 "Workflow Tool nodes cannot call Workbench control-plane tools.",
                 "Use provider=system for MicroMatrix Workbench tools and provider=mcp + connection_id for discovered external MCP tools.",
@@ -151,9 +283,21 @@ class WorkbenchHandlers:
                 "Skill 不能保存 Password/Token/Secret/API Key 明文；请使用引用或移除敏感值。",
             )
         try:
-            return self.capability_assets.validate_skill(raw)
+            skill = self.capability_assets.validate_skill(raw)
         except (TypeError, ValueError) as exc:
             raise ToolError("SKILL_INVALID", f"Skill 定义无效: {exc}") from exc
+        invalid_refs = validate_capability_references(
+            skill.recommended_capabilities,
+            available_ids={str(item["id"]) for item in self._current_capabilities()},
+        )
+        if invalid_refs:
+            raise ToolError(
+                "SKILL_CAPABILITY_REFERENCE_INVALID",
+                "Skill recommended_capabilities 包含不存在或格式无效的 Capability ID。",
+                category="validation",
+                details={"invalid_capability_ids": list(invalid_refs)},
+            )
+        return skill
 
     def skill_validate(self, arguments: dict[str, Any]) -> dict[str, Any]:
         self._refresh_capability_assets()
@@ -185,6 +329,14 @@ class WorkbenchHandlers:
     def skill_delete(self, arguments: dict[str, Any]) -> dict[str, Any]:
         self._refresh_capability_assets()
         skill_id = str(arguments.get("skill_id") or "").strip()
+        affected = self._required_capability_dependents({f"skill:{skill_id}"})
+        if affected:
+            raise ToolError(
+                "CAPABILITY_DEPENDENCY_CONFLICT",
+                "Skill 被 Workflow 作为必需 Capability 引用，删除会破坏现有 Workflow。",
+                category="conflict",
+                details={"dependents": affected},
+            )
         try:
             deleted = self.capability_assets.delete_skill(skill_id)
         except ValueError as exc:
@@ -284,6 +436,19 @@ class WorkbenchHandlers:
     def mcp_connection_delete(self, arguments: dict[str, Any]) -> dict[str, Any]:
         connection_id = str(arguments.get("connection_id") or "").strip()
         self._refresh_capability_assets()
+        capability_ids = {
+            str(item["id"])
+            for item in self._current_capabilities()
+            if str(item["id"]).startswith(f"mcp:{connection_id}:")
+        }
+        affected = self._required_capability_dependents(capability_ids)
+        if affected:
+            raise ToolError(
+                "CAPABILITY_DEPENDENCY_CONFLICT",
+                "MCP Connection 提供的 Tool 被 Workflow 作为必需 Capability 引用，删除会破坏现有 Workflow。",
+                category="conflict",
+                details={"dependents": affected},
+            )
         try:
             deleted = self.mcp_connections.delete(connection_id)
         except ValueError as exc:

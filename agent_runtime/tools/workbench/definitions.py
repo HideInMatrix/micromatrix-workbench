@@ -14,6 +14,39 @@ MCP_CONNECTION_OBJECT = {"type": "object", "additionalProperties": True}
 
 WORKBENCH_TOOLS = (
     ToolDefinition(
+        "capability_catalog",
+        "Capability catalog",
+        "Discover capabilities exposed through this Workbench. Optionally filter by type or text. This is descriptive discovery only; the client AI decides whether and when to use a capability.",
+        obj(
+            {
+                "types": {
+                    "type": "array",
+                    "items": {**S, "enum": ["builtin_tool", "skill", "mcp_tool", "workflow"]},
+                    "uniqueItems": True,
+                },
+                "query": S,
+            }
+        ),
+        "capability_catalog",
+        frozenset({Capability.FILESYSTEM_READ}),
+        ToolAnnotations(read_only=True, idempotent=True),
+    ),
+    ToolDefinition(
+        "capability_get",
+        "Get capability",
+        "Return one capability by stable capability_id, including its invocation contract and resource-specific detail when available.",
+        obj(
+            {
+                "capability_id": {**S, "minLength": 1},
+                "expected_revision": S,
+            },
+            ("capability_id",),
+        ),
+        "capability_get",
+        frozenset({Capability.FILESYSTEM_READ}),
+        ToolAnnotations(read_only=True, idempotent=True),
+    ),
+    ToolDefinition(
         "workflow_authoring_context",
         "Workflow authoring context",
         "Return the Workflow schema vocabulary, Skill/Tool catalogs, existing workflows, condition language, and authoring safety rules for AI-generated workflows.",
@@ -174,7 +207,7 @@ WORKBENCH_TOOLS = (
     ToolDefinition(
         "workflow_list",
         "List workflows",
-        "Call at the beginning of each new user task to discover user-authored operating procedures, then start a clearly matching Workflow before ad-hoc task tool use. Returns description, inputs_schema, tags, version, scope, and graph size.",
+        "List user-authored Workflows available to the AI. Use this when Workflow discovery is relevant to the current task; the AI remains responsible for deciding whether a Workflow is appropriate. Returns description, inputs_schema, tags, version, scope, and graph size.",
         obj(),
         "workflow_list",
         frozenset({Capability.FILESYSTEM_READ}),
@@ -258,7 +291,7 @@ WORKBENCH_TOOLS = (
     ToolDefinition(
         "workflow_start",
         "Start workflow",
-        "Start the user-authored Workflow that matches the current task before ad-hoc task tool use. Validates inputs against inputs_schema and advances until a model or approval boundary is reached; execute pending skill instructions and advance with workflow_continue.",
+        "Start a Workflow explicitly selected by the AI for the current task. Validates inputs against inputs_schema and advances until a model or approval boundary is reached; execute pending skill instructions and advance with workflow_continue.",
         obj(
             {
                 "workflow_id": {**S, "minLength": 1},
@@ -398,11 +431,13 @@ _WORKBENCH_MCP_FACADES = (
 
 # Fine-grained Workbench commands remain registered for Desktop, Workflow Engine,
 # tests, and internal Runtime calls. The MCP surface exposes only the authoring
-# context plus domain facades so clients with small tool budgets still receive
-# every Workbench capability.
+# Capability discovery plus domain facades are the public MCP control surface.
+# Workflow authoring context remains an internal/desktop compatibility tool;
+# AI clients can obtain authoring details through capability_catalog/get and
+# the workflow_manage facade without consuming another public tool slot.
 WORKBENCH_TOOLS = tuple(
     tool
-    if tool.name == "workflow_authoring_context"
+    if tool.name in {"capability_catalog", "capability_get"}
     else replace(tool, mcp_exposed=False)
     for tool in _WORKBENCH_FINE_GRAINED_TOOLS
 ) + _WORKBENCH_MCP_FACADES
