@@ -29,6 +29,7 @@ const emptyCatalog = (): WorkbenchCatalogDto => ({
   effective_tools: [],
   mcp_connections: [],
   workflows: [],
+  capabilities: [],
 })
 
 export function useWorkflowEditor() {

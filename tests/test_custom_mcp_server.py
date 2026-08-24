@@ -270,7 +270,8 @@ class CustomMCPServerContractTests(unittest.TestCase):
 
         names = {tool["name"] for tool in tools}
         self.assertIn("server_info", names)
-        self.assertIn("workflow_authoring_context", names)
+        self.assertIn("capability_catalog", names)
+        self.assertIn("capability_get", names)
         for tool in tools:
             with self.subTest(tool=tool["name"]):
                 self.assertIsInstance(tool.get("inputSchema"), dict)
@@ -2030,13 +2031,16 @@ class RuntimeSafetyTests(unittest.TestCase):
     def test_git_status_reports_workspace_changes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            (root / ".gitconfig").write_text("", encoding="utf-8")
+            git_env = {**os.environ, "HOME": str(root)}
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True, env=git_env)
             (root / "tracked.txt").write_text("first\n", encoding="utf-8")
-            subprocess.run(["git", "add", "tracked.txt"], cwd=root, check=True)
+            subprocess.run(["git", "add", "tracked.txt"], cwd=root, check=True, env=git_env)
             subprocess.run(
                 ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "initial"],
                 cwd=root,
                 check=True,
+                env=git_env,
             )
             (root / "tracked.txt").write_text("changed\n", encoding="utf-8")
             runtime = Runtime(root)
@@ -2058,10 +2062,12 @@ class RuntimeSafetyTests(unittest.TestCase):
     def test_git_read_tools_keep_project_contract_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            (root / ".gitconfig").write_text("", encoding="utf-8")
+            git_env = {**os.environ, "HOME": str(root)}
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True, env=git_env)
             target = root / "tracked.txt"
             target.write_text("first\n", encoding="utf-8")
-            subprocess.run(["git", "add", "tracked.txt"], cwd=root, check=True)
+            subprocess.run(["git", "add", "tracked.txt"], cwd=root, check=True, env=git_env)
             subprocess.run(
                 [
                     "git",
@@ -2075,6 +2081,7 @@ class RuntimeSafetyTests(unittest.TestCase):
                 ],
                 cwd=root,
                 check=True,
+                env=git_env,
             )
             target.write_text("changed\n", encoding="utf-8")
             runtime = Runtime(root)

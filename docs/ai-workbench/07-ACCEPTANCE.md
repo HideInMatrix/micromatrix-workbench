@@ -4,7 +4,7 @@
 
 ## 0. Capability Gateway 架构重构验收
 
-状态：核心架构 PASS，工程收尾进行中。
+状态：PASS。
 
 已确认：
 
@@ -15,9 +15,13 @@
 - Skill 保持 Knowledge / Method / Constraints 定位，不成为 Mini Agent；
 - MCP 公共控制面收敛为 `capability_catalog`、`capability_get` 与 Skill/MCP/Workflow domain facades；
 - `workflow_authoring_context` 保留为内部/Desktop 兼容能力，不再占用公共 MCP Tool 预算；
-- Capability 相关定向回归 66 tests PASS。
+- Capability 相关定向回归 66 tests PASS；
+- 全量 Python 回归 315 tests PASS，3 tests skipped；
+- 旧 Workflow Run / Approval fixture 已按真实 Global Skill Store 生命周期修正；
+- Git 测试已使用临时 HOME 隔离用户级 `~/.gitconfig`，在 Seatbelt 下通过；
+- Workspace 遗留 Workflow 已移除“关键词自动触发”描述，改为由宿主 AI 显式选择。
 
-全量 Python 测试当前结果：315 tests，3 skipped；其中仍有 1 个历史 MCP Tool budget failure 已在本轮修复，另有 2 个 Git 测试受当前 Seatbelt 无法读取用户 `~/.gitconfig` 影响，以及 2 个旧 Workflow Run/Approval 用例需要在最终收尾中核对旧调用契约。上述问题不得被记录为 Capability 核心 Contract 已失败。
+全量 Python 验收结果：`Ran 315 tests ... OK (skipped=3)`。当前公司沙箱未发现 Node.js Toolchain，因此本轮无法在该环境重新执行 Vue/TypeScript build；前端构建仍需在具备 Node/pnpm 的环境执行最终验证。
 
 ## 1. 验收范围
 
