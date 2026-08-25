@@ -224,7 +224,7 @@ class MCPHTTPController:
         metadata = protected_resource_metadata_url(resource)
         challenge = (
             'Bearer realm="micromatrix-workbench", '
-            f'resource_metadata="{metadata}"'
+            f'resource_metadata="{metadata}", scope="mcp"'
         )
         if invalid_token:
             challenge += (

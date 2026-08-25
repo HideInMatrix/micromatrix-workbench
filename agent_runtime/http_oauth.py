@@ -97,6 +97,7 @@ class OAuthHTTPController:
             "authorization_endpoint": f"{base}/oauth/authorize",
             "token_endpoint": f"{base}/oauth/token",
             "registration_endpoint": f"{base}/oauth/register",
+            "authorization_response_iss_parameter_supported": True,
             "response_types_supported": ["code"],
             "grant_types_supported": ["authorization_code", "refresh_token"],
             "code_challenge_methods_supported": ["S256"],
@@ -125,6 +126,7 @@ class OAuthHTTPController:
             "resource": resource,
             "resource_name": "MicroMatrix Workbench",
             "authorization_servers": [base],
+            "scopes_supported": ["mcp"],
             "bearer_methods_supported": ["header"],
         }
 
@@ -490,7 +492,9 @@ class OAuthHTTPController:
                 "refresh_token": config.tokens.issue_refresh_token(client_id, resource),
                 "token_type": "Bearer",
                 "expires_in": config.token_ttl,
+                "scope": "mcp",
             },
+            {"Pragma": "no-cache"},
         )
 
     def _refresh_token_post(

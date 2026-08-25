@@ -2281,6 +2281,10 @@ class HTTPTransportTests(unittest.TestCase):
                     'resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource/mcp"',
                     unauthorized.getheader("WWW-Authenticate", ""),
                 )
+                self.assertIn(
+                    'scope="mcp"',
+                    unauthorized.getheader("WWW-Authenticate", ""),
+                )
 
                 for metadata_path in (
                     "/.well-known/oauth-protected-resource",
@@ -2295,6 +2299,7 @@ class HTTPTransportTests(unittest.TestCase):
                         metadata["authorization_servers"],
                         ["https://mcp.example.com"],
                     )
+                    self.assertEqual(metadata["scopes_supported"], ["mcp"])
                 connection.close()
             finally:
                 server.shutdown()
@@ -2391,6 +2396,7 @@ class HTTPTransportTests(unittest.TestCase):
                 self.assertEqual(response.status, 200)
                 self.assertEqual(metadata["issuer"], "https://mcp.example.com")
                 self.assertTrue(metadata["client_id_metadata_document_supported"])
+                self.assertTrue(metadata["authorization_response_iss_parameter_supported"])
                 self.assertEqual(
                     metadata["registration_endpoint"],
                     "https://mcp.example.com/oauth/register",
