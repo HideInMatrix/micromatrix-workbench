@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, Copy, Eye, EyeOff, LoaderCircle, Plus, Trash2 } from '@lucide/vue'
+import { Check, Copy, Eye, EyeOff, FolderOpen, LoaderCircle, Plus, Trash2 } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { CheckField, FormField, FormGrid } from '@/components/ui/form'
 import { InputGroup, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
@@ -159,7 +159,12 @@ function updateProfilePublicUrl(member: GatewayMemberDraft, index: number, event
           <FormField label="Workspace" span="2">
             <InputGroup>
               <InputGroupInput v-model="member.workspace" :disabled="locked" />
-              <InputGroupButton :disabled="locked" @click="emit('chooseWorkspace', member)">选择</InputGroupButton>
+              <InputGroupButton
+                :disabled="locked"
+                aria-label="选择 Workspace 文件夹"
+                title="选择 Workspace 文件夹"
+                @click="emit('chooseWorkspace', member)"
+              ><FolderOpen :size="15" /></InputGroupButton>
             </InputGroup>
           </FormField>
           <FormField label="OAuth Password">
