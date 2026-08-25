@@ -128,7 +128,6 @@ function updateProfilePublicUrl(member: GatewayMemberDraft, index: number, event
     </FormGrid>
 
     <div class="mt-[22px] mb-2.5 flex items-center justify-between gap-4">
-      <div class="grid gap-[3px]"><strong>Workspace Profiles</strong><span class="text-[11px] text-muted-foreground">每个 Profile 使用独立 hostname；Cloudflare 中可将多个 hostname 全部回源到当前 127.0.0.1:{{ draft.port }}。</span></div>
       <Button variant="outline" size="sm" class="min-h-[30px] px-2.5" :disabled="locked" @click="emit('addProfile')"><Plus :size="14" /> 添加 Profile</Button>
     </div>
 
@@ -141,7 +140,6 @@ function updateProfilePublicUrl(member: GatewayMemberDraft, index: number, event
         <header class="flex items-center justify-between border-b border-border px-3 py-2.5">
           <div class="flex items-center gap-2">
             <strong>{{ isRootProfile(member, index) ? '主 Workspace' : `Profile ${index + 1}` }}</strong>
-            <code class="max-w-[300px] truncate text-[11px] text-muted-foreground">{{ profilePublicUrl(member, index) || (normalizePath(member.instance_path) ? `旧 Path ${normalizePath(member.instance_path)}` : '需要 Hostname') }}</code>
             <span v-if="!profileEnabled(member, index)" class="rounded-full border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">未启用</span>
           </div>
           <Button variant="ghost" size="icon" class="h-7 w-7 text-muted-foreground" :disabled="locked || draft.members.length <= 1 || isRootProfile(member, index)" @click="emit('removeProfile', index)"><Trash2 :size="14" /></Button>

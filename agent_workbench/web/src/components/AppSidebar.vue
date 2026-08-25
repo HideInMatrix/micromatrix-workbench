@@ -73,8 +73,7 @@ function subNavClass(name: AppRouteName): string[] {
           <img src="/workbench-mark.svg" alt="" class="size-6 dark:invert" />
         </div>
         <div class="grid min-w-0 gap-0.5">
-          <strong class="truncate text-[15px] leading-5 font-semibold tracking-[-0.015em]">MicroMatrix Workbench</strong>
-          <span class="text-[11px] leading-4 font-normal text-muted-foreground">Desktop Manager</span>
+          <strong class="text-[15px] leading-5 font-semibold tracking-[-0.015em]">MicroMatrix Workbench</strong>
         </div>
       </div>
       <div v-if="!collapsed" class="flex items-center gap-1">
