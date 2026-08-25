@@ -2,37 +2,40 @@
 
 ## 1. 目标
 
-Local MCP Gateway 用于**同一台机器**上，一个公网 hostname、一个 Tunnel、一个本地监听端口承载多个 MCP Profile。
+Local MCP Gateway 用于**同一台机器**上，一个 Tunnel、一个本地监听端口承载多个独立 Public Hostname / MCP Profile。
 
 例如：
 
 ```text
-https://mcp.example.com/company/mcp
-https://mcp.example.com/home/mcp
-https://mcp.example.com/project-a/mcp
+https://mcp.example.com/mcp
+https://mcp-claude.example.com/mcp
+https://mcp-codex.example.com/mcp
 ```
 
-这些 Path 不负责选择 Cloudflare Tunnel。请求已经通过同一个 hostname/Tunnel 到达本机后，Local MCP Gateway 再按 Path 选择 Profile。
+这些 hostname 可以属于同一个 Cloudflare Named Tunnel，并全部回源到同一个本地端口。Local MCP Gateway 根据 HTTP `Host` 选择 Profile。
 
 ```text
 ChatGPT
    ↓
-https://mcp.example.com
-   ↓
 Cloudflare Named Tunnel
-   ↓
-127.0.0.1:8234
-   ↓
-Local MCP Gateway
-   ├── /company  → Company Runtime
-   ├── /home     → Home Runtime
-   └── /project  → Project Runtime
+   ├── mcp.example.com        ─┐
+   ├── mcp-claude.example.com ├──→ 127.0.0.1:8234
+   └── mcp-codex.example.com  ─┘
+                                  ↓
+                           Local MCP Gateway
+                           ├── Host mcp.example.com        → Main Runtime
+                           ├── Host mcp-claude.example.com → Claude Runtime
+                           └── Host mcp-codex.example.com  → Codex Runtime
 ```
 
-因此 Cloudflare Dashboard 中 Published Application 的 Path 保持为空即可：
+Cloudflare Dashboard 中为同一个 Tunnel 添加多条 Published Application，Path 均保持为空：
 
 ```text
 Hostname: mcp.example.com
+Path:     <empty>
+Service:  http://127.0.0.1:8234
+
+Hostname: mcp-claude.example.com
 Path:     <empty>
 Service:  http://127.0.0.1:8234
 ```
@@ -52,11 +55,11 @@ home.mcp.example.com    → Home Computer    → MCP Server
 
 ```text
 Service
-├── Network / Hostname / Port
+├── Network / Tunnel / Port
 └── Profiles[]
-    ├── path=""        -> 主 Workspace -> /mcp
-    ├── path="/api"    -> API Workspace -> /api/mcp
-    └── path="/web"    -> Web Workspace -> /web/mcp
+    ├── public_url="https://mcp.example.com"        -> 主 Workspace -> /mcp
+    ├── public_url="https://mcp-api.example.com"    -> API Workspace -> /mcp
+    └── public_url="https://mcp-web.example.com"    -> Web Workspace -> /mcp
 ```
 
 Service 持久化一个显式运行模式：`single` 或 `multi`。Profile 数量本身不决定运行模式。用户可以提前配置多个子 Profile，再切回 `single`；这些配置继续保留，但本次只启动根 Workspace。只有显式选择 `multi` 时，启动层才使用 Local Gateway / RuntimePool。
@@ -66,21 +69,22 @@ Service 持久化一个显式运行模式：`single` 或 `multi`。Profile 数�
 适合同一台电脑：
 
 ```text
-mcp.example.com/company/mcp
-mcp.example.com/home/mcp
+mcp.example.com/mcp
+mcp-home.example.com/mcp
 ```
 
 内部 Gateway 拥有：
 
 - 一个本地端口
 - 一个 Network Provider
-- 一个 Tunnel/Public Hostname
+- 一个 Tunnel
 - 多个 Member Profile
 
 每个 Member Profile 独立拥有：
 
 - stable `server_id`
-- `instance_path`
+- 独立 `public_url` / hostname
+- legacy `instance_path`（仅本地兼容和旧配置迁移）
 - Workspace
 - PermissionProfile
 - PermissionSession
@@ -91,32 +95,30 @@ mcp.example.com/home/mcp
 
 ## 3. Gateway 路由
 
-Gateway 不只路由 `/mcp`，还必须把 OAuth discovery 与 endpoint 路由到同一个 Profile。
+Gateway 以 Host 为公网 Profile 身份。每个 hostname 上的 MCP 与 OAuth 都使用根路径。
 
-以 `/company` 为例：
-
-```text
-/company/mcp
-/company/oauth/authorize
-/company/oauth/token
-/company/oauth/register
-
-/.well-known/oauth-authorization-server/company
-/.well-known/openid-configuration/company
-/company/.well-known/openid-configuration
-/.well-known/oauth-protected-resource/company/mcp
-```
-
-这些地址必须归属于同一个 Company Runtime，避免 OAuth issuer、DCR Client 或 token 串到其他 Profile。
-
-嵌套 Path 使用 longest-prefix 匹配：
+以 `mcp-company.example.com` 为例：
 
 ```text
-/team
-/team/dev
+/mcp
+/oauth/authorize
+/oauth/token
+/oauth/register
+
+/.well-known/oauth-authorization-server
+/.well-known/openid-configuration
+/.well-known/oauth-protected-resource/mcp
 ```
 
-请求 `/team/dev/mcp` 必须选择 `/team/dev`。
+请求同时携带：
+
+```text
+Host: mcp-company.example.com
+```
+
+因此这些根路径只会归属于 Company Runtime，避免 OAuth issuer、DCR Client 或 token 串到其他 Profile。未知公网 Host 必须返回 404，不能回退到主 Workspace。
+
+历史共享 hostname + Path 配置继续通过 `instance_path` longest-prefix 路由兼容，本机 `127.0.0.1` 调试也可以使用该 fallback；新公网配置不再依赖 Path 区分 Profile。
 
 ## 4. Runtime 隔离
 
@@ -253,11 +255,12 @@ ephemeral
 https://random.trycloudflare.com
 ```
 
-则实际 MCP URL 为：
+Quick Tunnel 只有一个随机 hostname，因此只适合单 Workspace。新的多 Workspace Hostname 模型要求固定入口，不允许用一个 Quick Tunnel 随机 hostname 模拟多个 Profile。
+
+单 Workspace 本次 MCP URL 为：
 
 ```text
-https://random.trycloudflare.com/company/mcp
-https://random.trycloudflare.com/home/mcp
+https://random.trycloudflare.com/mcp
 ```
 
 停止本次 Gateway Session 后，临时 OAuth 状态随 Session 清理。
@@ -277,7 +280,7 @@ gateways.json
         └── members[]
 ```
 
-新 UI 不暴露这两种存储差异。旧 Direct Server 自动映射成一个 `path=""` 的主 Profile；旧 Gateway 自动映射成多个已有 Profile。
+新 UI 不暴露这两种存储差异。旧 Direct Server 自动映射成主 Profile；旧 Gateway 自动读取原有 `instance_path`，并在用户补齐独立 Public Hostname 后迁移到 Host-based 模型。
 
 当旧 Direct Service 第一次添加子 Profile 时，DesktopAPI 会无损提升其内部运行模型：
 
@@ -285,7 +288,7 @@ gateways.json
 原 server_id -> 根 Profile server_id 保持不变
 https://host/mcp -> 保持不变
 OAuth issuer https://host -> 保持不变
-新增 /api -> https://host/api/mcp
+新增 API Profile -> https://mcp-api.example.com/mcp
 ```
 
 因此增加子 Profile 不需要重新创建原来的 Connector。
@@ -297,27 +300,26 @@ OAuth issuer https://host -> 保持不变
 ```text
 服务
 ├── 主 Workspace -> /mcp
-├── [添加 Profile] -> /api/mcp
-└── [添加 Profile] -> /web/mcp
+├── [添加 Profile] -> https://mcp-api.example.com/mcp
+└── [添加 Profile] -> https://mcp-web.example.com/mcp
 ```
 
 服务页面统一负责：
 
 - 创建/删除服务
 - Network Provider
-- Public Hostname
 - Tunnel Token
 - 本地端口
 - Profile 增删
-- Profile Path
+- 每个 Profile 的 Public Hostname
 - Profile Workspace
 - Profile OAuth Password
 - Profile Permission Profile
 - 启动/停止服务
-- 显示并复制每个最终 `/path/mcp` 地址
+- 显示并复制每个最终 `https://<profile-host>/mcp` 地址
 - 触发公网 E2E 自检并展示每个 Profile 的检查结果
 
-主 Workspace 不需要填写 Path，固定使用 `/mcp`。子 Profile 才配置 `/api`、`/web` 等 Path。服务页顶部使用“单 Workspace / 多 Workspace”分段滑块显式保存运行模式：`single` 走 `MCPLauncher` 单 Runtime，`multi` 才走 Gateway RuntimePool。切换模式不会删除任何 Profile 配置。
+每个 Profile 都配置自己的 Public Hostname，对外固定使用 `/mcp`。主 Workspace 的 Hostname 同时作为 Network Provider 的主 Public URL；子 Profile Hostname 与主 Hostname 一起回源到同一个本地端口。服务页顶部使用“单 Workspace / 多 Workspace”分段滑块显式保存运行模式：`single` 走 `MCPLauncher` 单 Runtime，`multi` 才走 Gateway RuntimePool。切换模式不会删除任何 Profile 配置。
 
 ## 11. 公网 E2E 自检
 
@@ -335,24 +337,24 @@ mcp_auth_challenge
 oauth_token_exchange
 ```
 
-其中最关键的 `public_path_runtime` 会请求：
+其中最关键的 `public_path_runtime` 会按每个 Profile hostname 请求：
 
 ```text
-https://mcp.example.com/company/.well-known/micromatrix-workbench-route-probe
-https://mcp.example.com/home/.well-known/micromatrix-workbench-route-probe
+https://mcp.example.com/.well-known/micromatrix-workbench-route-probe
+https://mcp-claude.example.com/.well-known/micromatrix-workbench-route-probe
 ```
 
-并将返回的 Workspace fingerprint 与桌面端当前 Member Workspace 的 fingerprint 比较，因此可以区分“公网确实到了 Gateway”与“公网 Path 确实到了正确 Runtime”。
+并将返回的 Workspace fingerprint 与桌面端当前 Member Workspace 的 fingerprint 比较，因此可以区分“公网确实到了 Gateway”与“公网 Hostname 确实到了正确 Runtime”。
 
 固定 Cloudflare Named Tunnel 的多 Profile 服务启动成功后会自动后台执行公网 E2E 自检。自检失败只记录警告，不会把健康的服务/Tunnel 强制停止。“服务”页面中也提供手动“开始自检”按钮。
 
 OAuth 部分同时验证：
 
-- Server Card 的 `/path/mcp` endpoint
+- Server Card 的 `/mcp` endpoint
 - Authorization Server issuer
-- authorization/token endpoint 是否带正确 Profile Path
-- RFC 9728 protected resource 是否为 `/path/mcp`
-- 未授权访问 `/path/mcp` 时 `WWW-Authenticate` 的 `resource_metadata` 是否指向当前 Profile
+- authorization/token endpoint 是否属于正确 Profile Hostname
+- RFC 9728 protected resource 是否为 `https://<profile-host>/mcp`
+- 未授权访问 `/mcp` 时 `WWW-Authenticate` 的 `resource_metadata` 是否指向当前 Profile Hostname
 - 使用内部 DCR 诊断客户端走一遍真实 Authorization Code + PKCE S256 → `/oauth/token`，确认能返回 Bearer access token 与 refresh token
 
 `oauth_token_exchange` 使用只存在于运行期内存中的 OAuth Password 完成自检，不会把 Password、authorization code、code verifier、access token 或 refresh token 写入日志。持久化 Profile 会复用名为 `MicroMatrix Workbench E2E Diagnostic` 的内部 public client，桌面 OAuth Client 列表会隐藏该内部诊断记录，避免每次自检制造用户可见噪音。

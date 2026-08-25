@@ -167,7 +167,16 @@ https://company.mcp.example.com/mcp
 https://home.mcp.example.com/mcp
 ```
 
-Cloudflare 中对应的 Published Application Path 保持为空即可，不需要额外配置 Worker/Path Router。桌面端的 `Local Gateway Path（预留）` 不负责跨电脑分流，它是后续同一台机器“一个 Gateway 端口承载多个 Profile”的路由标识。
+Cloudflare 中对应的 Published Application Path 保持为空即可，不需要额外配置 Worker/Path Router。
+
+如果是**同一台机器的多 Workspace Service**，每个 Profile 需要一个独立 Public Hostname，但这些 hostname 可以放在同一个 Named Tunnel 中，并全部回源到同一个本地端口。例如：
+
+```text
+mcp.example.com        -> http://127.0.0.1:8234
+mcp-claude.example.com -> http://127.0.0.1:8234
+```
+
+Workbench 会根据 HTTP Host 选择 Profile；每个 Profile 对外都使用 `/mcp`。旧版 `instance_path` 只作为历史配置和本机调试兼容字段保留。
 
 完整部署步骤见：
 
@@ -421,7 +430,7 @@ Windows 的 `.exe` 是当前正式安装与应用内更新包；Windows `.zip` �
 
 当前推荐每台电脑使用独立 Public Hostname、独立 Named Tunnel 和独立 Tunnel Token，例如公司电脑使用 `company.mcp.example.com`，家里电脑使用 `home.mcp.example.com`。不要依赖 `/company`、`/home` 这样的 URL Path 去选择不同 Tunnel；Cloudflare 不会自动用 HTTP Path 判断应该进入哪台电脑。
 
-URL Path 能力仍然保留，但定位为后续 Local MCP Gateway 的路由键。Gateway 完成后，同一台机器才会支持一个公网 hostname / 一个入口端口按不同 Path 分发多个本地 Profile。
+同一台机器的多 Workspace Service 使用另一层模型：每个 Profile 配置独立 Public Hostname，但多个 hostname 可以放在同一个 Named Tunnel 中，并全部回源到同一个本地 Gateway 端口。例如 `mcp.example.com` 与 `mcp-claude.example.com` 都可以指向 `http://127.0.0.1:8234`，Workbench 根据 HTTP Host 选择对应 Profile；每个 Profile 对外统一使用 `/mcp`。历史 URL Path 路由仅作为旧配置和本机兼容能力保留。
 
 ### Quick Tunnel 为什么重启后 OAuth Client 不见了
 

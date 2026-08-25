@@ -154,3 +154,4 @@ Thumbs.db
 *.pid
 
 .micromatrix-workbench
+.tmp-nvmd-ci/

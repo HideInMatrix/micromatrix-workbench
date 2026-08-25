@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from agent_runtime.gateway import normalize_instance_path
+from agent_runtime.gateway import normalize_instance_path, normalize_public_url
 from agent_runtime.local_permission_broker import (
     BROKER_DIR_ENV,
     BROKER_SECRET_ENV,
@@ -43,6 +43,7 @@ class GatewayChildProfile:
     workspace: Path
     oauth_password: str
     instance_path: str
+    public_url: str = ""
     permission_mode: str = "safe"
     lifecycle: str = "persistent"
     allow_network: bool = False
@@ -73,6 +74,7 @@ class GatewayChildProfile:
             workspace=workspace,
             oauth_password=password,
             instance_path=normalize_instance_path(self.instance_path),
+            public_url=normalize_public_url(self.public_url),
             permission_mode=permission_mode,
             lifecycle=lifecycle,
             allow_network=bool(self.allow_network),
@@ -94,7 +96,7 @@ class GatewayProcessConfig:
             raise ValueError("Gateway Public URL 必须是完整的 http/https URL。")
         if (parsed.path or "").rstrip("/"):
             raise ValueError(
-                "Gateway Public URL 必须只包含 hostname；Profile Path 由子 Profile 单独配置。"
+                "Gateway Public URL 必须只包含 hostname；子 Profile 使用独立 Public Hostname。"
             )
         if not 1 <= int(self.port) <= 65535:
             raise ValueError(f"无效 Gateway 端口: {self.port}")
@@ -103,6 +105,7 @@ class GatewayProcessConfig:
             raise ValueError("Gateway 至少需要一个 Profile。")
         ids: set[str] = set()
         paths: set[str] = set()
+        hostnames: set[str] = set()
         for profile in profiles:
             if profile.server_id in ids:
                 raise ValueError(f"重复 Gateway Profile server_id: {profile.server_id}")
@@ -110,6 +113,11 @@ class GatewayProcessConfig:
                 raise ValueError(f"重复 Gateway Profile Path: {profile.instance_path}")
             ids.add(profile.server_id)
             paths.add(profile.instance_path)
+            if profile.public_url:
+                hostname = (urlsplit(profile.public_url).hostname or "").lower()
+                if hostname in hostnames:
+                    raise ValueError(f"重复 Gateway Profile Public Hostname: {hostname}")
+                hostnames.add(hostname)
         return GatewayProcessConfig(
             public_base_url=public_base_url,
             profiles=profiles,
@@ -152,7 +160,7 @@ def prepare_gateway_config(
         persistences: list[OAuthPersistence] = []
         registry_files: dict[str, Path] = {}
         for profile in validated.profiles:
-            issuer = f"{validated.public_base_url}{profile.instance_path}"
+            issuer = profile.public_url or f"{validated.public_base_url}{profile.instance_path}"
             if profile.lifecycle == "ephemeral":
                 persistence = prepare_ephemeral_oauth_persistence(profile.server_id)
             else:
@@ -163,6 +171,7 @@ def prepare_gateway_config(
             profile_payload: dict[str, object] = {
                     "profile_id": profile.server_id,
                     "instance_path": profile.instance_path,
+                    "public_url": profile.public_url,
                     "workspace": str(profile.workspace),
                     "permission_mode": profile.permission_mode,
                     "allow_network": profile.allow_network,

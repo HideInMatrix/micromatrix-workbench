@@ -17,6 +17,7 @@ export function emptyMember(index: number): GatewayMemberDraft {
     workspace: '',
     oauth_password: '',
     instance_path: index === 0 ? '' : `/profile-${index + 1}`,
+    public_url: '',
     permission_mode: 'safe',
     allow_network: false,
     enable_view_image: true,
@@ -50,6 +51,7 @@ export function directDraft(server: ServerDto): GatewayDraft {
       workspace: server.workspace,
       oauth_password: server.oauth_password,
       instance_path: '',
+      public_url: server.network.public_url,
       permission_mode: server.permission_mode,
       allow_network: server.allow_network,
       enable_view_image: server.enable_view_image,
@@ -72,6 +74,7 @@ export function gatewayDraft(gateway: GatewayDto): GatewayDraft {
       workspace: member.workspace,
       oauth_password: member.oauth_password,
       instance_path: member.instance_path,
+      public_url: member.public_url,
       permission_mode: member.permission_mode,
       allow_network: member.allow_network,
       enable_view_image: member.enable_view_image,
@@ -84,17 +87,26 @@ export function normalizePath(value: string): string {
   return trimmed ? `/${trimmed}` : ''
 }
 
+export function normalizePublicUrl(value: string): string {
+  return value.trim().replace(/\/+$/, '')
+}
+
 export function cloneNetwork(network: NetworkConfigDto): NetworkConfigDto {
   return { ...network, options: { ...network.options } }
 }
 
 export function normalizedGatewayDraft(value: GatewayDraft): GatewayDraft {
+  const network = cloneNetwork(value.network)
+  network.public_url = normalizePublicUrl(network.public_url)
   return {
     ...value,
-    network: cloneNetwork(value.network),
-    members: value.members.map(member => ({
+    network,
+    members: value.members.map((member, index) => ({
       ...member,
       instance_path: normalizePath(member.instance_path),
+      public_url: index === 0
+        ? network.public_url
+        : normalizePublicUrl(member.public_url),
     })),
   }
 }

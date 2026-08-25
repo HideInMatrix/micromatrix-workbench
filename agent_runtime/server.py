@@ -139,13 +139,34 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
         pool = self.server.gateway_pool  # type: ignore[attr-defined]
         if pool is None:
             return True
-        resolved = pool.runtime_for_path(urllib.parse.urlparse(self.path).path)
+        request_path = urllib.parse.urlparse(self.path).path
+        direct_host = self.headers.get("Host", "").split(",", 1)[0].strip()
+        forwarded_host = self.headers.get("X-Forwarded-Host", "").split(",", 1)[0].strip()
+        request_host = direct_host
+        try:
+            direct_hostname = (urllib.parse.urlsplit(f"//{direct_host}").hostname or "").lower()
+        except ValueError:
+            direct_hostname = ""
+        if direct_hostname in {"localhost", "127.0.0.1", "::1"} and forwarded_host:
+            request_host = forwarded_host
+        resolved = pool.runtime_for_request(request_path, request_host)
+        if resolved is None and forwarded_host:
+            request_host = forwarded_host
+            resolved = pool.runtime_for_request(request_path, forwarded_host)
         if resolved is None:
             self._json(404, {"error": "gateway_profile_not_found"})
             return False
         profile, runtime = resolved
         self._gateway_profile = profile
         self._gateway_runtime = runtime
+        profile_host = ""
+        if profile.public_url:
+            profile_host = (urllib.parse.urlsplit(profile.public_url).hostname or "").lower()
+        try:
+            request_hostname = (urllib.parse.urlsplit(f"//{request_host}").hostname or "").lower()
+        except ValueError:
+            request_hostname = ""
+        self._gateway_host_routed = bool(profile_host and profile_host == request_hostname)
         return True
 
     def log_message(self, fmt: str, *args: Any) -> None:
@@ -167,6 +188,8 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
     def _instance_prefix(self) -> str:
         profile = self.gateway_profile
         if profile is not None:
+            if getattr(self, "_gateway_host_routed", False):
+                return ""
             return profile.instance_path
         config = self.runtime.oauth_service
         return _url_path(config.server_url if config else None)

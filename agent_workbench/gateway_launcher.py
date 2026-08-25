@@ -86,6 +86,7 @@ class GatewayLaunchConfig:
             raise ValueError("单 Workspace 模式必须包含一个根 Workspace Profile。")
         ids: set[str] = set()
         paths: set[str] = set()
+        hostnames: set[str] = set()
         for profile in profiles:
             if profile.server_id in ids:
                 raise ValueError(f"重复 Gateway Profile server_id: {profile.server_id}")
@@ -93,12 +94,20 @@ class GatewayLaunchConfig:
                 raise ValueError(f"重复 Gateway Profile Path: {profile.instance_path}")
             ids.add(profile.server_id)
             paths.add(profile.instance_path)
+            if profile.public_url:
+                hostname = (urlsplit(profile.public_url).hostname or "").lower()
+                if hostname in hostnames:
+                    raise ValueError(f"重复 Gateway Profile Public Hostname: {hostname}")
+                hostnames.add(hostname)
         if network.public_url:
             parsed = urlsplit(network.public_url)
             if (parsed.path or "").rstrip("/"):
                 raise ValueError(
-                    "Gateway 固定 Public URL 只能填写 hostname；各 MCP Profile 使用独立 Path。"
+                    "Gateway 固定 Public URL 只能填写 hostname；各 MCP Profile 使用独立 Public Hostname。"
                 )
+        if network.public_url and profiles[0].public_url:
+            if canonical_oauth_issuer(network.public_url) != profiles[0].public_url:
+                raise ValueError("服务 Public Hostname 必须与主 Workspace Profile Hostname 一致。")
         return GatewayLaunchConfig(
             network=network,
             profiles=profiles,
@@ -118,6 +127,7 @@ class GatewayProfileLaunchInfo:
     public_mcp_url: str
     oauth_issuer: str
     lifecycle: str
+    public_base_url: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +155,7 @@ class GatewayProfileDiagnostic:
     ok: bool
     checks: tuple[str, ...]
     errors: tuple[str, ...]
+    public_base_url: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +184,7 @@ def _effective_profiles(
             workspace=profile.workspace,
             oauth_password=profile.oauth_password,
             instance_path=profile.instance_path,
+            public_url=profile.public_url,
             permission_mode=profile.permission_mode,
             lifecycle="ephemeral",
             allow_network=profile.allow_network,
@@ -515,10 +527,14 @@ class MCPGatewayLauncher:
         route_probe_token: str,
         expected_fingerprint: str,
         mismatch_message: str,
+        host_header: str = "",
     ) -> None:
+        headers = {ROUTE_PROBE_HEADER: route_probe_token}
+        if host_header:
+            headers["Host"] = host_header
         payload, _ = self._json_get(
             url,
-            headers={ROUTE_PROBE_HEADER: route_probe_token},
+            headers=headers,
         )
         if payload.get("workspace_fingerprint") != expected_fingerprint:
             raise RuntimeError(mismatch_message)
@@ -528,12 +544,12 @@ class MCPGatewayLauncher:
         info: GatewayLaunchInfo,
         profile: GatewayProfileLaunchInfo,
     ) -> None:
-        card, _ = self._json_get(
-            f"{info.public_base_url}{profile.instance_path}/"
-        )
+        public_base = profile.public_base_url or profile.oauth_issuer
+        card, _ = self._json_get(f"{public_base}/")
         transport = card.get("transport")
         endpoint = transport.get("endpoint") if isinstance(transport, dict) else None
-        if endpoint != f"{profile.instance_path}/mcp":
+        expected_endpoint = urlsplit(profile.public_mcp_url).path
+        if endpoint != expected_endpoint:
             raise RuntimeError(f"Server Card endpoint 不匹配: {endpoint}")
 
     def _check_oauth_authorization_metadata(
@@ -541,10 +557,10 @@ class MCPGatewayLauncher:
         info: GatewayLaunchInfo,
         profile: GatewayProfileLaunchInfo,
     ) -> None:
-        url = (
-            f"{info.public_base_url}/.well-known/oauth-authorization-server"
-            f"{profile.instance_path}"
-        )
+        parsed = urlsplit(profile.oauth_issuer)
+        issuer_path = (parsed.path or "").rstrip("/")
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        url = f"{origin}/.well-known/oauth-authorization-server{issuer_path}"
         metadata, _ = self._json_get(url)
         expected_issuer = profile.oauth_issuer
         if metadata.get("issuer") != expected_issuer:
@@ -559,9 +575,12 @@ class MCPGatewayLauncher:
         info: GatewayLaunchInfo,
         profile: GatewayProfileLaunchInfo,
     ) -> str:
+        del info
+        parsed = urlsplit(profile.public_mcp_url)
+        resource_path = (parsed.path or "").rstrip("/")
         return (
-            f"{info.public_base_url}/.well-known/oauth-protected-resource"
-            f"{profile.instance_path}/mcp"
+            f"{parsed.scheme}://{parsed.netloc}"
+            f"/.well-known/oauth-protected-resource{resource_path}"
         )
 
     def _check_oauth_protected_resource(
@@ -615,19 +634,26 @@ class MCPGatewayLauncher:
         checks: list[str] = []
         errors: list[str] = []
         expected_fingerprint = workspace_fingerprint(profile.workspace)
+        public_base = profile.public_base_url or profile.oauth_issuer
+        legacy_public_base = f"{info.public_base_url}{profile.instance_path}"
+        host_routed_child = bool(
+            profile.instance_path
+            and public_base.rstrip("/") != legacy_public_base.rstrip("/")
+        )
         local_probe = (
-            f"http://{info.host}:{info.port}{profile.instance_path}{ROUTE_PROBE_PATH}"
+            f"http://{info.host}:{info.port}{ROUTE_PROBE_PATH}"
+            if host_routed_child
+            else f"http://{info.host}:{info.port}{profile.instance_path}{ROUTE_PROBE_PATH}"
         )
-        public_probe = (
-            f"{info.public_base_url}{profile.instance_path}{ROUTE_PROBE_PATH}"
-        )
+        public_probe = f"{public_base}{ROUTE_PROBE_PATH}"
 
         try:
             self._check_runtime_probe(
                 local_probe,
                 route_probe_token=route_probe_token,
                 expected_fingerprint=expected_fingerprint,
-                mismatch_message="本地 Path 命中了错误的 Workspace Runtime",
+                mismatch_message="本地 Gateway 命中了错误的 Workspace Runtime",
+                host_header=(urlsplit(public_base).netloc if host_routed_child else ""),
             )
             checks.append("local_path_runtime")
         except Exception as exc:  # noqa: BLE001 - aggregate diagnostic failures
@@ -638,7 +664,7 @@ class MCPGatewayLauncher:
                 public_probe,
                 route_probe_token=route_probe_token,
                 expected_fingerprint=expected_fingerprint,
-                mismatch_message="公网 Path 命中了错误的 Workspace Runtime",
+                mismatch_message="公网 Hostname 命中了错误的 Workspace Runtime",
             )
             checks.append("public_path_runtime")
         except Exception as exc:  # noqa: BLE001 - aggregate diagnostic failures
@@ -681,6 +707,7 @@ class MCPGatewayLauncher:
             ok=not errors,
             checks=tuple(checks),
             errors=tuple(errors),
+            public_base_url=profile.public_base_url or profile.oauth_issuer,
         )
 
     def diagnose(self) -> GatewayDiagnosticReport:
@@ -731,7 +758,7 @@ class MCPGatewayLauncher:
             if report.ok:
                 self._log(
                     f"Gateway 公网 E2E 自检通过：{len(report.profiles)} 个 Profile "
-                    "的 Path、Runtime 与 OAuth metadata 均匹配。"
+                    "的 Hostname、Runtime 与 OAuth metadata 均匹配。"
                 )
                 return
             if attempt < attempts:
@@ -748,7 +775,7 @@ class MCPGatewayLauncher:
                 details = "; ".join(profile.errors) or "未返回具体错误"
                 self._log(
                     f"Gateway 公网 E2E 失败详情 [{profile.name}] "
-                    f"Path={profile.instance_path or '/'}: {details}"
+                    f"Public={profile.public_base_url or profile.instance_path or '/'}: {details}"
                 )
 
     def _start_network(self, config: GatewayLaunchConfig) -> tuple[str, str]:
@@ -818,11 +845,16 @@ class MCPGatewayLauncher:
                 name=profile.name,
                 workspace=profile.workspace,
                 instance_path=profile.instance_path,
+                public_base_url=(profile.public_url or f"{public_base_url}{profile.instance_path}"),
                 local_mcp_url=(
                     f"http://{config.host}:{config.port}{profile.instance_path}/mcp"
                 ),
-                public_mcp_url=f"{public_base_url}{profile.instance_path}/mcp",
-                oauth_issuer=f"{public_base_url}{profile.instance_path}",
+                public_mcp_url=(
+                    f"{profile.public_url}/mcp"
+                    if profile.public_url
+                    else f"{public_base_url}{profile.instance_path}/mcp"
+                ),
+                oauth_issuer=(profile.public_url or f"{public_base_url}{profile.instance_path}"),
                 lifecycle=profile.lifecycle,
             )
             for profile in profiles
@@ -843,6 +875,11 @@ class MCPGatewayLauncher:
         )
         for profile in info.profiles:
             self._log(f"Gateway Profile [{profile.name}]: {profile.public_mcp_url}")
+        if len({profile.public_base_url for profile in info.profiles}) > 1:
+            self._log(
+                "多 Hostname 模式：请在同一个 Tunnel 中将每个 Profile Hostname "
+                f"都回源到 http://{info.host}:{info.port}。"
+            )
 
     def _start_watchers(self, url_mode: str) -> None:
         threading.Thread(target=self._watch_children, daemon=True).start()
@@ -925,6 +962,7 @@ class MCPGatewayLauncher:
             name=root.name,
             workspace=root.workspace,
             instance_path="",
+            public_base_url=direct_info.public_base_url,
             local_mcp_url=direct_info.local_mcp_url,
             public_mcp_url=direct_info.public_mcp_url,
             oauth_issuer=direct_info.public_base_url,

@@ -116,3 +116,39 @@ uuid.uuid4().hex
 该算法只负责“建议值”。
 
 启动时仍必须做真实 socket bind 检查。
+
+## 7. Local Gateway / Profile Hostname
+
+多 Workspace Service 使用一个本地 Gateway 端口，但每个 Member Profile 拥有独立公网 hostname：
+
+```python
+MCPGatewayProfile(
+    gateway_id: str,
+    name: str,
+    host: str,
+    port: int,
+    network: NetworkConfig,   # public_url 保存主 Workspace hostname
+    mode: Literal["single", "multi"],
+    members: tuple[MCPGatewayMember, ...],
+)
+
+MCPGatewayMember(
+    server_id: str,
+    name: str,
+    workspace: Path,
+    oauth_password: str,
+    public_url: str,          # 例如 https://mcp-claude.example.com
+    instance_path: str,       # legacy / 本地兼容路由，不再作为新公网身份
+    permission_mode: str,
+    lifecycle: str,
+)
+```
+
+约束：
+
+- `multi` 模式下每个 Profile 都必须配置独立 `public_url`。
+- 第一项 Member 是主 Workspace，其 `public_url` 必须与 `network.public_url` 一致。
+- Profile `public_url` 只允许 scheme + hostname，不允许携带 Path、Query 或 Fragment。
+- 同一 Gateway 内 Profile hostname 不得重复；不同 Gateway / Direct Server 之间也不得冲突。
+- 每个 Profile 的公网 MCP URL 固定为 `<public_url>/mcp`，OAuth issuer 固定为 `<public_url>`。
+- 多个 Profile hostname 可以全部由同一个 Cloudflare Named Tunnel 回源到同一个 `host:port`。

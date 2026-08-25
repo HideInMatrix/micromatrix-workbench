@@ -149,6 +149,67 @@ class GatewayLauncherTests(unittest.TestCase):
 
             self.assertTrue(provider.stopped)
 
+    def test_named_gateway_builds_root_mcp_urls_for_independent_hostnames(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            profiles = list(self._profiles(root))
+            profiles[0] = GatewayChildProfile(
+                server_id=profiles[0].server_id,
+                name=profiles[0].name,
+                workspace=profiles[0].workspace,
+                oauth_password=profiles[0].oauth_password,
+                instance_path=profiles[0].instance_path,
+                public_url="https://mcp.example.com",
+            )
+            profiles[1] = GatewayChildProfile(
+                server_id=profiles[1].server_id,
+                name=profiles[1].name,
+                workspace=profiles[1].workspace,
+                oauth_password=profiles[1].oauth_password,
+                instance_path=profiles[1].instance_path,
+                public_url="https://mcp-claude.example.com",
+            )
+            provider = _FakeProvider("https://mcp.example.com", "Cloudflare Named Tunnel")
+            launcher = MCPGatewayLauncher()
+
+            def fake_gateway_start(_config, _env):
+                launcher._gateway.process = _FakeProcess()  # type: ignore[assignment]
+
+            with (
+                patch(
+                    "agent_workbench.gateway_launcher.create_network_provider",
+                    return_value=provider,
+                ),
+                patch("agent_workbench.gateway_launcher.check_port_available"),
+                patch.object(launcher._gateway, "start", side_effect=fake_gateway_start),
+                patch.object(launcher, "_diagnose_background"),
+            ):
+                info = launcher.start(
+                    GatewayLaunchConfig(
+                        network=NetworkConfig(
+                            provider="cloudflare",
+                            public_url="https://mcp.example.com",
+                            options={"tunnel_token": "token"},
+                        ),
+                        profiles=tuple(profiles),
+                    )
+                )
+                try:
+                    self.assertEqual(
+                        info.profile("company").public_mcp_url,  # type: ignore[union-attr]
+                        "https://mcp.example.com/mcp",
+                    )
+                    self.assertEqual(
+                        info.profile("home").public_mcp_url,  # type: ignore[union-attr]
+                        "https://mcp-claude.example.com/mcp",
+                    )
+                    self.assertEqual(
+                        info.profile("home").oauth_issuer,  # type: ignore[union-attr]
+                        "https://mcp-claude.example.com",
+                    )
+                finally:
+                    launcher.stop()
+
     def test_quick_tunnel_forces_profile_oauth_lifecycle_ephemeral(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             profiles = self._profiles(Path(temporary))

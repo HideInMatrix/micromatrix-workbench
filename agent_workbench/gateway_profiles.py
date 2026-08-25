@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from typing import Any, Mapping
 
-from agent_runtime.gateway import normalize_instance_path
+from agent_runtime.gateway import normalize_instance_path, normalize_public_url
 
 from .config import (
     DEFAULT_HOST,
@@ -46,6 +46,7 @@ class MCPGatewayMember:
     workspace: Path
     oauth_password: str
     instance_path: str
+    public_url: str = ""
     permission_mode: str = "safe"
     lifecycle: str = "persistent"
     allow_network: bool = False
@@ -59,6 +60,7 @@ class MCPGatewayMember:
         workspace: Path,
         oauth_password: str,
         instance_path: str,
+        public_url: str = "",
         permission_mode: str = "safe",
         lifecycle: str = "persistent",
         allow_network: bool = False,
@@ -70,6 +72,7 @@ class MCPGatewayMember:
             workspace=workspace,
             oauth_password=oauth_password,
             instance_path=instance_path,
+            public_url=public_url,
             permission_mode=permission_mode,
             lifecycle=lifecycle,
             allow_network=allow_network,
@@ -97,6 +100,7 @@ class MCPGatewayMember:
             workspace=workspace,
             oauth_password=password,
             instance_path=normalize_instance_path(self.instance_path),
+            public_url=normalize_public_url(self.public_url),
             permission_mode=permission_mode,
             lifecycle=lifecycle,
             allow_network=bool(self.allow_network),
@@ -111,6 +115,7 @@ class MCPGatewayMember:
             workspace=value.workspace,
             oauth_password=value.oauth_password,
             instance_path=value.instance_path,
+            public_url=value.public_url,
             permission_mode=value.permission_mode,
             lifecycle=value.lifecycle,
             allow_network=value.allow_network,
@@ -125,6 +130,7 @@ class MCPGatewayMember:
             "workspace": str(value.workspace),
             "oauth_password": value.oauth_password,
             "instance_path": value.instance_path,
+            "public_url": value.public_url,
             "permission_mode": value.permission_mode,
             "lifecycle": value.lifecycle,
             "allow_network": value.allow_network,
@@ -139,6 +145,7 @@ class MCPGatewayMember:
             workspace=Path(str(value.get("workspace") or "")),
             oauth_password=str(value.get("oauth_password") or ""),
             instance_path=str(value.get("instance_path") or ""),
+            public_url=str(value.get("public_url") or ""),
             permission_mode=str(value.get("permission_mode") or "safe"),
             lifecycle=str(value.get("lifecycle") or "persistent"),
             allow_network=bool(value.get("allow_network", False)),
@@ -212,6 +219,7 @@ class MCPGatewayProfile:
                 )
         member_ids: set[str] = set()
         member_paths: set[str] = set()
+        member_hostnames: set[str] = set()
         for member in members:
             if member.server_id in member_ids:
                 raise ValueError(f"重复 Gateway Member server_id: {member.server_id}")
@@ -219,6 +227,14 @@ class MCPGatewayProfile:
                 raise ValueError(f"重复 Gateway Member Path: {member.instance_path}")
             member_ids.add(member.server_id)
             member_paths.add(member.instance_path)
+            hostname = _public_hostname(member.public_url)
+            if hostname:
+                if hostname in member_hostnames:
+                    raise ValueError(f"重复 Gateway Member Public Hostname: {hostname}")
+                member_hostnames.add(hostname)
+        if network.public_url and members[0].public_url:
+            if normalize_public_url(network.public_url) != members[0].public_url:
+                raise ValueError("服务 Public Hostname 必须与主 Workspace Profile Hostname 一致。")
         return MCPGatewayProfile(
             gateway_id=gateway_id,
             name=name,
@@ -266,6 +282,7 @@ class MCPGatewayProfile:
                     passwords.get(member.server_id) or member.oauth_password
                 ),
                 instance_path=member.instance_path,
+                public_url=member.public_url,
                 permission_mode=member.permission_mode,
                 lifecycle=member.lifecycle,
                 allow_network=member.allow_network,
@@ -309,6 +326,18 @@ class MCPGatewayProfile:
         members_raw = value.get("members")
         if not isinstance(members_raw, list):
             raise ValueError("Gateway members 字段无效。")
+        migrated_members: list[dict[str, Any]] = []
+        for item in members_raw:
+            if not isinstance(item, dict):
+                continue
+            migrated = dict(item)
+            if (
+                not str(migrated.get("public_url") or "").strip()
+                and not str(migrated.get("instance_path") or "").strip().strip("/")
+                and str(network_raw.get("public_url") or "").strip()
+            ):
+                migrated["public_url"] = str(network_raw.get("public_url") or "")
+            migrated_members.append(migrated)
         return cls(
             gateway_id=str(value.get("gateway_id") or ""),
             name=str(value.get("name") or ""),
@@ -320,8 +349,7 @@ class MCPGatewayProfile:
             mode=str(value.get("mode") or "multi"),
             members=tuple(
                 MCPGatewayMember.from_dict(item)
-                for item in members_raw
-                if isinstance(item, dict)
+                for item in migrated_members
             ),
             host=str(value.get("host") or DEFAULT_HOST),
             port=int(value.get("port") or DEFAULT_PORT),
@@ -444,13 +472,20 @@ class GatewayProfileStore:
                     f"多个 Gateway 不能配置相同地址: {item.host}:{item.port}"
                 )
             endpoints.add(endpoint)
-            hostname = _public_hostname(item.network.public_url)
-            if hostname:
-                if hostname in hostnames:
-                    raise ValueError(
-                        "多个 Gateway 不能配置相同 Public Hostname。"
-                    )
-                hostnames.add(hostname)
+            gateway_hostnames = {
+                hostname
+                for hostname in (
+                    _public_hostname(item.network.public_url),
+                    *(_public_hostname(member.public_url) for member in item.members),
+                )
+                if hostname
+            }
+            overlap = hostnames.intersection(gateway_hostnames)
+            if overlap:
+                raise ValueError(
+                    f"多个 Gateway 不能配置相同 Public Hostname: {sorted(overlap)[0]}"
+                )
+            hostnames.update(gateway_hostnames)
             for member in item.members:
                 if member.server_id in member_ids:
                     raise ValueError(

@@ -88,6 +88,50 @@ class GatewayFrameworkTests(unittest.TestCase):
                     self.assertEqual(route.profile, profile)
                     self.assertEqual(route.kind, kind)
 
+    def test_public_hostname_routes_each_profile_at_root_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            registry = GatewayProfileRegistry()
+            company = registry.register(
+                GatewayProfile(
+                    "company",
+                    "/company",
+                    root,
+                    public_url="https://mcp-company.example.com",
+                )
+            )
+            claude = registry.register(
+                GatewayProfile(
+                    "claude",
+                    "/claude",
+                    root,
+                    public_url="https://mcp-claude.example.com",
+                )
+            )
+
+            self.assertEqual(
+                registry.resolve("/mcp", "mcp-company.example.com").profile,
+                company,
+            )
+            self.assertEqual(
+                registry.resolve("/oauth/token", "mcp-claude.example.com").profile,
+                claude,
+            )
+            self.assertEqual(
+                registry.resolve("/mcp", "mcp-claude.example.com:443").profile,
+                claude,
+            )
+            metadata = registry.resolve(
+                "/.well-known/oauth-authorization-server",
+                "mcp-claude.example.com",
+            )
+            self.assertIsNotNone(metadata)
+            assert metadata is not None
+            self.assertEqual(metadata.profile, claude)
+            self.assertEqual(metadata.kind, "oauth_authorization_metadata")
+            self.assertIsNone(registry.resolve("/mcp", "unknown.example.com"))
+            self.assertEqual(registry.resolve("/claude/mcp", "127.0.0.1").profile, claude)
+
     def test_longest_instance_path_wins(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -134,6 +178,142 @@ class GatewayFrameworkTests(unittest.TestCase):
                 self.assertIs(resolved[1], home_runtime)
             finally:
                 pool.close()
+
+    def test_http_gateway_routes_independent_hostnames_on_one_port(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            company_root = root / "company-host"
+            claude_root = root / "claude-host"
+            company_root.mkdir()
+            claude_root.mkdir()
+            registry = GatewayProfileRegistry()
+            registry.register(GatewayProfile(
+                "company-host",
+                "/company",
+                company_root,
+                public_url="https://mcp-company.example.com",
+            ))
+            registry.register(GatewayProfile(
+                "claude-host",
+                "/claude",
+                claude_root,
+                public_url="https://mcp-claude.example.com",
+            ))
+
+            def factory(profile: GatewayProfile) -> Runtime:
+                return Runtime(
+                    profile.workspace,
+                    oauth_service=OAuthService(
+                        password="password",
+                        server_url=profile.public_url,
+                        token_secret=b"h" * 32,
+                    ),
+                )
+
+            pool = GatewayRuntimePool(registry, factory=factory)
+            server = MCPHTTPServer(("127.0.0.1", 0), gateway_pool=pool)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            port = int(server.server_address[1])
+            try:
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.request("GET", "/", headers={"Host": "mcp-claude.example.com"})
+                response = connection.getresponse()
+                card = json.loads(response.read())
+                self.assertEqual(response.status, 200)
+                self.assertEqual(card["transport"]["endpoint"], "/mcp")
+                connection.close()
+
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.request(
+                    "GET",
+                    "/.well-known/oauth-authorization-server",
+                    headers={"Host": "mcp-company.example.com"},
+                )
+                response = connection.getresponse()
+                metadata = json.loads(response.read())
+                self.assertEqual(response.status, 200)
+                self.assertEqual(metadata["issuer"], "https://mcp-company.example.com")
+                connection.close()
+
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.request(
+                    "GET",
+                    "/mcp",
+                    headers={"Host": "mcp-claude.example.com"},
+                )
+                response = connection.getresponse()
+                response.read()
+                self.assertEqual(response.status, 401)
+                self.assertIn(
+                    'resource_metadata="https://mcp-claude.example.com/.well-known/oauth-protected-resource/mcp"',
+                    response.getheader("WWW-Authenticate", ""),
+                )
+                connection.close()
+
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.request(
+                    "GET",
+                    "/",
+                    headers={
+                        "Host": f"origin.internal:{port}",
+                        "X-Forwarded-Host": "mcp-claude.example.com",
+                    },
+                )
+                response = connection.getresponse()
+                forwarded_card = json.loads(response.read())
+                self.assertEqual(response.status, 200)
+                self.assertEqual(forwarded_card["transport"]["endpoint"], "/mcp")
+                connection.close()
+
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.request(
+                    "GET",
+                    "/claude/",
+                    headers={
+                        "Host": f"127.0.0.1:{port}",
+                        "X-Forwarded-Host": "mcp-claude.example.com",
+                    },
+                )
+                response = connection.getresponse()
+                response.read()
+                self.assertEqual(response.status, 404)
+                connection.close()
+
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.request(
+                    "GET",
+                    "/claude/",
+                    headers={"Host": "mcp-claude.example.com"},
+                )
+                response = connection.getresponse()
+                response.read()
+                self.assertEqual(response.status, 404)
+                connection.close()
+
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.request(
+                    "GET",
+                    "/claude/",
+                    headers={"Host": f"127.0.0.1:{port}"},
+                )
+                response = connection.getresponse()
+                legacy_card = json.loads(response.read())
+                self.assertEqual(response.status, 200)
+                self.assertEqual(legacy_card["transport"]["endpoint"], "/mcp")
+                connection.close()
+
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.request("GET", "/mcp", headers={"Host": "unknown.example.com"})
+                response = connection.getresponse()
+                response.read()
+                self.assertEqual(response.status, 404)
+                connection.close()
+            finally:
+                server.shutdown()
+                server.server_close()
+                pool.close()
+                thread.join(timeout=2)
 
     def test_http_gateway_routes_profiles_and_oauth_metadata_on_one_port(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -28,6 +28,22 @@ def request_path(value: str) -> str:
     return path
 
 
+def request_host(value: str) -> str:
+    raw = str(value or "").split(",", 1)[0].strip().lower()
+    if not raw:
+        return ""
+    try:
+        return (urlsplit(f"//{raw}").hostname or "").lower()
+    except ValueError:
+        return raw
+
+
+def profile_host(profile: GatewayProfile) -> str:
+    if not profile.public_url:
+        return ""
+    return (urlsplit(profile.public_url).hostname or "").lower()
+
+
 class GatewayRouteResolver:
     """Resolve external MCP/OAuth paths to one registered profile.
 
@@ -45,8 +61,27 @@ class GatewayRouteResolver:
             )
         )
 
-    def resolve(self, value: str) -> GatewayRoute | None:
+    @staticmethod
+    def _host_route(profile: GatewayProfile, path: str) -> GatewayRoute:
+        if path.startswith(AUTHORIZATION_METADATA_PREFIX):
+            kind = "oauth_authorization_metadata"
+        elif path.startswith(OPENID_CONFIGURATION_PREFIX):
+            kind = "oauth_authorization_metadata"
+        elif path.startswith(PROTECTED_RESOURCE_METADATA_PREFIX):
+            kind = "oauth_protected_resource_metadata"
+        else:
+            kind = "profile"
+        return GatewayRoute(profile, kind, path)
+
+    def resolve(self, value: str, host: str = "") -> GatewayRoute | None:
         path = request_path(value).rstrip("/") or "/"
+        host_key = request_host(host)
+        if host_key:
+            for profile in self._profiles:
+                if profile_host(profile) == host_key:
+                    return self._host_route(profile, path)
+            if host_key not in {"localhost", "127.0.0.1", "::1"}:
+                return None
         for profile in self._profiles:
             instance = profile.instance_path
             authorization = AUTHORIZATION_METADATA_PREFIX + instance

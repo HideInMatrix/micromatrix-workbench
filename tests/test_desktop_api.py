@@ -78,6 +78,7 @@ class DesktopAPITests(unittest.TestCase):
         port: int = 8234,
         hostname: str = "https://mcp.example.com",
     ) -> dict[str, object]:
+        child_hostname = hostname.replace("://", "://home.", 1)
         return {
             "name": name,
             "host": "127.0.0.1",
@@ -94,6 +95,7 @@ class DesktopAPITests(unittest.TestCase):
                     "workspace": str(self.base),
                     "oauth_password": "company-password",
                     "instance_path": "/company",
+                    "public_url": hostname,
                     "permission_mode": "safe",
                 },
                 {
@@ -101,6 +103,7 @@ class DesktopAPITests(unittest.TestCase):
                     "workspace": str(self.base),
                     "oauth_password": "home-password",
                     "instance_path": "/home",
+                    "public_url": child_hostname,
                     "permission_mode": "trusted",
                 },
             ],

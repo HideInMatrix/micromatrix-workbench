@@ -54,6 +54,16 @@ class GatewayRuntimePool:
             return None
         return route.profile, self.get(route.profile.profile_id)
 
+    def runtime_for_request(
+        self,
+        path: str,
+        host: str = "",
+    ) -> tuple[GatewayProfile, Runtime] | None:
+        route = self.registry.resolve(path, host)
+        if route is None:
+            return None
+        return route.profile, self.get(route.profile.profile_id)
+
     def close_profile(self, profile_id: str) -> None:
         with self._lock:
             runtime = self._runtimes.pop(profile_id, None)

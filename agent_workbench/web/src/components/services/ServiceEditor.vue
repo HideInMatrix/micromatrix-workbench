@@ -37,6 +37,16 @@ const emit = defineEmits<{
   save: []
   toggle: []
 }>()
+
+function profilePublicUrl(member: GatewayMemberDraft, index: number): string {
+  return index === 0 ? draft.value.network.public_url : member.public_url
+}
+
+function updateProfilePublicUrl(member: GatewayMemberDraft, index: number, event: Event) {
+  const value = (event.target as HTMLInputElement).value
+  member.public_url = value
+  if (index === 0) draft.value.network.public_url = value
+}
 </script>
 
 <template>
@@ -81,7 +91,7 @@ const emit = defineEmits<{
     <p class="mt-[7px] mb-0 text-[11px] leading-[18px] text-muted-foreground">
       {{ draft.mode === 'single'
         ? '当前只启动主 Workspace；已配置的子 Profile 会保留，但不会参与本次运行。'
-        : '当前启动主 Workspace 与全部子 Profile，并按 Path 在同一端口分流。' }}
+        : '当前启动全部 Profile；每个 Profile 使用独立 Public Hostname，但共同回源到同一个本地端口。' }}
     </p>
 
     <FormGrid>
@@ -93,9 +103,6 @@ const emit = defineEmits<{
           <option value="cloudflare">Cloudflare Tunnel</option><option value="frp">FRP</option><option value="ngrok">ngrok</option>
           <option value="tailscale">Tailscale Funnel</option><option value="external">自定义公网 URL</option>
         </select>
-      </FormField>
-      <FormField label="Public Hostname" span="2">
-        <input v-model.trim="draft.network.public_url" :disabled="locked || draft.network.provider === 'tailscale'" placeholder="例如 https://mcp.example.com；Quick Tunnel 可留空" />
       </FormField>
       <FormField v-if="draft.network.provider === 'cloudflare'" label="Tunnel Token" span="2">
         <InputGroup>
@@ -121,7 +128,7 @@ const emit = defineEmits<{
     </FormGrid>
 
     <div class="mt-[22px] mb-2.5 flex items-center justify-between gap-4">
-      <div class="grid gap-[3px]"><strong>Workspace Profiles</strong><span class="text-[11px] text-muted-foreground">Profile 是配置；是否启用由上面的运行模式决定。</span></div>
+      <div class="grid gap-[3px]"><strong>Workspace Profiles</strong><span class="text-[11px] text-muted-foreground">每个 Profile 使用独立 hostname；Cloudflare 中可将多个 hostname 全部回源到当前 127.0.0.1:{{ draft.port }}。</span></div>
       <Button variant="outline" size="sm" class="min-h-[30px] px-2.5" :disabled="locked" @click="emit('addProfile')"><Plus :size="14" /> 添加 Profile</Button>
     </div>
 
@@ -134,7 +141,7 @@ const emit = defineEmits<{
         <header class="flex items-center justify-between border-b border-border px-3 py-2.5">
           <div class="flex items-center gap-2">
             <strong>{{ isRootProfile(member, index) ? '主 Workspace' : `Profile ${index + 1}` }}</strong>
-            <code class="text-[11px] text-muted-foreground">{{ isRootProfile(member, index) ? '/mcp' : (normalizePath(member.instance_path) || '需要 Path') }}</code>
+            <code class="max-w-[300px] truncate text-[11px] text-muted-foreground">{{ profilePublicUrl(member, index) || (normalizePath(member.instance_path) ? `旧 Path ${normalizePath(member.instance_path)}` : '需要 Hostname') }}</code>
             <span v-if="!profileEnabled(member, index)" class="rounded-full border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">未启用</span>
           </div>
           <Button variant="ghost" size="icon" class="h-7 w-7 text-muted-foreground" :disabled="locked || draft.members.length <= 1 || isRootProfile(member, index)" @click="emit('removeProfile', index)"><Trash2 :size="14" /></Button>
@@ -142,7 +149,15 @@ const emit = defineEmits<{
 
         <FormGrid class="p-3">
           <FormField label="名称"><input v-model.trim="member.name" :disabled="locked" /></FormField>
-          <FormField label="Path"><input v-if="!isRootProfile(member, index)" v-model="member.instance_path" :disabled="locked" placeholder="/api" /><input v-else value="根路径 /mcp" disabled /></FormField>
+          <FormField label="本地路由"><input :value="isRootProfile(member, index) ? '/' : normalizePath(member.instance_path)" disabled /></FormField>
+          <FormField label="Public Hostname" span="2">
+            <input
+              :value="profilePublicUrl(member, index)"
+              :disabled="locked || draft.network.provider === 'tailscale'"
+              placeholder="例如 https://mcp-claude.example.com"
+              @input="updateProfilePublicUrl(member, index, $event)"
+            />
+          </FormField>
           <FormField label="Workspace" span="2">
             <InputGroup>
               <InputGroupInput v-model="member.workspace" :disabled="locked" />

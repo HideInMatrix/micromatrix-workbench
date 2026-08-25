@@ -46,3 +46,28 @@
 ## 5. 清理
 
 旧文件清理由后续版本单独处理，不在首次重构中自动删除。
+
+## 6. Gateway Path 模型迁移到独立 Hostname
+
+历史多 Workspace Gateway 可能保存为：
+
+```text
+https://mcp.example.com/mcp
+https://mcp.example.com/claude/mcp
+```
+
+升级后采用：
+
+```text
+https://mcp.example.com/mcp
+https://mcp-claude.example.com/mcp
+```
+
+迁移规则：
+
+- 旧 `instance_path` 字段继续读取，不立即删除。
+- 主 Workspace 若没有成员级 `public_url`，自动沿用 Service 的 `network.public_url`。
+- 子 Profile 若没有独立 `public_url`，继续以 legacy Path 模式运行，避免升级后直接失效。
+- 用户在服务页面为子 Profile 填写独立 Public Hostname 并保存后，该 Profile 公网入口切换到 Host-based `/mcp`。
+- 新建或重新保存的 `multi` Service 必须为每个 Profile 提供独立 Public Hostname。
+- 旧 `instance_path` 在迁移后仍作为本地兼容路由保留，不再作为公网 OAuth issuer 的组成部分。

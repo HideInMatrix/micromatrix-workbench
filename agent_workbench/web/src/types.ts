@@ -46,6 +46,7 @@ export interface GatewayMemberDto {
   oauth_password: string
   has_saved_password: boolean
   instance_path: string
+  public_url: string
   permission_mode: 'safe' | 'trusted' | 'dangerous'
   lifecycle: 'persistent' | 'ephemeral'
   allow_network: boolean
@@ -62,6 +63,7 @@ export interface GatewayMemberDraft {
   workspace: string
   oauth_password: string
   instance_path: string
+  public_url: string
   permission_mode: 'safe' | 'trusted' | 'dangerous'
   allow_network: boolean
   enable_view_image: boolean
@@ -98,6 +100,7 @@ export interface GatewayProfileDiagnosticDto {
   server_id: string
   name: string
   instance_path: string
+  public_base_url: string
   ok: boolean
   checks: string[]
   errors: string[]

@@ -41,8 +41,8 @@ interface ServiceContext extends ServiceState {
 }
 
 const diagnosticCheckLabels: Record<string, string> = {
-  local_path_runtime: '本地 Path → Runtime',
-  public_path_runtime: '公网 Path → Runtime',
+  local_path_runtime: '本地 Gateway → Runtime',
+  public_path_runtime: '公网 Hostname → Runtime',
   server_card: 'Server Card',
   oauth_authorization_metadata: 'OAuth Authorization Metadata',
   oauth_protected_resource: 'OAuth Protected Resource Metadata',
@@ -121,6 +121,8 @@ function runtimeUrl(context: ServiceContext, member: GatewayMemberDraft): string
     const runtime = current.gateway.members.find(item => item.server_id === member.server_id)
     if (runtime?.public_mcp_url) return runtime.public_mcp_url
   }
+  const memberBase = member.public_url.trim().replace(/\/+$/, '')
+  if (memberBase) return `${memberBase}/mcp`
   const base = context.draft.value.network.public_url.trim().replace(/\/+$/, '')
   return base ? `${base}${normalizePath(member.instance_path)}/mcp` : ''
 }
@@ -130,7 +132,7 @@ function setMode(context: ServiceContext, mode: 'single' | 'multi') {
   if (mode === 'single') {
     const hasRoot = context.draft.value.members.some((member, index) => isRootProfile(context, member, index))
     if (!hasRoot) {
-      context.errorMessage.value = '当前服务没有根 Workspace。请先将一个 Profile 的 Path 清空为根路径，再切换到单 Workspace。'
+      context.errorMessage.value = '当前服务没有主 Workspace，无法切换到单 Workspace。'
       return
     }
   }

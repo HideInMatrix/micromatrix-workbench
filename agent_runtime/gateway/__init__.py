@@ -7,7 +7,7 @@ from .config import (
     build_gateway_runtime_pool,
     load_gateway_config,
 )
-from .models import GatewayProfile, normalize_instance_path
+from .models import GatewayProfile, normalize_instance_path, normalize_public_url
 from .registry import GatewayProfileRegistry
 from .routes import GatewayRoute, GatewayRouteResolver
 from .runtime_pool import GatewayRuntimePool, default_runtime_factory
@@ -27,5 +27,6 @@ __all__ = [
     "default_runtime_factory",
     "load_gateway_config",
     "normalize_instance_path",
+    "normalize_public_url",
 ]
 

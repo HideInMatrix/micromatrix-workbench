@@ -46,14 +46,14 @@ const targets = computed<OAuthTarget[]>(() => [
     lifecycle: server.lifecycle,
     clientCount: server.oauth_client_count,
   })),
-  ...gateways.value.flatMap(gateway => gateway.members.map(member => ({
+  ...gateways.value.flatMap(gateway => gateway.members.map((member, index) => ({
     key: `gateway:${gateway.gateway_id}:${member.server_id}`,
     kind: 'gateway' as const,
     gatewayId: gateway.gateway_id,
     serverId: member.server_id,
-    label: `服务 · ${gateway.name} / ${member.instance_path ? member.name : '主 Workspace'}`,
-    detail: member.instance_path ? `${member.instance_path}/mcp` : '/mcp',
-    running: gateway.running && (gateway.mode === 'multi' || member.instance_path === ''),
+    label: `服务 · ${gateway.name} / ${index === 0 ? '主 Workspace' : member.name}`,
+    detail: member.public_mcp_url || (member.public_url ? `${member.public_url}/mcp` : `${member.instance_path || ''}/mcp`),
+    running: gateway.running && (gateway.mode === 'multi' || index === 0),
     lifecycle: member.lifecycle,
     clientCount: member.oauth_client_count,
   }))),

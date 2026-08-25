@@ -12,7 +12,7 @@ from ..local_permission_broker import LocalPermissionBrokerClient
 from ..oauth import OAuthClientRegistry, OAuthObservedClientRegistry
 from ..oauth_service import OAuthService
 from ..runtime import Runtime
-from .models import GatewayProfile
+from .models import GatewayProfile, normalize_public_url
 from .registry import GatewayProfileRegistry
 from .runtime_pool import GatewayRuntimePool
 
@@ -38,12 +38,18 @@ class GatewayOAuthSettings:
             raise ValueError(
                 f"gateway profile {profile.profile_id} OAuth server_url must be http/https"
             )
-        issuer_path = (parsed.path or "").rstrip("/")
-        if issuer_path != profile.instance_path:
-            raise ValueError(
-                f"gateway profile {profile.profile_id} issuer path {issuer_path or '/'} "
-                f"does not match instance_path {profile.instance_path}"
-            )
+        if profile.public_url:
+            if normalize_public_url(server_url) != profile.public_url:
+                raise ValueError(
+                    f"gateway profile {profile.profile_id} OAuth server_url does not match public_url"
+                )
+        else:
+            issuer_path = (parsed.path or "").rstrip("/")
+            if issuer_path != profile.instance_path:
+                raise ValueError(
+                    f"gateway profile {profile.profile_id} issuer path {issuer_path or '/'} "
+                    f"does not match instance_path {profile.instance_path}"
+                )
         try:
             token_secret = bytes.fromhex(self.token_secret_hex.strip())
         except ValueError as exc:
@@ -103,6 +109,7 @@ class GatewayProfileConfig:
             profile_id=profile.profile_id,
             instance_path=profile.instance_path,
             workspace=workspace,
+            public_url=profile.public_url,
             permission_mode=profile.permission_mode,
             allow_network=profile.allow_network,
             enable_view_image=profile.enable_view_image,
@@ -140,6 +147,7 @@ def _profile_config_from_dict(value: dict[str, Any]) -> GatewayProfileConfig:
         profile_id=str(value.get("profile_id") or ""),
         instance_path=str(value.get("instance_path") or ""),
         workspace=Path(str(value.get("workspace") or "")),
+        public_url=str(value.get("public_url") or ""),
         permission_mode=str(value.get("permission_mode") or "safe"),
         allow_network=bool(value.get("allow_network", False)),
         enable_view_image=bool(value.get("enable_view_image", True)),

@@ -342,6 +342,22 @@ class DesktopAPI:
             return ""
         return (urlsplit(network.public_url).hostname or "").lower()
 
+    @staticmethod
+    def _member_public_hostname(member: MCPGatewayMember) -> str:
+        if not member.public_url:
+            return ""
+        return (urlsplit(member.public_url).hostname or "").lower()
+
+    def _gateway_public_hostnames(self, gateway: MCPGatewayProfile) -> set[str]:
+        return {
+            hostname
+            for hostname in (
+                self._public_hostname(gateway.network),
+                *(self._member_public_hostname(member) for member in gateway.members),
+            )
+            if hostname
+        }
+
     def _next_available_port(self, start: int = 8234) -> int:
         used = {profile.port for profile in self.store.list()}
         used.update(gateway.port for gateway in self.gateway_store.list())
@@ -363,7 +379,7 @@ class DesktopAPI:
                 raise ValueError(
                     f"该地址已被 Local MCP Gateway 使用: {host}:{port}"
                 )
-            if hostname and hostname == self._public_hostname(gateway.network):
+            if hostname and hostname in self._gateway_public_hostnames(gateway):
                 raise ValueError(
                     "该 Public Hostname 已被 Local MCP Gateway 使用；"
                     "直连 Server 必须使用独立 hostname。"
@@ -375,9 +391,17 @@ class DesktopAPI:
         network: NetworkConfig,
         host: str,
         port: int,
+        members: tuple[MCPGatewayMember, ...] = (),
         ignore_server_id: str = "",
     ) -> None:
-        hostname = self._public_hostname(network)
+        hostnames = {
+            hostname
+            for hostname in (
+                self._public_hostname(network),
+                *(self._member_public_hostname(member) for member in members),
+            )
+            if hostname
+        }
         for profile in self.store.list():
             if ignore_server_id and profile.server_id == ignore_server_id:
                 continue
@@ -385,11 +409,34 @@ class DesktopAPI:
                 raise ValueError(
                     f"该地址已被直连 MCP Server 使用: {host}:{port}"
                 )
-            if hostname and hostname == self._public_hostname(profile.network):
+            if self._public_hostname(profile.network) in hostnames:
                 raise ValueError(
                     "该 Public Hostname 已被直连 MCP Server 使用；"
                     "Gateway 必须使用独立 hostname。"
                 )
+
+    @staticmethod
+    def _validate_gateway_hostname_model(
+        network: NetworkConfig,
+        members: tuple[MCPGatewayMember, ...],
+        mode: str,
+    ) -> None:
+        if mode != "multi":
+            return
+        if not network.public_url:
+            raise ValueError(
+                "多 Workspace 模式需要固定 Public Hostname；"
+                "Cloudflare 请使用 Named Tunnel。"
+            )
+        missing = [member.name for member in members if not member.public_url]
+        if missing:
+            raise ValueError(
+                "多 Workspace 模式要求每个 Profile 配置独立 Public Hostname。"
+                f"缺少: {', '.join(missing)}"
+            )
+        primary = members[0].public_url.rstrip("/")
+        if primary != network.public_url.rstrip("/"):
+            raise ValueError("主 Workspace Profile Hostname 必须与服务 Public Hostname 一致。")
 
     def _gateway_payload(self, gateway: MCPGatewayProfile) -> dict[str, object]:
         status = self.gateway_manager.status(gateway.gateway_id)
@@ -414,6 +461,7 @@ class DesktopAPI:
                     "oauth_password": member.oauth_password,
                     "has_saved_password": bool(member.oauth_password),
                     "instance_path": member.instance_path,
+                    "public_url": member.public_url,
                     "permission_mode": member.permission_mode,
                     "lifecycle": member.lifecycle,
                     "allow_network": member.allow_network,
@@ -466,6 +514,7 @@ class DesktopAPI:
                     "server_id": profile.server_id,
                     "name": profile.name,
                     "instance_path": profile.instance_path,
+                    "public_base_url": profile.public_base_url,
                     "ok": profile.ok,
                     "checks": list(profile.checks),
                     "errors": list(profile.errors),
@@ -501,6 +550,10 @@ class DesktopAPI:
                     value.get("instance_path")
                     or (current.instance_path if current else "")
                 ),
+                public_url=str(
+                    value.get("public_url")
+                    or (current.public_url if current else "")
+                ),
                 permission_mode=str(
                     value.get("permission_mode")
                     or (current.permission_mode if current else "safe")
@@ -524,6 +577,7 @@ class DesktopAPI:
             workspace=Path(str(value.get("workspace") or "")),
             oauth_password=password,
             instance_path=str(value.get("instance_path") or ""),
+            public_url=str(value.get("public_url") or ""),
             permission_mode=str(value.get("permission_mode") or "safe"),
             lifecycle=lifecycle,
             allow_network=bool(value.get("allow_network", False)),
@@ -769,11 +823,6 @@ class DesktopAPI:
         remember = bool(payload.get("remember_secrets", True))
         host = str(payload.get("host") or "127.0.0.1")
         port = int(payload.get("port") or self._next_available_port())
-        self._assert_gateway_resources_available(
-            network=network,
-            host=host,
-            port=port,
-        )
         raw_members = payload.get("members")
         if not isinstance(raw_members, list) or not raw_members:
             raise ValueError("Gateway 至少需要一个 Member。")
@@ -786,11 +835,19 @@ class DesktopAPI:
             )
             for raw in raw_members
         )
+        mode = str(payload.get("mode") or "multi").strip().lower()
+        self._validate_gateway_hostname_model(network, members, mode)
+        self._assert_gateway_resources_available(
+            network=network,
+            host=host,
+            port=port,
+            members=members,
+        )
         gateway = self.gateway_store.create(
             name=str(payload.get("name") or ""),
             network=self._persistable_network(network, remember),
             members=members,
-            mode=str(payload.get("mode") or "multi"),
+            mode=mode,
             host=host,
             port=port,
         )
@@ -881,6 +938,9 @@ class DesktopAPI:
                         else ""
                     ),
                     instance_path="",
+                    public_url=str(
+                        value.get("public_url") or current.network.public_url
+                    ),
                     permission_mode=str(
                         value.get("permission_mode") or current.permission_mode
                     ),
@@ -912,11 +972,6 @@ class DesktopAPI:
         remember = bool(payload.get("remember_secrets", True))
         host = str(payload.get("host") or current.host)
         port = int(payload.get("port") or current.port)
-        self._assert_gateway_resources_available(
-            network=network,
-            host=host,
-            port=port,
-        )
         lifecycle = default_lifecycle(network)
         members, removed_members = self._updated_gateway_members(
             current,
@@ -924,13 +979,21 @@ class DesktopAPI:
             lifecycle=lifecycle,
             remember_secrets=remember,
         )
+        mode = str(payload.get("mode") or current.mode).strip().lower()
+        self._validate_gateway_hostname_model(network, members, mode)
+        self._assert_gateway_resources_available(
+            network=network,
+            host=host,
+            port=port,
+            members=members,
+        )
         gateway = self.gateway_store.save(
             MCPGatewayProfile(
                 gateway_id=current.gateway_id,
                 name=str(payload.get("name") or current.name),
                 network=self._persistable_network(network, remember),
                 members=members,
-                mode=str(payload.get("mode") or current.mode),
+                mode=mode,
                 host=host,
                 port=port,
                 created_at=current.created_at,
@@ -962,18 +1025,21 @@ class DesktopAPI:
         remember = bool(payload.get("remember_secrets", True))
         host = str(payload.get("host") or current.host)
         port = int(payload.get("port") or current.port)
-        self._assert_gateway_resources_available(
-            network=network,
-            host=host,
-            port=port,
-            ignore_server_id=server_id,
-        )
         lifecycle = default_lifecycle(network)
         members = self._promoted_gateway_members(
             current,
             payload.get("members"),
             lifecycle=lifecycle,
             remember_secrets=remember,
+        )
+        mode = str(payload.get("mode") or "multi").strip().lower()
+        self._validate_gateway_hostname_model(network, members, mode)
+        self._assert_gateway_resources_available(
+            network=network,
+            host=host,
+            port=port,
+            members=members,
+            ignore_server_id=server_id,
         )
 
         gateway = self.gateway_store.save(
@@ -982,7 +1048,7 @@ class DesktopAPI:
                 name=str(payload.get("name") or current.name),
                 network=self._persistable_network(network, remember),
                 members=members,
-                mode=str(payload.get("mode") or "multi"),
+                mode=mode,
                 host=host,
                 port=port,
                 created_at=current.created_at,

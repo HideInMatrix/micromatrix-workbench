@@ -111,6 +111,65 @@ class GatewayProcessTests(unittest.TestCase):
             finally:
                 prepared.cleanup()
 
+    def test_prepare_gateway_config_uses_independent_profile_hostnames(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            company_root = root / "company-host"
+            claude_root = root / "claude-host"
+            company_root.mkdir()
+            claude_root.mkdir()
+            company_persistence = OAuthPersistence(
+                registry_file=root / "company-host-clients.json",
+                token_secret_hex="33" * 32,
+            )
+            claude_persistence = OAuthPersistence(
+                registry_file=root / "claude-host-clients.json",
+                token_secret_hex="44" * 32,
+            )
+            config = GatewayProcessConfig(
+                public_base_url="https://mcp.example.com",
+                profiles=(
+                    GatewayChildProfile(
+                        server_id="company-host",
+                        name="Company",
+                        workspace=company_root,
+                        oauth_password="company-password",
+                        instance_path="/company",
+                        public_url="https://mcp.example.com",
+                    ),
+                    GatewayChildProfile(
+                        server_id="claude-host",
+                        name="Claude",
+                        workspace=claude_root,
+                        oauth_password="claude-password",
+                        instance_path="/claude",
+                        public_url="https://mcp-claude.example.com",
+                    ),
+                ),
+            )
+            persistence_by_issuer = {
+                "https://mcp.example.com": company_persistence,
+                "https://mcp-claude.example.com": claude_persistence,
+            }
+
+            with (
+                patch(
+                    "agent_workbench.gateway_process.prepare_issuer_oauth_persistence",
+                    side_effect=lambda issuer: persistence_by_issuer[issuer],
+                ),
+                patch("agent_workbench.gateway_process.bind_server_oauth_issuer"),
+            ):
+                prepared = prepare_gateway_config(config)
+            try:
+                payload = json.loads(prepared.config_file.read_text(encoding="utf-8"))
+                by_id = {item["profile_id"]: item for item in payload["profiles"]}
+                self.assertEqual(by_id["company-host"]["public_url"], "https://mcp.example.com")
+                self.assertEqual(by_id["claude-host"]["public_url"], "https://mcp-claude.example.com")
+                self.assertEqual(by_id["company-host"]["oauth"]["server_url"], "https://mcp.example.com")
+                self.assertEqual(by_id["claude-host"]["oauth"]["server_url"], "https://mcp-claude.example.com")
+            finally:
+                prepared.cleanup()
+
     def test_gateway_command_uses_single_gateway_config(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

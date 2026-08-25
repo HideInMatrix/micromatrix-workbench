@@ -16,7 +16,7 @@
 8. `08-MIGRATION.md`：旧单 Server 配置迁移策略
 9. `09-PYWEBVIEW-VUE-MIGRATION.md`：pywebview + Vue 展示层重构方案
 10. `10-UI-DESIGN-GUIDELINES.md`：桌面端 UI 设计、按钮、导航、间距与组件统一规范
-11. `11-LOCAL-MCP-GATEWAY.md`：同一台机器一个入口端口按 Path 承载多个 Profile 的后续架构
+11. `11-LOCAL-MCP-GATEWAY.md`：同一台机器一个入口端口按独立 Public Hostname 承载多个 Profile 的架构
 
 ## 核心设计结论
 
@@ -28,7 +28,8 @@
 - 固定域名 Server 保存 OAuth Client，重启后恢复。
 - Cloudflare Quick Tunnel 作为临时 Session，公网 URL 和 OAuth Client 随 Session 销毁。
 - Cloudflare 多电脑固定入口采用“每台电脑独立 Public Hostname + 独立 Named Tunnel/Token”，不使用 Path Router 做跨电脑分流。
-- URL Path 能力保留给后续 Local MCP Gateway；当前直连模式同一个 Public Hostname 只允许一个 Server Profile。
+- 同一台机器的 Local MCP Gateway 使用“一个本地端口 + 每个 Profile 独立 Public Hostname”；同一个 Named Tunnel 可以把多条 hostname 全部回源到该端口，Gateway 按 HTTP Host 选择 Runtime。
+- 新多 Workspace Profile 对外统一使用 `/mcp`；旧 `instance_path` 仅保留为本地兼容路由和历史配置迁移能力。
 - OAuth `client_id` 继续通过 `/oauth/register` 动态生成，不恢复手工 Client ID / Client Secret 配置。
 - 桌面端增加 OAuth Client 管理能力，可查看和撤销当前 Server 已注册 Client。
 - 桌面展示层统一迁移到 pywebview + Vue 3.5 + TypeScript + Vite。

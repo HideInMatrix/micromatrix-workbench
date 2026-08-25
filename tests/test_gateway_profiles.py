@@ -29,6 +29,7 @@ class GatewayProfileStoreTests(unittest.TestCase):
         name: str,
         path: str,
         password: str = "password",
+        public_url: str = "",
     ) -> MCPGatewayMember:
         workspace = root / server_id
         workspace.mkdir(exist_ok=True)
@@ -38,6 +39,7 @@ class GatewayProfileStoreTests(unittest.TestCase):
             workspace=workspace,
             oauth_password=password,
             instance_path=path,
+            public_url=public_url,
         ).validated()
 
     def test_store_round_trip_preserves_stable_member_identity(self) -> None:
@@ -77,6 +79,42 @@ class GatewayProfileStoreTests(unittest.TestCase):
             self.assertEqual(
                 [member.instance_path for member in reloaded.members],
                 ["/company", "/home"],
+            )
+
+    def test_store_round_trip_preserves_independent_profile_hostnames(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = GatewayProfileStore(root / "gateways.json")
+            company = self._member(
+                root,
+                server_id="company-host",
+                name="Company",
+                path="",
+                public_url="https://mcp.example.com",
+            )
+            claude = self._member(
+                root,
+                server_id="claude-host",
+                name="Claude",
+                path="/claude",
+                public_url="https://mcp-claude.example.com",
+            )
+            gateway = store.create(
+                name="Host Gateway",
+                network=NetworkConfig(
+                    provider="cloudflare",
+                    public_url="https://mcp.example.com",
+                    options={"tunnel_token": "token"},
+                ),
+                members=(company, claude),
+            )
+
+            reloaded = store.get(gateway.gateway_id)
+            self.assertIsNotNone(reloaded)
+            assert reloaded is not None
+            self.assertEqual(
+                [member.public_url for member in reloaded.members],
+                ["https://mcp.example.com", "https://mcp-claude.example.com"],
             )
 
     def test_single_mode_persists_child_profiles_without_enabling_them(self) -> None:
