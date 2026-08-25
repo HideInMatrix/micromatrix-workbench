@@ -90,6 +90,7 @@ class MCPLauncher:
                     ROUTE_PROBE_HEADER: route_probe_token,
                     "Cache-Control": "no-cache",
                     "Connection": "close",
+                    "User-Agent": "MicroMatrix-Workbench-Probe/1.0",
                 },
                 method="GET",
             )

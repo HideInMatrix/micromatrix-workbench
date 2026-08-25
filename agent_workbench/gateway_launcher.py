@@ -50,6 +50,7 @@ from .process_utils import LogCallback, check_port_available
 
 DIAGNOSTIC_OAUTH_CLIENT_NAME = "MicroMatrix Workbench E2E Diagnostic"
 DIAGNOSTIC_OAUTH_REDIRECT_URI = "https://micromatrix.invalid/oauth/callback"
+DIAGNOSTIC_USER_AGENT = "MicroMatrix-Workbench-E2E/1.0"
 DIAGNOSTIC_HTTP_TIMEOUT_SECONDS = 9.0
 DIAGNOSTIC_STARTUP_GRACE_SECONDS = 1.5
 
@@ -269,7 +270,11 @@ class MCPGatewayLauncher:
     ) -> tuple[dict[str, object], dict[str, str]]:
         request = urllib.request.Request(
             url,
-            headers={"Cache-Control": "no-cache", **(headers or {})},
+            headers={
+                "Cache-Control": "no-cache",
+                "User-Agent": DIAGNOSTIC_USER_AGENT,
+                **(headers or {}),
+            },
             method="GET",
         )
         with urllib.request.urlopen(
@@ -296,6 +301,7 @@ class MCPGatewayLauncher:
                 "Cache-Control": "no-cache",
                 "Content-Type": "application/json",
                 "Accept": "application/json",
+                "User-Agent": DIAGNOSTIC_USER_AGENT,
             },
             method="POST",
         )
@@ -327,6 +333,7 @@ class MCPGatewayLauncher:
                 "Cache-Control": "no-cache",
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Accept": "application/json",
+                "User-Agent": DIAGNOSTIC_USER_AGENT,
             },
             method="POST",
         )
@@ -379,6 +386,7 @@ class MCPGatewayLauncher:
             headers={
                 "Cache-Control": "no-cache",
                 "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": DIAGNOSTIC_USER_AGENT,
             },
             method="POST",
         )
@@ -578,7 +586,10 @@ class MCPGatewayLauncher:
     ) -> None:
         request = urllib.request.Request(
             profile.public_mcp_url,
-            headers={"Cache-Control": "no-cache"},
+            headers={
+                "Cache-Control": "no-cache",
+                "User-Agent": DIAGNOSTIC_USER_AGENT,
+            },
             method="GET",
         )
         try:

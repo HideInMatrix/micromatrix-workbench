@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from agent_workbench.config import LaunchInfo, NetworkConfig
 from agent_workbench.gateway_launcher import (
+    DIAGNOSTIC_USER_AGENT,
     GatewayLaunchConfig,
     GatewayLaunchInfo,
     GatewayProfileLaunchInfo,
@@ -443,6 +444,39 @@ class GatewayLauncherTests(unittest.TestCase):
             self.assertLessEqual(len(verifier), 128)
             self.assertEqual(token_fields["code"], "diagnostic-code")
             self.assertEqual(token_fields["resource"], profile.public_mcp_url)
+
+    def test_gateway_diagnostic_requests_use_explicit_user_agent(self) -> None:
+        launcher = MCPGatewayLauncher()
+        captured_requests: list[object] = []
+
+        class _JsonResponse:
+            status = 200
+            headers = Message()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self) -> bytes:
+                return b'{"ok":true}'
+
+        def fake_urlopen(request, **_kwargs):
+            captured_requests.append(request)
+            return _JsonResponse()
+
+        with patch(
+            "agent_workbench.gateway_launcher.urllib.request.urlopen",
+            side_effect=fake_urlopen,
+        ):
+            launcher._json_get("https://mcp.example.com/")
+
+        self.assertEqual(len(captured_requests), 1)
+        self.assertEqual(
+            captured_requests[0].get_header("User-agent"),  # type: ignore[attr-defined]
+            DIAGNOSTIC_USER_AGENT,
+        )
 
     def test_single_mode_uses_only_root_runtime_even_when_child_profiles_are_saved(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
