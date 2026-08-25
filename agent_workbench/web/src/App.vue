@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ChevronDown } from '@lucide/vue'
 import { RouterView } from 'vue-router'
+import { Button } from '@/components/ui/button'
 import { desktopApi } from './api/desktop'
 import AppSidebar from './components/AppSidebar.vue'
 import type { PermissionRequestDto } from './types'
@@ -137,18 +138,19 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
       <p class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">“仅允许本次”只作用于当前调用；“本次服务会话全部允许”在当前 MCP Server 停止或重启前，对同一已认证客户端自动放行可临时授权的权限。Workspace 边界和不可临时提升的系统限制仍然生效。</p>
 
       <footer class="mt-4 flex justify-end gap-2">
-        <button class="secondary-button min-w-[88px]" :disabled="permissionResponding" @click="respondPermission('deny')">拒绝</button>
+        <Button variant="outline" size="sm" class="min-w-[88px]" :disabled="permissionResponding" @click="respondPermission('deny')">拒绝</Button>
         <div class="relative inline-flex">
-          <button class="primary-button min-w-[104px] !rounded-r-none !rounded-l-[7px]" :disabled="permissionResponding" @click="respondPermission('once')">仅允许本次</button>
-          <button
-            class="primary-button w-[34px] min-w-0 !rounded-l-none !rounded-r-[7px] border-l border-l-white/20 px-0"
+          <Button class="min-w-[104px] !rounded-r-none !rounded-l-[7px]" size="sm" :disabled="permissionResponding" @click="respondPermission('once')">仅允许本次</Button>
+          <Button
+            class="w-[34px] min-w-0 !rounded-l-none !rounded-r-[7px] border-l border-l-white/20 px-0"
+            size="sm"
             :disabled="permissionResponding"
             title="更多授权方式"
             aria-label="更多授权方式"
             @click="permissionMenuOpen = !permissionMenuOpen"
           >
             <ChevronDown :size="16" />
-          </button>
+          </Button>
           <div v-if="permissionMenuOpen" class="absolute right-0 bottom-[calc(100%+8px)] z-40 w-[250px] rounded-lg border border-border bg-background p-[5px] shadow-[0_14px_36px_rgb(0_0_0/0.18)]">
             <button
               class="flex w-full min-w-0 flex-col items-start gap-0.5 rounded-md border-0 bg-transparent px-2.5 py-[9px] text-left text-foreground hover:bg-secondary"

@@ -8,15 +8,25 @@
 
 项目不以任何第三方 MCP Server 实现或版本作为技术兼容基线。实现正确性由 MCP/OAuth 等公开协议规范、本项目 Server Contract、安全设计和回归测试共同约束。
 
+### agent_runtime 版本策略
+
+`agent_runtime` 使用独立的 Semantic Versioning，不跟随 MicroMatrix Workbench 桌面端发布版本：
+
+- 仅修复 `agent_runtime` 内部缺陷、且不改变兼容行为时递增 Patch；
+- 新增向后兼容的 MCP、OAuth、工具、沙箱或 Runtime 能力时递增 Minor；
+- 修改公开协议行为、工具 Contract 或其他不兼容行为时递增 Major。
+
+版本源以 `agent_runtime/__init__.py` 中的 `__version__` 为准。只要 `agent_runtime` 的可观察运行行为发生变化，就必须同步评估并更新该版本；桌面端 Git Tag、安装包版本和 `agent_workbench` 版本不得反向覆盖它。
+
 当前自研服务端版本：
 
 ```text
-agent-runtime 0.1.0
+agent-runtime 0.2.0
 ```
 
 ### 项目版本与 Server Contract
 
-`0.1.0` 是本仓库自研服务端的项目版本。版本号仅描述本项目自己的功能、兼容性与发布节奏，不跟随其他实现。
+当前 `agent_runtime` 版本为 `0.2.0`。版本号仅描述本项目自己的功能、兼容性与发布节奏，不跟随桌面端或其他实现。
 
 服务端行为以本项目的 **Server Contract** 为基线，主要包括：
 
@@ -763,6 +773,10 @@ public client
 client_secret_post
 client_secret_basic
 ```
+
+PKCE 的两个值必须分别校验：S256 `code_challenge` 是固定 43 个 base64url 字符；RFC 7636 `code_verifier` 则允许 43–128 个 ASCII unreserved 字符。禁止把 challenge 的固定长度规则复用于 verifier，否则 Claude 等客户端生成较长 verifier 时会在 `/oauth/token` 阶段被错误拒绝。
+
+OAuth HTTP 层会输出脱敏的阶段诊断，例如 `authorize_request`、`authorize_code_issued`、`token_request`、`token_rejected`、`token_issued`。日志只记录 client 类型、redirect host、grant 类型、verifier 长度和失败分类，不记录 Password、authorization code、code verifier、access token 或 refresh token 的值。
 
 Access Token 使用项目自己的 HMAC 格式：
 

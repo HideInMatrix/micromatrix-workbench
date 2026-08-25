@@ -12,6 +12,7 @@ from typing import Any, Protocol
 from .cimd import CIMDClientResolver, DEFAULT_CIMD_CLIENT_RESOLVER
 from .oauth import (
     OAUTH_MAX_BODY_BYTES,
+    is_client_id_metadata_url,
     valid_pkce_challenge,
     verify_pkce,
 )
@@ -50,6 +51,44 @@ class OAuthHTTPController:
 
     def __init__(self, resolver: CIMDClientResolver | None = None) -> None:
         self._resolver = resolver or DEFAULT_CIMD_CLIENT_RESOLVER
+
+    @staticmethod
+    def _diag(event: str, **fields: object) -> None:
+        """Emit OAuth flow diagnostics without credential or token material."""
+
+        safe_fields: list[str] = []
+        for key, value in fields.items():
+            text = str(value).replace("\r", "?").replace("\n", "?")[:160]
+            safe_fields.append(f"{key}={text}")
+        suffix = f" {' '.join(safe_fields)}" if safe_fields else ""
+        print(f"[oauth] {event}{suffix}", flush=True)
+
+    @staticmethod
+    def _client_kind(client_id: str) -> str:
+        if not client_id:
+            return "missing"
+        return "cimd" if is_client_id_metadata_url(client_id) else "registered"
+
+    @staticmethod
+    def _redirect_host(redirect_uri: str) -> str:
+        try:
+            return urllib.parse.urlparse(redirect_uri).hostname or "missing"
+        except ValueError:
+            return "invalid"
+
+    @staticmethod
+    def _authorize_error_code(error: str) -> str:
+        if error.startswith("Invalid client metadata"):
+            return "invalid_client_metadata"
+        mapping = {
+            "OAuth is not enabled": "oauth_disabled",
+            "Unknown client_id": "unknown_client_id",
+            "redirect_uri is not registered": "redirect_uri",
+            "response_type must be code": "response_type",
+            "code_challenge_method must be S256": "challenge_method",
+            "invalid code_challenge": "challenge",
+        }
+        return mapping.get(error, "validation")
 
     def authorization_metadata(self, handler: OAuthHTTPContext) -> dict[str, Any]:
         base = handler._base_url()
@@ -143,10 +182,23 @@ class OAuthHTTPController:
             keep_blank_values=True,
         )
         params = {key: values[-1] if values else "" for key, values in query.items()}
+        self._diag(
+            "authorize_request",
+            method="GET",
+            client=self._client_kind(params.get("client_id", "")),
+            redirect_host=self._redirect_host(params.get("redirect_uri", "")),
+            resource=bool(params.get("resource", "").strip()),
+        )
         _, error = self._validate_authorize(handler, params)
         if error:
+            self._diag(
+                "authorize_rejected",
+                method="GET",
+                reason=self._authorize_error_code(error),
+            )
             handler._html(400, self.authorize_page(handler, params, error))
             return
+        self._diag("authorize_ready", method="GET")
         handler._html(200, self.authorize_page(handler, params))
 
     def authorize_post(self, handler: OAuthHTTPContext) -> None:
@@ -162,11 +214,24 @@ class OAuthHTTPController:
                 {"error": "invalid_request", "error_description": str(exc)},
             )
             return
+        self._diag(
+            "authorize_request",
+            method="POST",
+            client=self._client_kind(params.get("client_id", "")),
+            redirect_host=self._redirect_host(params.get("redirect_uri", "")),
+            resource=bool(params.get("resource", "").strip()),
+        )
         _, error = self._validate_authorize(handler, params)
         if error:
+            self._diag(
+                "authorize_rejected",
+                method="POST",
+                reason=self._authorize_error_code(error),
+            )
             handler._html(400, self.authorize_page(handler, params, error))
             return
         if not secrets.compare_digest(params.get("password", ""), config.password):
+            self._diag("authorize_rejected", method="POST", reason="password")
             handler._html(
                 401,
                 self.authorize_page(handler, params, "Incorrect password"),
@@ -179,6 +244,7 @@ class OAuthHTTPController:
             and config.resource
             and normalized_resource != config.resource
         ):
+            self._diag("authorize_rejected", method="POST", reason="resource")
             handler._html(
                 400,
                 self.authorize_page(
@@ -194,6 +260,10 @@ class OAuthHTTPController:
             params["redirect_uri"],
             params["code_challenge"],
             normalized_resource,
+        )
+        self._diag(
+            "authorize_code_issued",
+            client=self._client_kind(params.get("client_id", "")),
         )
         parsed = urllib.parse.urlparse(params["redirect_uri"])
         query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
@@ -225,14 +295,27 @@ class OAuthHTTPController:
             )
             return
         grant_type = params.get("grant_type")
+        self._diag(
+            "token_request",
+            grant=grant_type or "missing",
+            client=self._client_kind(params.get("client_id", "")),
+            verifier_len=(
+                len(params.get("code_verifier", ""))
+                if grant_type == "authorization_code"
+                else 0
+            ),
+            resource=bool(params.get("resource", "").strip()),
+        )
         if grant_type == "refresh_token":
             self._refresh_token_post(handler, config, params)
             return
         if grant_type != "authorization_code":
+            self._diag("token_rejected", reason="grant_type")
             handler._json(400, {"error": "unsupported_grant_type"})
             return
         code = config.consume_code(params.get("code", ""))
         if code is None:
+            self._diag("token_rejected", reason="authorization_code")
             handler._json(
                 400,
                 {
@@ -247,6 +330,7 @@ class OAuthHTTPController:
             params,
         )
         if client_id != code.client_id:
+            self._diag("token_rejected", reason="client_binding")
             handler._json(400, {"error": "invalid_grant"})
             return
         if not self._token_client_is_valid(
@@ -257,8 +341,10 @@ class OAuthHTTPController:
             client_secret,
             auth_method,
         ):
+            self._diag("token_rejected", reason="invalid_client")
             return
         if params.get("redirect_uri") != code.redirect_uri:
+            self._diag("token_rejected", reason="redirect_uri")
             handler._json(
                 400,
                 {"error": "invalid_grant", "error_description": "redirect_uri mismatch"},
@@ -267,6 +353,7 @@ class OAuthHTTPController:
         requested_resource = params.get("resource", "").strip()
         normalized_resource = config.normalize_resource(requested_resource)
         if requested_resource and code.resource and normalized_resource != code.resource:
+            self._diag("token_rejected", reason="resource")
             handler._json(
                 400,
                 {"error": "invalid_target", "error_description": "resource mismatch"},
@@ -274,6 +361,11 @@ class OAuthHTTPController:
             return
         verifier = params.get("code_verifier", "")
         if not verify_pkce(verifier, code.challenge):
+            self._diag(
+                "token_rejected",
+                reason="pkce",
+                verifier_len=len(verifier),
+            )
             handler._json(
                 400,
                 {
@@ -282,6 +374,11 @@ class OAuthHTTPController:
                 },
             )
             return
+        self._diag(
+            "token_issued",
+            grant="authorization_code",
+            client=self._client_kind(client_id),
+        )
         self._send_token_pair(
             handler,
             config,

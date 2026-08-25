@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { CheckCircle2, Plus, RefreshCw, Save, Trash2 } from '@lucide/vue'
 import { desktopApi } from '../api/desktop'
 import { Button } from '@/components/ui/button'
+import { FormField } from '@/components/ui/form'
 import type {
   CapabilityCatalogDto,
   SkillDefinitionDto
@@ -196,27 +197,27 @@ onMounted(() => refreshCatalog())
       <main class="min-h-0 overflow-y-auto p-4">
         <div class="grid max-w-4xl gap-4">
           <div class="grid grid-cols-2 gap-3">
-            <label class="field">
+            <FormField>
               <span>Skill ID</span>
               <input v-model="draft.id" :disabled="Boolean(selectedId)" placeholder="frontend-review" />
-            </label>
-            <label class="field">
+            </FormField>
+            <FormField>
               <span>名称</span>
               <input v-model="draft.name" placeholder="Frontend Review" />
-            </label>
+            </FormField>
           </div>
 
-          <label class="field">
+          <FormField>
             <span>说明</span>
             <input v-model="draft.description" placeholder="告诉 AI 这个 Skill 什么时候应该使用" />
-          </label>
+          </FormField>
 
-          <label class="field">
+          <FormField>
             <span>Usage Hint</span>
             <input v-model="draft.usage_hint" placeholder="例如：用于遗留系统模块逆向分析，不用于简单单文件修改" />
-          </label>
+          </FormField>
 
-          <label class="field">
+          <FormField>
             <span>Recommended Capabilities（每行一个 Capability ID）</span>
             <textarea
               v-model="recommendedCapabilitiesText"
@@ -224,17 +225,17 @@ onMounted(() => refreshCatalog())
               placeholder="system:read_file\nsystem:search_text"
               spellcheck="false"
             />
-          </label>
+          </FormField>
 
-          <label class="field">
+          <FormField>
             <span>Method / Instructions</span>
             <textarea v-model="draft.method_document" class="min-h-48 resize-y" spellcheck="false" />
-          </label>
+          </FormField>
 
-          <label class="field">
+          <FormField>
             <span>Artifacts（每行一个相对路径）</span>
             <textarea v-model="artifactsText" class="min-h-24 resize-y font-mono" spellcheck="false" />
-          </label>
+          </FormField>
 
           <div class="flex items-center justify-between border-t border-border pt-3">
             <div class="text-[10px] text-muted-foreground">

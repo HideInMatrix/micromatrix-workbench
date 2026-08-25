@@ -371,6 +371,7 @@ class GatewayLauncherTests(unittest.TestCase):
 
             with (
                 patch.object(launcher, "_json_get", side_effect=fake_json_get),
+                patch.object(launcher, "_check_oauth_token_exchange"),
                 patch(
                     "agent_workbench.gateway_launcher.urllib.request.urlopen",
                     side_effect=unauthorized,
@@ -389,8 +390,59 @@ class GatewayLauncherTests(unittest.TestCase):
                     "oauth_authorization_metadata",
                     "oauth_protected_resource",
                     "mcp_auth_challenge",
+                    "oauth_token_exchange",
                 },
             )
+
+    def test_gateway_oauth_token_exchange_uses_rfc7636_verifier(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "company"
+            workspace.mkdir()
+            launcher = MCPGatewayLauncher()
+            launcher._diagnostic_oauth_passwords = {"company": "password"}
+            profile = GatewayProfileLaunchInfo(
+                server_id="company",
+                name="Company",
+                workspace=workspace,
+                instance_path="/company",
+                local_mcp_url="http://127.0.0.1:8234/company/mcp",
+                public_mcp_url="https://mcp.example.com/company/mcp",
+                oauth_issuer="https://mcp.example.com/company",
+                lifecycle="persistent",
+            )
+            authorize_fields: dict[str, str] = {}
+            token_fields: dict[str, str] = {}
+
+            def fake_authorize(_url: str, fields: dict[str, str], **_kwargs) -> str:
+                authorize_fields.update(fields)
+                return (
+                    "https://micromatrix.invalid/oauth/callback"
+                    f"?code=diagnostic-code&state={fields['state']}"
+                )
+
+            def fake_token(_url: str, fields: dict[str, str], **_kwargs):
+                token_fields.update(fields)
+                return {
+                    "access_token": "access",
+                    "refresh_token": "refresh",
+                    "token_type": "Bearer",
+                    "expires_in": 3600,
+                }
+
+            with (
+                patch.object(launcher, "_diagnostic_client_id", return_value="client-id"),
+                patch.object(launcher, "_form_post_redirect", side_effect=fake_authorize),
+                patch.object(launcher, "_form_post_json", side_effect=fake_token),
+            ):
+                launcher._check_oauth_token_exchange(profile)
+
+            self.assertEqual(authorize_fields["password"], "password")
+            self.assertEqual(len(authorize_fields["code_challenge"]), 43)
+            verifier = token_fields["code_verifier"]
+            self.assertGreater(len(verifier), 43)
+            self.assertLessEqual(len(verifier), 128)
+            self.assertEqual(token_fields["code"], "diagnostic-code")
+            self.assertEqual(token_fields["resource"], profile.public_mcp_url)
 
     def test_single_mode_uses_only_root_runtime_even_when_child_profiles_are_saved(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

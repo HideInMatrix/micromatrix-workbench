@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { FormField } from '@/components/ui/form'
 
 type JsonObject = Record<string, unknown>
 
@@ -88,7 +89,7 @@ function updateComplex(name: string, event: Event) {
 
 <template>
   <div v-if="fields.length" class="grid gap-3">
-    <label v-for="field in fields" :key="field.name" class="field">
+    <FormField v-for="field in fields" :key="field.name">
       <span class="flex items-center gap-1">
         {{ field.name }}
         <strong v-if="required.has(field.name)" class="font-medium text-destructive">*</strong>
@@ -105,14 +106,14 @@ function updateComplex(name: string, event: Event) {
         </option>
       </select>
 
-      <label v-else-if="fieldType(field.schema) === 'boolean'" class="flex h-8 items-center gap-2 rounded-md border border-input px-2.5">
+      <div v-else-if="fieldType(field.schema) === 'boolean'" class="flex h-8 items-center gap-2 rounded-md border border-input px-2.5">
         <input
           type="checkbox"
           :checked="Boolean(modelValue[field.name])"
           @change="updateBoolean(field.name, $event)"
         />
         <span class="text-[11px]">{{ modelValue[field.name] ? 'true' : 'false' }}</span>
-      </label>
+      </div>
 
       <input
         v-else-if="fieldType(field.schema) === 'integer' || fieldType(field.schema) === 'number'"
@@ -141,7 +142,7 @@ function updateComplex(name: string, event: Event) {
       <small v-if="errors[field.name]" class="text-[10px] leading-4 text-destructive">
         {{ errors[field.name] }}
       </small>
-    </label>
+    </FormField>
   </div>
   <div v-else class="rounded-md border border-dashed border-border px-3 py-2 text-[10px] leading-4 text-muted-foreground">
     当前 Schema 没有可视化 properties，可使用 Advanced JSON 编辑。

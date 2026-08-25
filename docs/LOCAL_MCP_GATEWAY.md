@@ -332,6 +332,7 @@ server_card
 oauth_authorization_metadata
 oauth_protected_resource
 mcp_auth_challenge
+oauth_token_exchange
 ```
 
 其中最关键的 `public_path_runtime` 会请求：
@@ -352,6 +353,9 @@ OAuth 部分同时验证：
 - authorization/token endpoint 是否带正确 Profile Path
 - RFC 9728 protected resource 是否为 `/path/mcp`
 - 未授权访问 `/path/mcp` 时 `WWW-Authenticate` 的 `resource_metadata` 是否指向当前 Profile
+- 使用内部 DCR 诊断客户端走一遍真实 Authorization Code + PKCE S256 → `/oauth/token`，确认能返回 Bearer access token 与 refresh token
+
+`oauth_token_exchange` 使用只存在于运行期内存中的 OAuth Password 完成自检，不会把 Password、authorization code、code verifier、access token 或 refresh token 写入日志。持久化 Profile 会复用名为 `MicroMatrix Workbench E2E Diagnostic` 的内部 public client，桌面 OAuth Client 列表会隐藏该内部诊断记录，避免每次自检制造用户可见噪音。
 
 ## 12. 当前安全边界
 

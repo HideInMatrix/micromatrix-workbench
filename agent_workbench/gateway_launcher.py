@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 import secrets
@@ -7,6 +9,7 @@ import ssl
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,6 +46,17 @@ from .oauth_persistence import (
     canonical_oauth_issuer,
 )
 from .process_utils import LogCallback, check_port_available
+
+
+DIAGNOSTIC_OAUTH_CLIENT_NAME = "MicroMatrix Workbench E2E Diagnostic"
+DIAGNOSTIC_OAUTH_REDIRECT_URI = "https://micromatrix.invalid/oauth/callback"
+DIAGNOSTIC_HTTP_TIMEOUT_SECONDS = 9.0
+DIAGNOSTIC_STARTUP_GRACE_SECONDS = 1.5
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +207,8 @@ class MCPGatewayLauncher:
         self._exit_reason = ""
         self._route_probe_token = ""
         self._last_diagnostic: GatewayDiagnosticReport | None = None
+        self._diagnostic_oauth_passwords: dict[str, str] = {}
+        self._diagnostic_oauth_clients: dict[str, str] = {}
 
     def _log(self, message: str) -> None:
         self._log_callback(message)
@@ -249,7 +265,7 @@ class MCPGatewayLauncher:
         url: str,
         *,
         headers: dict[str, str] | None = None,
-        timeout: float = 5.0,
+        timeout: float = DIAGNOSTIC_HTTP_TIMEOUT_SECONDS,
     ) -> tuple[dict[str, object], dict[str, str]]:
         request = urllib.request.Request(
             url,
@@ -265,6 +281,224 @@ class MCPGatewayLauncher:
             if not isinstance(raw, dict):
                 raise RuntimeError(f"诊断端点返回了非对象 JSON: {url}")
             return raw, {key.lower(): value for key, value in response.headers.items()}
+
+    def _json_post(
+        self,
+        url: str,
+        payload: dict[str, object],
+        *,
+        timeout: float = DIAGNOSTIC_HTTP_TIMEOUT_SECONDS,
+    ) -> dict[str, object]:
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+            headers={
+                "Cache-Control": "no-cache",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            response = urllib.request.urlopen(
+                request,
+                timeout=timeout,
+                context=self._ssl_context(),
+            )
+        except urllib.error.HTTPError as exc:
+            raise RuntimeError(self._oauth_http_error(exc)) from exc
+        with response:
+            raw = json.loads(response.read().decode("utf-8"))
+            if not isinstance(raw, dict):
+                raise RuntimeError(f"诊断端点返回了非对象 JSON: {url}")
+            return raw
+
+    def _form_post_json(
+        self,
+        url: str,
+        fields: dict[str, str],
+        *,
+        timeout: float = DIAGNOSTIC_HTTP_TIMEOUT_SECONDS,
+    ) -> dict[str, object]:
+        request = urllib.request.Request(
+            url,
+            data=urllib.parse.urlencode(fields).encode("utf-8"),
+            headers={
+                "Cache-Control": "no-cache",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            response = urllib.request.urlopen(
+                request,
+                timeout=timeout,
+                context=self._ssl_context(),
+            )
+        except urllib.error.HTTPError as exc:
+            raise RuntimeError(self._oauth_http_error(exc)) from exc
+        with response:
+            raw = json.loads(response.read().decode("utf-8"))
+            if not isinstance(raw, dict):
+                raise RuntimeError(f"诊断端点返回了非对象 JSON: {url}")
+            return raw
+
+    @staticmethod
+    def _oauth_http_error(exc: urllib.error.HTTPError) -> str:
+        try:
+            body = exc.read(4096).decode("utf-8", errors="replace")
+            payload = json.loads(body)
+        except (OSError, json.JSONDecodeError):
+            return f"OAuth endpoint 返回 HTTP {exc.code}"
+        if not isinstance(payload, dict):
+            return f"OAuth endpoint 返回 HTTP {exc.code}"
+        error = (
+            str(payload.get("error") or "oauth_error")
+            .replace("\r", " ")
+            .replace("\n", " ")[:80]
+        )
+        description = (
+            str(payload.get("error_description") or "")
+            .replace("\r", " ")
+            .replace("\n", " ")[:240]
+        )
+        suffix = f": {description}" if description else ""
+        return f"OAuth endpoint HTTP {exc.code} {error}{suffix}"
+
+    def _form_post_redirect(
+        self,
+        url: str,
+        fields: dict[str, str],
+        *,
+        timeout: float = DIAGNOSTIC_HTTP_TIMEOUT_SECONDS,
+    ) -> str:
+        request = urllib.request.Request(
+            url,
+            data=urllib.parse.urlencode(fields).encode("utf-8"),
+            headers={
+                "Cache-Control": "no-cache",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            method="POST",
+        )
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=self._ssl_context()),
+            _NoRedirectHandler(),
+        )
+        try:
+            response = opener.open(request, timeout=timeout)
+        except urllib.error.HTTPError as exc:
+            if exc.code not in {301, 302, 303, 307, 308}:
+                status = exc.code
+                exc.read()
+                raise RuntimeError(f"OAuth authorize 返回 HTTP {status}") from exc
+            location = exc.headers.get("Location", "").strip()
+            exc.read()
+            if not location:
+                raise RuntimeError("OAuth authorize redirect 缺少 Location") from exc
+            return location
+        with response:
+            location = response.headers.get("Location", "").strip()
+            if response.status not in {301, 302, 303, 307, 308} or not location:
+                raise RuntimeError(
+                    f"OAuth authorize 预期 302 redirect，实际 HTTP {response.status}"
+                )
+            return location
+
+    def _diagnostic_client_id(self, profile: GatewayProfileLaunchInfo) -> str:
+        cached = self._diagnostic_oauth_clients.get(profile.server_id)
+        if cached:
+            return cached
+
+        registry_file = self.oauth_registry_file(profile.server_id)
+        if registry_file is not None and registry_file.exists():
+            try:
+                payload = json.loads(registry_file.read_text(encoding="utf-8"))
+                clients = payload.get("clients", []) if isinstance(payload, dict) else []
+                for item in (clients if isinstance(clients, list) else []):
+                    if not isinstance(item, dict):
+                        continue
+                    if item.get("client_name") != DIAGNOSTIC_OAUTH_CLIENT_NAME:
+                        continue
+                    if item.get("token_endpoint_auth_method") != "none":
+                        continue
+                    redirects = item.get("redirect_uris")
+                    if redirects != [DIAGNOSTIC_OAUTH_REDIRECT_URI]:
+                        continue
+                    client_id = item.get("client_id")
+                    if isinstance(client_id, str) and client_id:
+                        self._diagnostic_oauth_clients[profile.server_id] = client_id
+                        return client_id
+            except (OSError, json.JSONDecodeError):
+                pass
+
+        registration = self._json_post(
+            f"{profile.oauth_issuer}/oauth/register",
+            {
+                "client_name": DIAGNOSTIC_OAUTH_CLIENT_NAME,
+                "redirect_uris": [DIAGNOSTIC_OAUTH_REDIRECT_URI],
+                "grant_types": ["authorization_code", "refresh_token"],
+                "response_types": ["code"],
+                "token_endpoint_auth_method": "none",
+                "application_type": "web",
+            },
+        )
+        client_id = registration.get("client_id")
+        if not isinstance(client_id, str) or not client_id:
+            raise RuntimeError("OAuth DCR 自检未返回 client_id")
+        self._diagnostic_oauth_clients[profile.server_id] = client_id
+        return client_id
+
+    def _check_oauth_token_exchange(self, profile: GatewayProfileLaunchInfo) -> None:
+        if profile.server_id not in self._diagnostic_oauth_passwords:
+            raise RuntimeError("当前 Gateway Session 缺少 OAuth Password，无法执行 Token 自检")
+        password = self._diagnostic_oauth_passwords[profile.server_id]
+        client_id = self._diagnostic_client_id(profile)
+        verifier = secrets.token_urlsafe(64)
+        challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(verifier.encode("ascii")).digest()
+        ).decode("ascii").rstrip("=")
+        state = secrets.token_urlsafe(12)
+        location = self._form_post_redirect(
+            f"{profile.oauth_issuer}/oauth/authorize",
+            {
+                "response_type": "code",
+                "client_id": client_id,
+                "redirect_uri": DIAGNOSTIC_OAUTH_REDIRECT_URI,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+                "resource": profile.public_mcp_url,
+                "scope": "mcp offline_access",
+                "state": state,
+                "password": password,
+            },
+        )
+        parsed = urllib.parse.urlsplit(location)
+        query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+        code_values = query.get("code", [])
+        state_values = query.get("state", [])
+        if len(code_values) != 1 or not code_values[0]:
+            raise RuntimeError("OAuth authorize redirect 未返回 authorization code")
+        if state_values != [state]:
+            raise RuntimeError("OAuth authorize redirect state 不匹配")
+        token = self._form_post_json(
+            f"{profile.oauth_issuer}/oauth/token",
+            {
+                "grant_type": "authorization_code",
+                "code": code_values[0],
+                "client_id": client_id,
+                "redirect_uri": DIAGNOSTIC_OAUTH_REDIRECT_URI,
+                "code_verifier": verifier,
+                "resource": profile.public_mcp_url,
+            },
+        )
+        if not isinstance(token.get("access_token"), str) or not token.get("access_token"):
+            raise RuntimeError("OAuth token endpoint 未返回 access_token")
+        if str(token.get("token_type") or "").lower() != "bearer":
+            raise RuntimeError(f"OAuth token_type 非 Bearer: {token.get('token_type')}")
+        if not isinstance(token.get("refresh_token"), str) or not token.get("refresh_token"):
+            raise RuntimeError("OAuth token endpoint 未返回 refresh_token")
 
     def _check_runtime_probe(
         self,
@@ -350,7 +584,7 @@ class MCPGatewayLauncher:
         try:
             urllib.request.urlopen(
                 request,
-                timeout=5.0,
+                timeout=DIAGNOSTIC_HTTP_TIMEOUT_SECONDS,
                 context=self._ssl_context(),
             ).close()
             raise RuntimeError("未授权 MCP GET 意外成功")
@@ -423,6 +657,12 @@ class MCPGatewayLauncher:
         except Exception as exc:  # noqa: BLE001
             errors.append(f"mcp_auth_challenge: {exc}")
 
+        try:
+            self._check_oauth_token_exchange(profile)
+            checks.append("oauth_token_exchange")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"oauth_token_exchange: {exc}")
+
         return GatewayProfileDiagnostic(
             server_id=profile.server_id,
             name=profile.name,
@@ -458,6 +698,11 @@ class MCPGatewayLauncher:
         return report
 
     def _diagnose_background(self, attempts: int = 8) -> None:
+        # Named Tunnel can report its first connected edge before the remaining
+        # HTTP/2 connections and published ingress are fully settled. Give the
+        # public path a short grace period before the first automatic E2E pass;
+        # manual diagnostics still run immediately.
+        time.sleep(DIAGNOSTIC_STARTUP_GRACE_SECONDS)
         last_report: GatewayDiagnosticReport | None = None
         for attempt in range(1, attempts + 1):
             with self._lock:
@@ -486,6 +731,14 @@ class MCPGatewayLauncher:
                 "警告：Gateway 公网 E2E 自检未通过，但 Gateway 保持运行。"
                 f"失败 Profile: {', '.join(failed) or '未知'}"
             )
+            for profile in last_report.profiles:
+                if profile.ok:
+                    continue
+                details = "; ".join(profile.errors) or "未返回具体错误"
+                self._log(
+                    f"Gateway 公网 E2E 失败详情 [{profile.name}] "
+                    f"Path={profile.instance_path or '/'}: {details}"
+                )
 
     def _start_network(self, config: GatewayLaunchConfig) -> tuple[str, str]:
         self._provider = create_network_provider(
@@ -610,6 +863,10 @@ class MCPGatewayLauncher:
                     port=validated.port,
                 )
                 self._gateway.start(child_config, self._gateway_environment())
+                self._diagnostic_oauth_passwords = {
+                    profile.server_id: profile.oauth_password for profile in profiles
+                }
+                self._diagnostic_oauth_clients = {}
                 self._info = self._build_launch_info(
                     validated,
                     public_base_url=public_base_url,
@@ -636,6 +893,8 @@ class MCPGatewayLauncher:
         self._stopping = False
         self._exit_reason = ""
         self._last_diagnostic = None
+        self._diagnostic_oauth_passwords = {}
+        self._diagnostic_oauth_clients = {}
         direct_info = self._direct.start(
             LaunchConfig(
                 workspace=root.workspace,
@@ -714,6 +973,8 @@ class MCPGatewayLauncher:
         self._info = None
         self._route_probe_token = ""
         self._last_diagnostic = None
+        self._diagnostic_oauth_passwords = {}
+        self._diagnostic_oauth_clients = {}
         self._single_server_id = ""
 
     def wait(self) -> None:

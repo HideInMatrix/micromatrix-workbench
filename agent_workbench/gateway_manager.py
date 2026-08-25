@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .gateway_launcher import (
+    DIAGNOSTIC_OAUTH_CLIENT_NAME,
     GatewayDiagnosticReport,
     GatewayLaunchConfig,
     GatewayLaunchInfo,
@@ -183,9 +184,19 @@ class MCPGatewayManager:
                         path=registry_file.with_name("cimd-clients.json"),
                     ).list()
                 )
+                clients = [
+                    item
+                    for item in clients
+                    if item.client_name != DIAGNOSTIC_OAUTH_CLIENT_NAME
+                ]
                 return sorted(clients, key=lambda item: (item.issued_at, item.client_id))
             clients = OAuthClientStore(member.server_id).list()
             clients.extend(CIMDClientStore(member.server_id).list())
+            clients = [
+                item
+                for item in clients
+                if item.client_name != DIAGNOSTIC_OAUTH_CLIENT_NAME
+            ]
             return sorted(clients, key=lambda item: (item.issued_at, item.client_id))
 
     def remove_oauth_client(

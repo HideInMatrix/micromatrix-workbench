@@ -530,11 +530,26 @@ class OAuthClientRegistry:
 def valid_pkce_challenge(value: str) -> bool:
     if len(value) != 43:
         return False
-    return all(char.isalnum() or char in "-_" for char in value)
+    return all(char.isascii() and (char.isalnum() or char in "-_") for char in value)
+
+
+def valid_pkce_verifier(value: str) -> bool:
+    """Validate an RFC 7636 code_verifier.
+
+    A verifier is 43-128 characters from the unreserved URI character set.
+    The derived S256 code_challenge is a separate value and is always 43
+    base64url characters, so the two validators must not share a length rule.
+    """
+
+    if not 43 <= len(value) <= 128:
+        return False
+    return all(
+        char.isascii() and (char.isalnum() or char in "-._~") for char in value
+    )
 
 
 def verify_pkce(verifier: str, challenge: str) -> bool:
-    if not valid_pkce_challenge(verifier):
+    if not valid_pkce_verifier(verifier):
         return False
     expected = _b64url(hashlib.sha256(verifier.encode("ascii")).digest())
     return hmac.compare_digest(expected, challenge)

@@ -7,11 +7,14 @@ export const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground hover:opacity-90',
+        // Use the design token directly so packaged UnoCSS builds cannot drop
+        // the foreground utility while retaining the primary background.
+        default: 'bg-primary text-[var(--primary-foreground)] hover:opacity-90',
         secondary: 'bg-secondary text-secondary-foreground hover:opacity-90',
         outline: 'border border-border bg-background text-foreground hover:bg-accent hover:text-accent-foreground',
         ghost: 'text-foreground hover:bg-accent hover:text-accent-foreground',
         destructive: 'bg-destructive text-white hover:opacity-90',
+        destructiveOutline: 'border border-destructive/30 bg-transparent text-destructive hover:bg-destructive/10',
       },
       size: {
         default: 'h-9 px-4 py-2',

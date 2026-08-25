@@ -9,6 +9,7 @@ import {
   Trash2,
 } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
+import { FormField } from '@/components/ui/form'
 import { desktopApi } from '../api/desktop'
 import type {
   CapabilityCatalogDto,
@@ -278,65 +279,65 @@ onMounted(load)
       <main class="min-h-0 overflow-y-auto p-4">
         <div class="grid max-w-4xl gap-4">
           <div class="grid grid-cols-2 gap-3">
-            <label class="field">
+            <FormField>
               <span>MCP ID</span>
               <input v-model="draft.id" :disabled="Boolean(selectedId)" placeholder="github" />
-            </label>
-            <label class="field">
+            </FormField>
+            <FormField>
               <span>名称</span>
               <input v-model="draft.name" placeholder="GitHub MCP" />
-            </label>
+            </FormField>
           </div>
 
           <div class="grid grid-cols-2 gap-3">
-            <label class="field">
+            <FormField>
               <span>Transport</span>
               <select v-model="draft.transport">
                 <option value="http">HTTP</option>
                 <option value="stdio">stdio</option>
               </select>
-            </label>
+            </FormField>
             <label class="flex items-center gap-2 pt-6 text-xs">
               <input v-model="draft.enabled" type="checkbox" />
               <span>启用此 MCP 服务</span>
             </label>
           </div>
 
-          <label v-if="draft.transport === 'http'" class="field">
+          <FormField v-if="draft.transport === 'http'">
             <span>Endpoint</span>
             <input v-model.trim="draft.endpoint" placeholder="https://example.com/mcp" />
-          </label>
+          </FormField>
 
           <template v-else>
-            <label class="field">
+            <FormField>
               <span>Command</span>
               <input v-model.trim="draft.command" placeholder="/path/to/mcp-server" />
-            </label>
-            <label class="field">
+            </FormField>
+            <FormField>
               <span>Arguments JSON</span>
               <textarea v-model="argumentsText" class="min-h-20 resize-y font-mono" spellcheck="false" />
-            </label>
-            <label class="field">
+            </FormField>
+            <FormField>
               <span>Environment JSON（仅非敏感值）</span>
               <textarea v-model="environmentText" class="min-h-20 resize-y font-mono" spellcheck="false" />
-            </label>
-            <label class="field">
+            </FormField>
+            <FormField>
               <span>Environment Refs JSON</span>
               <textarea v-model="environmentRefsText" class="min-h-20 resize-y font-mono" spellcheck="false" />
               <small class="text-[10px] font-normal text-muted-foreground">敏感值使用引用，例如 { "API_KEY": "env:GITHUB_TOKEN" }。</small>
-            </label>
+            </FormField>
           </template>
 
           <template v-if="draft.transport === 'http'">
-            <label class="field">
+            <FormField>
               <span>Headers JSON（仅非敏感值）</span>
               <textarea v-model="headersText" class="min-h-20 resize-y font-mono" spellcheck="false" />
-            </label>
-            <label class="field">
+            </FormField>
+            <FormField>
               <span>Header Refs JSON</span>
               <textarea v-model="headerRefsText" class="min-h-20 resize-y font-mono" spellcheck="false" />
               <small class="text-[10px] font-normal text-muted-foreground">例如 { "Authorization": "env:GITHUB_MCP_AUTH" }，不会把真实 Secret 写入资产文件。</small>
-            </label>
+            </FormField>
           </template>
 
           <div class="grid gap-2">

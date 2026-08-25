@@ -111,5 +111,5 @@
 - 从 `multi` 切回 `single` 时，子 Profile 配置必须保留，但不得创建 Runtime、OAuth active session 或可用 Path；再次切回 `multi` 后恢复参与运行。
 - Gateway route probe 必须返回非敏感 Workspace fingerprint，用于确认 `/company`、`/home` 等公网 Path 实际落到正确 Runtime；不得返回真实 Workspace Path。
 - Cloudflare Named Tunnel 启动后的多 Workspace E2E 自检失败不得关闭已经健康运行的服务/Tunnel，只记录告警并允许用户在服务页面手动重试。
-- Gateway E2E 必须至少覆盖：本地 Path→Runtime、公网 Path→Runtime、Server Card、Authorization Server Metadata、Protected Resource Metadata、MCP 401 `resource_metadata` challenge。
+- Gateway E2E 必须至少覆盖：本地 Path→Runtime、公网 Path→Runtime、Server Card、Authorization Server Metadata、Protected Resource Metadata、MCP 401 `resource_metadata` challenge，以及真实 Authorization Code + PKCE S256 → Token Exchange。
 - “OAuth 授权”页面按 Service/Profile 展示；`single` 模式下仅根 Workspace 标记为运行中，已保存但未启用的子 Profile 不得伪装成活动 Runtime。

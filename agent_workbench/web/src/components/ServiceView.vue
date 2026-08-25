@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Check, Copy, Eye, EyeOff, LoaderCircle, Plus, Trash2 } from '@lucide/vue'
+import { Button } from '@/components/ui/button'
+import { CheckField, FormField, FormGrid } from '@/components/ui/form'
 import {
   InputGroup,
   InputGroupButton,
@@ -59,11 +61,30 @@ const selectedRunning = computed(() => selected.value?.kind === 'direct'
     : false)
 const selectedIsStarting = computed(() => isSelectedResourceStarting(selectedKey.value, startingKey.value))
 const locked = computed(() => Boolean(selectedRunning.value || selectedIsStarting.value))
+const failedDiagnosticProfiles = computed(() => diagnostic.value?.profiles.filter(profile => !profile.ok) || [])
 const stats = computed(() => ({
   services: services.value.length,
   running: services.value.filter(item => item.kind === 'direct' ? item.server.running : item.gateway.running).length,
   workspaces: servers.value.length + gateways.value.reduce((sum, gateway) => sum + gateway.members.length, 0),
 }))
+
+const diagnosticCheckLabels: Record<string, string> = {
+  local_path_runtime: '本地 Path → Runtime',
+  public_path_runtime: '公网 Path → Runtime',
+  server_card: 'Server Card',
+  oauth_authorization_metadata: 'OAuth Authorization Metadata',
+  oauth_protected_resource: 'OAuth Protected Resource Metadata',
+  mcp_auth_challenge: 'MCP 401 Auth Challenge',
+  oauth_token_exchange: 'OAuth Authorization Code → Token',
+}
+
+function diagnosticErrorText(value: string): string {
+  const separator = value.indexOf(':')
+  if (separator < 0) return value
+  const key = value.slice(0, separator).trim()
+  const detail = value.slice(separator + 1).trim()
+  return `${diagnosticCheckLabels[key] || key}: ${detail}`
+}
 
 function emptyMember(index: number): GatewayMemberDraft {
   return {
@@ -479,7 +500,7 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
       <aside class="overflow-hidden rounded-[10px] border border-border bg-card">
         <div class="flex items-center justify-between gap-3 border-b border-border p-3.5">
           <div class="grid gap-[3px]"><strong>服务</strong><span class="text-[11px] text-muted-foreground">单入口，多 Workspace 可选</span></div>
-          <button class="secondary-button min-h-[30px] px-2.5" @click="createNew"><Plus :size="14" /> 新建</button>
+          <Button variant="outline" size="sm" class="min-h-[30px] px-2.5" @click="createNew"><Plus :size="14" /> 新建</Button>
         </div>
         <button
           v-for="service in services"
@@ -555,11 +576,11 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
             : '当前启动主 Workspace 与全部子 Profile，并按 Path 在同一端口分流。' }}
         </p>
 
-        <div class="form-grid">
-          <label class="field span-2"><span>服务名称</span><input v-model.trim="draft.name" :disabled="locked" placeholder="例如：公司开发环境" /></label>
-          <label class="field"><span>本地端口</span><input v-model.number="draft.port" :disabled="locked" type="number" min="1" max="65535" /></label>
-          <label class="field"><span>监听地址</span><input v-model.trim="draft.host" disabled /></label>
-          <label class="field span-2">
+        <FormGrid>
+          <FormField class="col-span-2"><span>服务名称</span><input v-model.trim="draft.name" :disabled="locked" placeholder="例如：公司开发环境" /></FormField>
+          <FormField><span>本地端口</span><input v-model.number="draft.port" :disabled="locked" type="number" min="1" max="65535" /></FormField>
+          <FormField><span>监听地址</span><input v-model.trim="draft.host" disabled /></FormField>
+          <FormField class="col-span-2">
             <span>网络方案</span>
             <select v-model="draft.network.provider" :disabled="locked">
               <option value="cloudflare">Cloudflare Tunnel</option>
@@ -568,12 +589,12 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
               <option value="tailscale">Tailscale Funnel</option>
               <option value="external">自定义公网 URL</option>
             </select>
-          </label>
-          <label class="field span-2">
+          </FormField>
+          <FormField class="col-span-2">
             <span>Public Hostname</span>
             <input v-model.trim="draft.network.public_url" :disabled="locked || draft.network.provider === 'tailscale'" placeholder="例如 https://mcp.example.com；Quick Tunnel 可留空" />
-          </label>
-          <label v-if="draft.network.provider === 'cloudflare'" class="field span-2">
+          </FormField>
+          <FormField v-if="draft.network.provider === 'cloudflare'" class="col-span-2">
             <span>Tunnel Token</span>
             <InputGroup>
               <InputGroupInput
@@ -592,22 +613,22 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
                 <Eye v-else :size="15" />
               </InputGroupButton>
             </InputGroup>
-          </label>
+          </FormField>
           <template v-else-if="draft.network.provider === 'frp'">
-            <label class="field span-2"><span>frpc 路径</span><input v-model.trim="draft.network.options.executable" :disabled="locked" /></label>
-            <label class="field span-2"><span>frpc 配置文件</span><input v-model.trim="draft.network.options.config_file" :disabled="locked" /></label>
+            <FormField class="col-span-2"><span>frpc 路径</span><input v-model.trim="draft.network.options.executable" :disabled="locked" /></FormField>
+            <FormField class="col-span-2"><span>frpc 配置文件</span><input v-model.trim="draft.network.options.config_file" :disabled="locked" /></FormField>
           </template>
           <template v-else-if="draft.network.provider === 'ngrok'">
-            <label class="field"><span>ngrok 路径</span><input v-model.trim="draft.network.options.executable" :disabled="locked" /></label>
-            <label class="field"><span>Auth Token</span><input v-model="draft.network.options.authtoken" :disabled="locked" type="password" /></label>
+            <FormField><span>ngrok 路径</span><input v-model.trim="draft.network.options.executable" :disabled="locked" /></FormField>
+            <FormField><span>Auth Token</span><input v-model="draft.network.options.authtoken" :disabled="locked" type="password" /></FormField>
           </template>
-          <label v-else-if="draft.network.provider === 'tailscale'" class="field span-2"><span>Tailscale 路径</span><input v-model.trim="draft.network.options.executable" :disabled="locked" /></label>
-          <label class="check-field span-2"><input v-model="draft.remember_secrets" type="checkbox" /><span>在本机持久化网络 Token 与 OAuth Password</span></label>
-        </div>
+          <FormField v-else-if="draft.network.provider === 'tailscale'" class="col-span-2"><span>Tailscale 路径</span><input v-model.trim="draft.network.options.executable" :disabled="locked" /></FormField>
+          <CheckField class="col-span-2"><input v-model="draft.remember_secrets" type="checkbox" /><span>在本机持久化网络 Token 与 OAuth Password</span></CheckField>
+        </FormGrid>
 
         <div class="mt-[22px] mb-2.5 flex items-center justify-between gap-4">
           <div class="grid gap-[3px]"><strong>Workspace Profiles</strong><span class="text-[11px] text-muted-foreground">Profile 是配置；是否启用由上面的运行模式决定。</span></div>
-          <button class="secondary-button min-h-[30px] px-2.5" :disabled="locked" @click="addProfile"><Plus :size="14" /> 添加 Profile</button>
+          <Button variant="outline" size="sm" class="min-h-[30px] px-2.5" :disabled="locked" @click="addProfile"><Plus :size="14" /> 添加 Profile</Button>
         </div>
 
         <div class="grid gap-3">
@@ -624,18 +645,21 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
               </div>
               <button class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-transparent text-muted-foreground" :disabled="locked || draft.members.length <= 1 || isRootProfile(member, index)" @click="removeProfile(index)"><Trash2 :size="14" /></button>
             </header>
-            <div class="form-grid p-3">
-              <label class="field"><span>名称</span><input v-model.trim="member.name" :disabled="locked" /></label>
-              <label class="field">
+            <FormGrid class="p-3">
+              <FormField><span>名称</span><input v-model.trim="member.name" :disabled="locked" /></FormField>
+              <FormField>
                 <span>Path</span>
                 <input v-if="!isRootProfile(member, index)" v-model="member.instance_path" :disabled="locked" placeholder="/api" />
                 <input v-else value="根路径 /mcp" disabled />
-              </label>
-              <label class="field span-2">
+              </FormField>
+              <FormField class="col-span-2">
                 <span>Workspace</span>
-                <div class="input-action"><input v-model.trim="member.workspace" :disabled="locked" /><button type="button" :disabled="locked" @click="chooseWorkspace(member)">选择</button></div>
-              </label>
-              <label class="field">
+                <InputGroup>
+                  <InputGroupInput v-model="member.workspace" :disabled="locked" />
+                  <InputGroupButton :disabled="locked" @click="chooseWorkspace(member)">选择</InputGroupButton>
+                </InputGroup>
+              </FormField>
+              <FormField>
                 <span>OAuth Password</span>
                 <InputGroup>
                   <InputGroupInput
@@ -654,11 +678,11 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
                     <Eye v-else :size="15" />
                   </InputGroupButton>
                 </InputGroup>
-              </label>
-              <label class="field"><span>权限模式</span><select v-model="member.permission_mode" :disabled="locked"><option value="safe">Safe</option><option value="trusted">Trusted</option><option value="dangerous">Dangerous</option></select></label>
-              <label class="check-field"><input v-model="member.allow_network" :disabled="locked" type="checkbox" /><span>允许网络</span></label>
-              <label class="check-field"><input v-model="member.enable_view_image" :disabled="locked" type="checkbox" /><span>启用图片工具</span></label>
-            </div>
+              </FormField>
+              <FormField><span>权限模式</span><select v-model="member.permission_mode" :disabled="locked"><option value="safe">Safe</option><option value="trusted">Trusted</option><option value="dangerous">Dangerous</option></select></FormField>
+              <CheckField><input v-model="member.allow_network" :disabled="locked" type="checkbox" /><span>允许网络</span></CheckField>
+              <CheckField><input v-model="member.enable_view_image" :disabled="locked" type="checkbox" /><span>启用图片工具</span></CheckField>
+            </FormGrid>
             <div v-if="runtimeUrl(member)" class="flex items-center gap-2 border-t border-border bg-secondary/50 px-3 py-[9px]">
               <code class="min-w-0 flex-1 truncate text-[11px] font-medium text-blue-600 dark:text-blue-400">{{ runtimeUrl(member) }}</code>
               <button class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-transparent text-muted-foreground" @click="copyUrl(runtimeUrl(member))"><Check v-if="copiedUrl === runtimeUrl(member)" :size="13" /><Copy v-else :size="13" /></button>
@@ -666,18 +690,32 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
           </article>
         </div>
 
-        <section v-if="selected?.kind === 'gateway' && selected.gateway.mode === 'multi' && selected.gateway.running" class="mt-4 flex items-center gap-3 rounded-lg border border-border px-3 py-[11px]">
-          <div class="grid min-w-0 flex-1 gap-[3px]"><strong>公网 E2E 自检</strong><span class="text-[11px] text-muted-foreground">多 Workspace 服务会验证每个 Path 对应的 Runtime 与 OAuth metadata。</span></div>
-          <button class="secondary-button" :disabled="busy" @click="testService">开始自检</button>
-          <span v-if="diagnostic" :class="diagnostic.ok ? 'text-[#67C23A]' : 'text-[#F56C6C]'">{{ diagnostic.ok ? '全部通过' : '存在失败项' }}</span>
+        <section v-if="selected?.kind === 'gateway' && selected.gateway.mode === 'multi' && selected.gateway.running" class="mt-4 grid gap-3 rounded-lg border border-border px-3 py-[11px]">
+          <div class="flex items-center gap-3">
+            <div class="grid min-w-0 flex-1 gap-[3px]"><strong>公网 E2E 自检</strong><span class="text-[11px] text-muted-foreground">多 Workspace 服务会验证每个 Path 对应的 Runtime、OAuth metadata 与授权码换 Token。</span></div>
+            <Button variant="outline" size="sm" :disabled="busy" @click="testService">开始自检</Button>
+            <span v-if="diagnostic" :class="diagnostic.ok ? 'text-[#67C23A]' : 'text-[#F56C6C]'">{{ diagnostic.ok ? '全部通过' : `${failedDiagnosticProfiles.length} 个 Profile 失败` }}</span>
+          </div>
+          <div v-if="diagnostic && !diagnostic.ok" class="grid gap-2 border-t border-border pt-3">
+            <article v-for="profile in failedDiagnosticProfiles" :key="profile.server_id" class="rounded-md bg-destructive/5 px-3 py-2.5">
+              <div class="flex flex-wrap items-center gap-2 text-xs">
+                <strong>{{ profile.name }}</strong>
+                <code class="text-[11px] text-muted-foreground">{{ profile.instance_path || '/' }}</code>
+              </div>
+              <ul class="mt-2 grid gap-1 pl-4 text-[11px] leading-5 text-destructive">
+                <li v-for="(error, errorIndex) in profile.errors" :key="`${profile.server_id}:${errorIndex}`">{{ diagnosticErrorText(error) }}</li>
+                <li v-if="!profile.errors.length">未返回具体错误，请查看运行日志。</li>
+              </ul>
+            </article>
+          </div>
         </section>
 
         <div class="mt-4 flex justify-between gap-2 border-t border-border pt-3.5">
-          <button v-if="!isNew" class="danger-button" :disabled="busy || locked" @click="deleteService">删除</button>
+          <Button v-if="!isNew" variant="destructiveOutline" size="sm" :disabled="busy || locked" @click="deleteService">删除</Button>
           <div class="ml-auto flex gap-2">
-            <button class="secondary-button" :disabled="busy || locked" @click="saveService">{{ isNew ? '创建服务' : '保存' }}</button>
-            <button v-if="!isNew && !selectedRunning" class="primary-button" :disabled="busy || selectedIsStarting" @click="toggleService">启动</button>
-            <button v-else-if="!isNew" class="danger-button" :disabled="busy" @click="toggleService">停止</button>
+            <Button variant="outline" size="sm" :disabled="busy || locked" @click="saveService">{{ isNew ? '创建服务' : '保存' }}</Button>
+            <Button v-if="!isNew && !selectedRunning" size="sm" :disabled="busy || selectedIsStarting" @click="toggleService">启动</Button>
+            <Button v-else-if="!isNew" variant="destructiveOutline" size="sm" :disabled="busy" @click="toggleService">停止</Button>
           </div>
         </div>
       </section>

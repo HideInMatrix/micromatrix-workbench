@@ -30,6 +30,7 @@ import {
   type Connection,
 } from '@vue-flow/core'
 import { Button } from '@/components/ui/button'
+import { FormField } from '@/components/ui/form'
 import { Sheet } from '@/components/ui/sheet'
 import ObjectSchemaBuilder from './workbench/ObjectSchemaBuilder.vue'
 import SchemaValueEditor from './workbench/SchemaValueEditor.vue'
@@ -693,22 +694,22 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="grid grid-cols-[minmax(220px,0.8fr)_minmax(240px,1fr)_auto] items-end gap-3 rounded-lg border border-border bg-card p-3">
-      <label class="field">
+      <FormField>
         <span>Workspace Target</span>
         <select :value="editor.targetId.value" @change="changeTarget">
           <option v-for="target in editor.targets.value" :key="target.target_id" :value="target.target_id">
             {{ target.service_name }} / {{ target.profile_name }}
           </option>
         </select>
-      </label>
-      <label class="field">
+      </FormField>
+      <FormField>
         <span>Workflow</span>
         <select :value="editor.workflowId.value" @change="changeWorkflow">
           <option v-for="workflow in editor.catalog.value.workflows" :key="workflow.id" :value="workflow.id">
             {{ workflow.name }} · v{{ workflow.version }} · {{ workflow.scope }}
           </option>
         </select>
-      </label>
+      </FormField>
       <div class="flex items-center gap-2">
         <Button variant="outline" size="sm" @click="editor.newWorkflow()"><Plus :size="14" />新建</Button>
         <Button
@@ -723,17 +724,17 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="grid grid-cols-[minmax(220px,0.7fr)_minmax(320px,1.3fr)] gap-3 rounded-lg border border-border bg-card p-3">
-      <label class="field">
+      <FormField>
         <span>名称</span>
         <input v-model="editor.workflowName.value" placeholder="Workflow 名称" />
-      </label>
-      <label class="field">
+      </FormField>
+      <FormField>
         <span>Workflow 描述（AI Discovery 必填）</span>
         <input
           v-model="editor.workflowDescription.value"
           placeholder="说明这个 Workflow 解决什么问题、何时应该使用"
         />
-      </label>
+      </FormField>
     </div>
 
     <div ref="canvasHost" class="relative min-h-[560px] flex-1 overflow-hidden rounded-lg border border-border bg-background">
@@ -1096,7 +1097,7 @@ onBeforeUnmount(() => {
             <div class="text-[11px] font-medium">{{ approval.title }}</div>
             <div class="mt-1 text-[10px] leading-4 text-muted-foreground">{{ approval.description || approval.node_id }}</div>
             <div class="mt-2 flex gap-1.5">
-              <Button size="sm" class="h-7 bg-yellow-400 px-2 text-[10px] text-black hover:bg-yellow-300" @click="editor.respondApproval(approval.request_id, true)"><Check :size="12" />批准</Button>
+              <Button size="sm" class="h-7 bg-yellow-400 px-2 text-[10px] !text-black hover:bg-yellow-300" @click="editor.respondApproval(approval.request_id, true)"><Check :size="12" />批准</Button>
               <Button variant="outline" size="sm" class="h-7 px-2 text-[10px]" @click="editor.respondApproval(approval.request_id, false)"><X :size="12" />拒绝</Button>
             </div>
           </div>

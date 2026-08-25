@@ -34,6 +34,7 @@ from agent_runtime.oauth import (
     OAUTH_TOKEN_TTL_SECONDS,
     client_from_metadata_document,
     valid_pkce_challenge,
+    valid_pkce_verifier,
 )
 from agent_runtime.oauth_service import (
     OAuthService,
@@ -59,13 +60,19 @@ from agent_runtime.toolchains import ToolchainResolver
 
 class CustomMCPServerContractTests(unittest.TestCase):
     def test_project_owned_version(self) -> None:
-        self.assertEqual(__version__, "0.1.0")
+        self.assertEqual(__version__, "0.2.0")
 
     def test_oauth_defaults_match_project_contract(self) -> None:
         self.assertEqual(OAUTH_TOKEN_TTL_SECONDS, 24 * 60 * 60)
         self.assertTrue(valid_pkce_challenge("A" * 43))
         self.assertFalse(valid_pkce_challenge("A" * 44))
         self.assertFalse(valid_pkce_challenge("~" * 43))
+        self.assertTrue(valid_pkce_verifier("A" * 43))
+        self.assertTrue(valid_pkce_verifier("a" * 96))
+        self.assertTrue(valid_pkce_verifier("~" * 128))
+        self.assertFalse(valid_pkce_verifier("A" * 42))
+        self.assertFalse(valid_pkce_verifier("A" * 129))
+        self.assertFalse(valid_pkce_verifier("/" * 43))
 
         config = OAuthService(
             password="password",
@@ -2849,7 +2856,9 @@ class OAuthRefreshHTTPTests(unittest.TestCase):
                 ("http://127.0.0.1/callback",),
                 client_secret=None,
             )
-            verifier = "a" * 43
+            # RFC 7636 allows 43-128 characters. Claude does not guarantee a
+            # 43-character verifier, so exercise a longer valid value here.
+            verifier = "a" * 96
             challenge = base64.urlsafe_b64encode(
                 hashlib.sha256(verifier.encode("ascii")).digest()
             ).decode("ascii").rstrip("=")
