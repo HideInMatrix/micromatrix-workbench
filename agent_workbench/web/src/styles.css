@@ -88,23 +88,3 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb { border-radius: 5px; background: var(--border); }
 
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.span-2 { grid-column: span 2; }
-.field { display: grid; gap: 6px; color: var(--foreground); font-size: 11px; line-height: 16px; font-weight: 500; }
-.field > input, .field > select, .field > textarea, .input-action input { width: 100%; padding: 0 10px; border: 1px solid var(--input); border-radius: 6px; outline: none; background: var(--background); color: var(--foreground); font-size: 12px; font-weight: 400; transition: border-color .15s, box-shadow .15s; }
-.field > input, .field > select, .input-action input { height: 32px; }
-.field > textarea { padding-top: 8px; padding-bottom: 8px; line-height: 18px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
-.field > input:focus, .field > select:focus, .field > textarea:focus, .input-action input:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 16%, transparent); }
-.field > input:disabled, .field > select:disabled, .field > textarea:disabled, .input-action input:disabled { background: var(--muted); color: var(--muted-foreground); }
-.input-action { display: flex; gap: 6px; }
-.input-action input { flex: 1; min-width: 0; }
-.input-action button { min-width: 56px; height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--background); color: var(--foreground); font-size: 11px; }
-.input-action button:hover { background: var(--secondary); }
-.check-field { display: flex; align-items: flex-start; gap: 8px; color: var(--muted-foreground); font-size: 11px; line-height: 17px; }
-.check-field input { margin-top: 2px; }
-
-.primary-button, .secondary-button, .danger-button { min-height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 12px; border-radius: 6px; font-size: 11px; font-weight: 500; }
-.primary-button { border: 1px solid var(--primary); background: var(--primary); color: var(--primary-foreground); }
-.secondary-button { border: 1px solid var(--border); background: var(--background); color: var(--foreground); }
-.secondary-button:hover { background: var(--secondary); }
-.danger-button { border: 1px solid color-mix(in oklab, var(--destructive) 32%, var(--border)); background: transparent; color: var(--destructive); }

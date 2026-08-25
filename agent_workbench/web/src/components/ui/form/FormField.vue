@@ -2,7 +2,11 @@
 import type { HTMLAttributes } from 'vue'
 import { cn } from '@/lib/utils'
 
-const props = defineProps<{ class?: HTMLAttributes['class'] }>()
+const props = defineProps<{
+  class?: HTMLAttributes['class']
+  label?: string
+  span?: '1' | '2'
+}>()
 </script>
 
 <template>
@@ -18,9 +22,11 @@ const props = defineProps<{ class?: HTMLAttributes['class'] }>()
       '[&>input:disabled]:bg-muted [&>input:disabled]:text-muted-foreground',
       '[&>select:disabled]:bg-muted [&>select:disabled]:text-muted-foreground',
       '[&>textarea:disabled]:bg-muted [&>textarea:disabled]:text-muted-foreground',
+      props.span === '2' && 'col-span-2',
       props.class,
     )"
   >
+    <span v-if="props.label">{{ props.label }}</span>
     <slot />
   </label>
 </template>

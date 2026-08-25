@@ -209,3 +209,62 @@ lib/utils.ts
 - 如果 shadcn-vue CLI 生成了 `lucide-vue-next` import，必须在合入前统一替换为 `@lucide/vue`；项目禁止同时保留两套 Lucide Vue 包。
 - 默认图标尺寸由具体组件控制，普通工具栏/导航建议 16–22px。
 - 图标按钮必须保留可访问名称或可见文字，不允许只靠图形表达破坏可访问性。
+
+## 13. 前端函数式编程与代码复杂度上限
+
+前端页面统一采用函数式编程风格。该约束属于合入前必须满足的开发守则，不是建议项。
+
+### 13.1 函数式编程
+
+- Vue 页面与业务组件统一使用 `<script setup lang="ts">` + Composition API。
+- 禁止新增 Options API、Class Component、业务 Class 或以可变单例对象承载页面业务状态。
+- 页面状态使用 `ref` / `reactive`，派生状态使用 `computed`，生命周期副作用使用 Composition API 生命周期函数。
+- 业务计算优先拆分为纯函数；涉及复用状态或生命周期的逻辑拆分到 `composables/`。
+- 相同业务规则不得在多个页面复制实现，应抽取到 domain helper、Composable 或基础组件。
+- 函数应保持单一职责；校验、DTO 转换、持久化、刷新状态、错误格式化等职责应按需要拆分，避免一个函数承担完整业务链路。
+- 不为了“函数式”形式把大量逻辑塞入一个巨型 `useXxx()`；Composable 本身也必须保持职责边界，并继续拆分纯函数和子 Composable。
+
+### 13.2 页面文件 400 行上限
+
+- Route View / 页面级 `.vue` 文件物理行数不得超过 **400 行**。
+- 接近 400 行时必须主动拆分，不允许等到超过上限后再处理。
+- 页面主要负责数据组合、页面编排和用户交互；复杂表单、列表、面板、对话框应拆为子组件。
+- 复杂业务状态与副作用应拆到 `composables/`，纯转换与判断应拆到 `lib/` 或 domain helper。
+- 禁止通过压缩代码、合并多条语句、删除合理换行等方式规避 400 行限制。
+
+推荐拆分顺序：
+
+```text
+Route View
+  -> 局部 UI Component
+  -> Composable
+  -> Domain helper / DTO adapter
+  -> 常量与配置
+```
+
+### 13.3 单函数 50 行上限
+
+- 任意前端函数体不得超过 **50 行**。
+- 该规则包含普通函数、`async function`、箭头函数、事件处理器、`computed` callback、`watch` / `watchEffect` callback、Composable 暴露的操作函数。
+- 超过 50 行时必须按职责继续拆分，禁止通过压缩格式规避限制。
+- 嵌套回调同样按独立函数检查；复杂回调应提取为具名函数，提高可测试性和可读性。
+
+### 13.4 Code Review / 完成标准
+
+前端任务标记“完成”前必须确认：
+
+- 页面 `.vue` 文件均不超过 400 行；
+- 任意函数均不超过 50 行；
+- 新代码符合 Composition API / 函数式组织方式；
+- 页面没有重新堆积可拆分的业务状态与副作用；
+- 没有通过新增第二套 CSS / Button / Form 体系绕过已有 `components/ui/`；
+- 相关 `typecheck`、Vue typecheck、单元测试和构建检查通过；若受本机工具链阻塞，必须明确记录阻塞原因，不能把未执行描述为已通过。
+
+仓库提供自动检查命令：
+
+```bash
+cd agent_workbench/web
+pnpm check:standards
+```
+
+该检查会扫描前端 `src/`，强制验证 Vue 文件 400 行上限、函数 50 行上限、`<script setup>` 以及禁止 Class 业务代码。`pnpm build` 已包含该检查，违反守则时构建必须失败。

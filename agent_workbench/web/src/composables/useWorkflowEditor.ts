@@ -1,5 +1,12 @@
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { desktopApi } from '../api/desktop'
+import { emptyWorkflowCatalog } from './workflowEditorModels'
+import {
+  canvasToWorkflow,
+  workflowToCanvas,
+  type WorkflowCanvasEdge,
+  type WorkflowCanvasNode,
+} from '../lib/workflowGraph'
 import type {
   WorkbenchCatalogDto,
   WorkbenchTargetDto,
@@ -8,436 +15,377 @@ import type {
   WorkflowRunDto,
   WorkflowValidationDto,
 } from '../types'
-import {
-  canvasToWorkflow,
-  workflowToCanvas,
-  type WorkflowCanvasEdge,
-  type WorkflowCanvasNode,
-} from '../lib/workflowGraph'
 
-const emptyCatalog = (): WorkbenchCatalogDto => ({
-  target: {
-    target_id: '',
-    server_id: '',
-    service_name: '',
-    profile_name: '',
-    workspace: '',
-    running: false,
-  },
-  skills: [],
-  tools: [],
-  effective_tools: [],
-  mcp_connections: [],
-  workflows: [],
-  capabilities: [],
-})
+interface WorkflowEditorState {
+  targets: Ref<WorkbenchTargetDto[]>
+  targetId: Ref<string>
+  catalog: Ref<WorkbenchCatalogDto>
+  workflowId: Ref<string>
+  workflowName: Ref<string>
+  workflowDescription: Ref<string>
+  workflowVersion: Ref<number>
+  workflowScope: Ref<'built-in' | 'global' | 'workspace'>
+  workflowInputsSchema: Ref<Record<string, unknown>>
+  workflowTags: Ref<string[]>
+  workflowMetadata: Ref<Record<string, unknown>>
+  entryNodeId: Ref<string>
+  nodes: Ref<WorkflowCanvasNode[]>
+  edges: Ref<WorkflowCanvasEdge[]>
+  validation: Ref<WorkflowValidationDto | null>
+  runs: Ref<WorkflowRunDto[]>
+  approvals: Ref<WorkflowApprovalDto[]>
+  selectedRunId: Ref<string>
+  busy: Ref<boolean>
+  error: Ref<string>
+  notice: Ref<string>
+  history: Ref<string[]>
+  historyIndex: Ref<number>
+  timers: { poll: number; history: number; historyApplying: boolean; historyReady: boolean }
+}
 
-export function useWorkflowEditor() {
-  const targets = ref<WorkbenchTargetDto[]>([])
-  const targetId = ref('')
-  const catalog = ref<WorkbenchCatalogDto>(emptyCatalog())
-  const workflowId = ref('')
-  const workflowName = ref('')
-  const workflowDescription = ref('')
-  const workflowVersion = ref(1)
-  const workflowScope = ref<'built-in' | 'global' | 'workspace'>('workspace')
-  const workflowInputsSchema = ref<Record<string, unknown>>({
-    type: 'object',
-    properties: {},
-    additionalProperties: true,
-  })
-  const workflowTags = ref<string[]>([])
-  const workflowMetadata = ref<Record<string, unknown>>({})
-  const entryNodeId = ref('')
-  const nodes = ref<WorkflowCanvasNode[]>([])
-  const edges = ref<WorkflowCanvasEdge[]>([])
-  const validation = ref<WorkflowValidationDto | null>(null)
-  const runs = ref<WorkflowRunDto[]>([])
-  const approvals = ref<WorkflowApprovalDto[]>([])
-  const selectedRunId = ref('')
-  const busy = ref(false)
-  const error = ref('')
-  const notice = ref('')
-  const history = ref<string[]>([])
-  const historyIndex = ref(-1)
-  const canUndo = computed(() => historyIndex.value > 0)
-  const canRedo = computed(() => historyIndex.value >= 0 && historyIndex.value < history.value.length - 1)
-  let pollTimer = 0
-  let historyTimer = 0
-  let historyApplying = false
-  let historyReady = false
+interface WorkflowEditorContext extends WorkflowEditorState {
+  canUndo: ComputedRef<boolean>
+  canRedo: ComputedRef<boolean>
+  selectedTarget: ComputedRef<WorkbenchTargetDto | null>
+  selectedRun: ComputedRef<WorkflowRunDto | null>
+  workflowApprovals: ComputedRef<WorkflowApprovalDto[]>
+}
 
-  const selectedTarget = computed(
-    () => targets.value.find(item => item.target_id === targetId.value) ?? null,
-  )
-  const selectedRun = computed(
-    () => runs.value.find(item => item.run_id === selectedRunId.value) ?? null,
-  )
+function createWorkflowEditorState(): WorkflowEditorState {
+  return {
+    targets: ref<WorkbenchTargetDto[]>([]), targetId: ref(''), catalog: ref<WorkbenchCatalogDto>(emptyWorkflowCatalog()), workflowId: ref(''),
+    workflowName: ref(''), workflowDescription: ref(''), workflowVersion: ref(1), workflowScope: ref<'built-in' | 'global' | 'workspace'>('workspace'),
+    workflowInputsSchema: ref<Record<string, unknown>>({ type: 'object', properties: {}, additionalProperties: true }),
+    workflowTags: ref<string[]>([]), workflowMetadata: ref<Record<string, unknown>>({}), entryNodeId: ref(''),
+    nodes: ref<WorkflowCanvasNode[]>([]), edges: ref<WorkflowCanvasEdge[]>([]),
+    validation: ref<WorkflowValidationDto | null>(null), runs: ref<WorkflowRunDto[]>([]), approvals: ref<WorkflowApprovalDto[]>([]),
+    selectedRunId: ref(''), busy: ref(false),
+    error: ref(''), notice: ref(''), history: ref<string[]>([]), historyIndex: ref(-1),
+    timers: { poll: 0, history: 0, historyApplying: false, historyReady: false },
+  }
+}
+
+function createWorkflowEditorContext(state: WorkflowEditorState): WorkflowEditorContext {
+  const canUndo = computed(() => state.historyIndex.value > 0)
+  const canRedo = computed(() => state.historyIndex.value >= 0 && state.historyIndex.value < state.history.value.length - 1)
+  const selectedTarget = computed(() => state.targets.value.find(item => item.target_id === state.targetId.value) ?? null)
+  const selectedRun = computed(() => state.runs.value.find(item => item.run_id === state.selectedRunId.value) ?? null)
   const workflowApprovals = computed(() => {
     const serverId = selectedTarget.value?.server_id
-    return approvals.value.filter(
-      item => item.server_id === serverId && (!workflowId.value || runs.value.some(
-        run => run.run_id === item.run_id && run.workflow_id === workflowId.value,
-      )),
-    )
+    return state.approvals.value.filter(item => item.server_id === serverId && (
+      !state.workflowId.value || state.runs.value.some(run => run.run_id === item.run_id && run.workflow_id === state.workflowId.value)
+    ))
   })
+  return { ...state, canUndo, canRedo, selectedTarget, selectedRun, workflowApprovals }
+}
 
-  async function refreshCatalog() {
-    if (!targetId.value) {
-      catalog.value = emptyCatalog()
-      return catalog.value
+function definition(context: WorkflowEditorContext): WorkflowDefinitionDto {
+  return canvasToWorkflow({
+    id: context.workflowId.value,
+    name: context.workflowName.value,
+    description: context.workflowDescription.value,
+    version: context.workflowVersion.value,
+    entryNodeId: context.entryNodeId.value,
+    inputsSchema: context.workflowInputsSchema.value,
+    tags: context.workflowTags.value,
+    metadata: context.workflowMetadata.value,
+  }, context.nodes.value, context.edges.value)
+}
+
+function historySnapshot(context: WorkflowEditorContext): string {
+  return JSON.stringify({ ...definition(context), scope: context.workflowScope.value })
+}
+
+function resetHistory(context: WorkflowEditorContext) {
+  window.clearTimeout(context.timers.history)
+  context.timers.history = 0
+  context.history.value = [historySnapshot(context)]
+  context.historyIndex.value = 0
+  context.timers.historyReady = true
+}
+
+function pushHistory(context: WorkflowEditorContext) {
+  if (!context.timers.historyReady || context.timers.historyApplying) return
+  const snapshot = historySnapshot(context)
+  if (context.history.value[context.historyIndex.value] === snapshot) return
+  context.history.value = context.history.value.slice(0, context.historyIndex.value + 1)
+  context.history.value.push(snapshot)
+  if (context.history.value.length > 100) context.history.value.shift()
+  context.historyIndex.value = context.history.value.length - 1
+}
+
+function scheduleHistory(context: WorkflowEditorContext) {
+  if (!context.timers.historyReady || context.timers.historyApplying) return
+  window.clearTimeout(context.timers.history)
+  context.timers.history = window.setTimeout(() => pushHistory(context), 140)
+}
+
+function applyRunState(context: WorkflowEditorContext) {
+  const run = context.selectedRun.value
+  for (const node of context.nodes.value) {
+    let status = 'idle'
+    if (run) {
+      status = run.node_states[node.id]?.status ?? (run.engine_state.ready.includes(node.id) ? 'ready' : 'idle')
     }
-    catalog.value = await desktopApi.workbenchCatalog(targetId.value)
-    return catalog.value
+    node.data.status = status
   }
+}
 
-  function definition(): WorkflowDefinitionDto {
-    return canvasToWorkflow(
-      {
-        id: workflowId.value,
-        name: workflowName.value,
-        description: workflowDescription.value,
-        version: workflowVersion.value,
-        entryNodeId: entryNodeId.value,
-        inputsSchema: workflowInputsSchema.value,
-        tags: workflowTags.value,
-        metadata: workflowMetadata.value,
-      },
-      nodes.value,
-      edges.value,
-    )
+function applyDefinition(context: WorkflowEditorContext, value: WorkflowDefinitionDto, reset = true) {
+  context.workflowId.value = value.id
+  context.workflowName.value = value.name
+  context.workflowDescription.value = value.description
+  context.workflowVersion.value = value.version
+  context.workflowScope.value = value.scope ?? 'workspace'
+  context.workflowInputsSchema.value = { ...value.inputs_schema }
+  context.workflowTags.value = [...value.tags]
+  context.workflowMetadata.value = { ...value.metadata }
+  context.entryNodeId.value = value.entry_node_id
+  const canvas = workflowToCanvas(value)
+  context.nodes.value = canvas.nodes
+  context.edges.value = canvas.edges
+  context.validation.value = null
+  context.notice.value = ''
+  applyRunState(context)
+  if (reset) resetHistory(context)
+}
+
+function newWorkflow(context: WorkflowEditorContext) {
+  const suffix = Date.now().toString(36)
+  context.workflowId.value = `workflow-${suffix}`
+  context.workflowName.value = '新 Workflow'
+  context.workflowDescription.value = ''
+  context.workflowVersion.value = 1
+  context.workflowScope.value = 'workspace'
+  context.workflowInputsSchema.value = { type: 'object', properties: {}, additionalProperties: true }
+  context.workflowTags.value = []
+  context.workflowMetadata.value = {}
+  context.entryNodeId.value = ''
+  context.nodes.value = []
+  context.edges.value = []
+  context.validation.value = null
+  context.selectedRunId.value = ''
+  context.notice.value = '新 Workflow 尚未保存。'
+  resetHistory(context)
+}
+
+function validateRequiredMetadata(context: WorkflowEditorContext): boolean {
+  const description = context.workflowDescription.value.trim()
+  if (!description) {
+    context.error.value = '请输入 Workflow 描述。'
+    context.notice.value = ''
+    return false
   }
+  context.workflowDescription.value = description
+  return true
+}
 
-  function historySnapshot(): string {
-    return JSON.stringify({ ...definition(), scope: workflowScope.value })
+async function applyHistorySnapshot(context: WorkflowEditorContext, snapshot: string) {
+  context.timers.historyApplying = true
+  try {
+    applyDefinition(context, JSON.parse(snapshot) as WorkflowDefinitionDto, false)
+    await nextTick()
+  } finally {
+    context.timers.historyApplying = false
   }
+}
 
-  function resetHistory() {
-    window.clearTimeout(historyTimer)
-    historyTimer = 0
-    const snapshot = historySnapshot()
-    history.value = [snapshot]
-    historyIndex.value = 0
-    historyReady = true
+async function undo(context: WorkflowEditorContext) {
+  if (!context.canUndo.value) return
+  window.clearTimeout(context.timers.history)
+  context.historyIndex.value -= 1
+  await applyHistorySnapshot(context, context.history.value[context.historyIndex.value])
+  context.notice.value = '已撤销上一步 Workflow 编辑。'
+}
+
+async function redo(context: WorkflowEditorContext) {
+  if (!context.canRedo.value) return
+  window.clearTimeout(context.timers.history)
+  context.historyIndex.value += 1
+  await applyHistorySnapshot(context, context.history.value[context.historyIndex.value])
+  context.notice.value = '已恢复下一步 Workflow 编辑。'
+}
+
+async function refreshCatalog(context: WorkflowEditorContext) {
+  if (!context.targetId.value) {
+    context.catalog.value = emptyWorkflowCatalog()
+    return context.catalog.value
   }
+  context.catalog.value = await desktopApi.workbenchCatalog(context.targetId.value)
+  return context.catalog.value
+}
 
-  function pushHistory() {
-    if (!historyReady || historyApplying) return
-    const snapshot = historySnapshot()
-    if (history.value[historyIndex.value] === snapshot) return
-    history.value = history.value.slice(0, historyIndex.value + 1)
-    history.value.push(snapshot)
-    if (history.value.length > 100) history.value.shift()
-    historyIndex.value = history.value.length - 1
+async function refreshRuntimeState(context: WorkflowEditorContext) {
+  if (!context.targetId.value) return
+  const [runs, approvals] = await Promise.all([
+    desktopApi.listWorkbenchRuns(context.targetId.value),
+    desktopApi.listWorkflowApprovals(),
+  ])
+  context.runs.value = runs
+  context.approvals.value = approvals
+  if (context.selectedRunId.value && !runs.some(item => item.run_id === context.selectedRunId.value)) context.selectedRunId.value = ''
+  if (!context.selectedRunId.value && context.workflowId.value) {
+    context.selectedRunId.value = runs.find(item => item.workflow_id === context.workflowId.value)?.run_id ?? ''
   }
+  applyRunState(context)
+}
 
-  function scheduleHistory() {
-    if (!historyReady || historyApplying) return
-    window.clearTimeout(historyTimer)
-    historyTimer = window.setTimeout(pushHistory, 140)
+async function loadWorkflow(context: WorkflowEditorContext, workflowId: string) {
+  if (!context.targetId.value || !workflowId) return
+  context.busy.value = true
+  context.error.value = ''
+  try {
+    const value = await desktopApi.workbenchWorkflow(context.targetId.value, workflowId)
+    applyDefinition(context, value)
+    context.selectedRunId.value = context.runs.value.find(run => run.workflow_id === workflowId)?.run_id ?? ''
+    applyRunState(context)
+  } catch (reason) {
+    context.error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    context.busy.value = false
   }
+}
 
-  function applyDefinition(value: WorkflowDefinitionDto, reset = true) {
-    workflowId.value = value.id
-    workflowName.value = value.name
-    workflowDescription.value = value.description
-    workflowVersion.value = value.version
-    workflowScope.value = value.scope ?? 'workspace'
-    workflowInputsSchema.value = { ...value.inputs_schema }
-    workflowTags.value = [...value.tags]
-    workflowMetadata.value = { ...value.metadata }
-    entryNodeId.value = value.entry_node_id
-    const canvas = workflowToCanvas(value)
-    nodes.value = canvas.nodes
-    edges.value = canvas.edges
-    validation.value = null
-    notice.value = ''
-    applyRunState()
-    if (reset) resetHistory()
+async function loadTarget(context: WorkflowEditorContext, targetId: string) {
+  context.targetId.value = targetId
+  context.error.value = ''
+  if (!targetId) {
+    context.catalog.value = emptyWorkflowCatalog()
+    newWorkflow(context)
+    return
   }
-
-  function newWorkflow() {
-    const suffix = Date.now().toString(36)
-    workflowId.value = `workflow-${suffix}`
-    workflowName.value = '新 Workflow'
-    workflowDescription.value = ''
-    workflowVersion.value = 1
-    workflowScope.value = 'workspace'
-    workflowInputsSchema.value = {
-      type: 'object',
-      properties: {},
-      additionalProperties: true,
-    }
-    workflowTags.value = []
-    workflowMetadata.value = {}
-    entryNodeId.value = ''
-    nodes.value = []
-    edges.value = []
-    validation.value = null
-    selectedRunId.value = ''
-    notice.value = '新 Workflow 尚未保存。'
-    resetHistory()
+  context.busy.value = true
+  try {
+    await refreshCatalog(context)
+    await refreshRuntimeState(context)
+    const preferred = context.catalog.value.workflows.find(item => item.id === context.workflowId.value) ?? context.catalog.value.workflows[0]
+    if (preferred) await loadWorkflow(context, preferred.id)
+    else newWorkflow(context)
+  } catch (reason) {
+    context.error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    context.busy.value = false
   }
+}
 
-  function validateRequiredMetadata() {
-    const description = workflowDescription.value.trim()
-    if (!description) {
-      error.value = '请输入 Workflow 描述。'
-      notice.value = ''
-      return false
-    }
-    workflowDescription.value = description
-    return true
+async function refreshTargets(context: WorkflowEditorContext) {
+  context.targets.value = await desktopApi.listWorkbenchTargets()
+  if (!context.targetId.value || !context.targets.value.some(item => item.target_id === context.targetId.value)) {
+    context.targetId.value = context.targets.value[0]?.target_id ?? ''
   }
+  if (context.targetId.value) await loadTarget(context, context.targetId.value)
+}
 
-  async function applyHistorySnapshot(snapshot: string) {
-    historyApplying = true
-    try {
-      applyDefinition(JSON.parse(snapshot) as WorkflowDefinitionDto, false)
-      await nextTick()
-    } finally {
-      historyApplying = false
-    }
+async function validateWorkflow(context: WorkflowEditorContext) {
+  if (!context.targetId.value || !validateRequiredMetadata(context)) return null
+  context.busy.value = true
+  context.error.value = ''
+  try {
+    context.validation.value = await desktopApi.validateWorkbenchWorkflow(context.targetId.value, definition(context))
+    context.notice.value = context.validation.value.ok
+      ? '后端 Validator 验证通过。'
+      : `验证失败：${context.validation.value.errors.length} 个错误。`
+    return context.validation.value
+  } catch (reason) {
+    context.error.value = reason instanceof Error ? reason.message : String(reason)
+    return null
+  } finally {
+    context.busy.value = false
   }
+}
 
-  async function undo() {
-    if (!canUndo.value) return
-    window.clearTimeout(historyTimer)
-    historyIndex.value -= 1
-    await applyHistorySnapshot(history.value[historyIndex.value])
-    notice.value = '已撤销上一步 Workflow 编辑。'
-  }
-
-  async function redo() {
-    if (!canRedo.value) return
-    window.clearTimeout(historyTimer)
-    historyIndex.value += 1
-    await applyHistorySnapshot(history.value[historyIndex.value])
-    notice.value = '已恢复下一步 Workflow 编辑。'
-  }
-
-  async function refreshTargets() {
-    targets.value = await desktopApi.listWorkbenchTargets()
-    if (!targetId.value || !targets.value.some(item => item.target_id === targetId.value)) {
-      targetId.value = targets.value[0]?.target_id ?? ''
-    }
-    if (targetId.value) await loadTarget(targetId.value)
-  }
-
-  async function loadTarget(nextTargetId: string) {
-    targetId.value = nextTargetId
-    error.value = ''
-    if (!nextTargetId) {
-      catalog.value = emptyCatalog()
-      newWorkflow()
-      return
-    }
-    busy.value = true
-    try {
-      await refreshCatalog()
-      await refreshRuntimeState()
-      const preferred = catalog.value.workflows.find(item => item.id === workflowId.value)
-        ?? catalog.value.workflows[0]
-      if (preferred) await loadWorkflow(preferred.id)
-      else newWorkflow()
-    } catch (reason) {
-      error.value = reason instanceof Error ? reason.message : String(reason)
-    } finally {
-      busy.value = false
-    }
-  }
-
-  async function loadWorkflow(nextWorkflowId: string) {
-    if (!targetId.value || !nextWorkflowId) return
-    busy.value = true
-    error.value = ''
-    try {
-      const value = await desktopApi.workbenchWorkflow(targetId.value, nextWorkflowId)
-      applyDefinition(value)
-      const latest = runs.value.find(run => run.workflow_id === nextWorkflowId)
-      selectedRunId.value = latest?.run_id ?? ''
-      applyRunState()
-    } catch (reason) {
-      error.value = reason instanceof Error ? reason.message : String(reason)
-    } finally {
-      busy.value = false
-    }
-  }
-
-  async function validate() {
-    if (!targetId.value) return null
-    if (!validateRequiredMetadata()) return null
-    busy.value = true
-    error.value = ''
-    try {
-      validation.value = await desktopApi.validateWorkbenchWorkflow(
-        targetId.value,
-        definition(),
-      )
-      notice.value = validation.value.ok
-        ? '后端 Validator 验证通过。'
-        : `验证失败：${validation.value.errors.length} 个错误。`
-      return validation.value
-    } catch (reason) {
-      error.value = reason instanceof Error ? reason.message : String(reason)
-      return null
-    } finally {
-      busy.value = false
-    }
-  }
-
-  async function save() {
-    if (!targetId.value) return null
-    if (!validateRequiredMetadata()) return null
-    busy.value = true
-    error.value = ''
-    try {
-      const current = catalog.value.workflows.find(item => item.id === workflowId.value)
-      const expectedVersion = current?.scope === 'workspace' ? current.version : 0
-      const result = await desktopApi.saveWorkbenchWorkflow(
-        targetId.value,
-        definition(),
-        expectedVersion,
-      )
-      validation.value = result
-      if (!result.ok || !result.saved) {
-        notice.value = `保存失败：${result.errors.length} 个验证错误。`
-        return result
-      }
-      applyDefinition(result.workflow, false)
-      await refreshCatalog()
-      notice.value = `Workflow 已保存为 v${result.workflow.version}。`
+async function saveWorkflow(context: WorkflowEditorContext) {
+  if (!context.targetId.value || !validateRequiredMetadata(context)) return null
+  context.busy.value = true
+  context.error.value = ''
+  try {
+    const current = context.catalog.value.workflows.find(item => item.id === context.workflowId.value)
+    const expectedVersion = current?.scope === 'workspace' ? current.version : 0
+    const result = await desktopApi.saveWorkbenchWorkflow(context.targetId.value, definition(context), expectedVersion)
+    context.validation.value = result
+    if (!result.ok || !result.saved) {
+      context.notice.value = `保存失败：${result.errors.length} 个验证错误。`
       return result
-    } catch (reason) {
-      error.value = reason instanceof Error ? reason.message : String(reason)
-      return null
-    } finally {
-      busy.value = false
     }
+    applyDefinition(context, result.workflow, false)
+    await refreshCatalog(context)
+    context.notice.value = `Workflow 已保存为 v${result.workflow.version}。`
+    return result
+  } catch (reason) {
+    context.error.value = reason instanceof Error ? reason.message : String(reason)
+    return null
+  } finally {
+    context.busy.value = false
   }
+}
 
-  async function remove() {
-    if (!targetId.value || workflowScope.value !== 'workspace') return false
-    busy.value = true
-    try {
-      const deleted = await desktopApi.deleteWorkbenchWorkflow(targetId.value, workflowId.value)
-      await refreshCatalog()
-      if (deleted) {
-        const next = catalog.value.workflows[0]
-        if (next) await loadWorkflow(next.id)
-        else newWorkflow()
-        notice.value = 'Workflow 已删除，列表已刷新。'
-      }
-      return deleted
-    } finally {
-      busy.value = false
+async function removeWorkflow(context: WorkflowEditorContext) {
+  if (!context.targetId.value || context.workflowScope.value !== 'workspace') return false
+  context.busy.value = true
+  try {
+    const deleted = await desktopApi.deleteWorkbenchWorkflow(context.targetId.value, context.workflowId.value)
+    await refreshCatalog(context)
+    if (deleted) {
+      const next = context.catalog.value.workflows[0]
+      if (next) await loadWorkflow(context, next.id)
+      else newWorkflow(context)
+      context.notice.value = 'Workflow 已删除，列表已刷新。'
     }
+    return deleted
+  } finally {
+    context.busy.value = false
   }
+}
 
-  function applyRunState() {
-    const run = selectedRun.value
-    for (const node of nodes.value) {
-      let status = 'idle'
-      if (run) {
-        status = run.node_states[node.id]?.status ?? (
-          run.engine_state.ready.includes(node.id) ? 'ready' : 'idle'
-        )
-      }
-      node.data.status = status
-    }
-  }
+async function respondApproval(context: WorkflowEditorContext, requestId: string, approved: boolean) {
+  const ok = await desktopApi.respondWorkflowApproval(requestId, approved)
+  context.notice.value = ok
+    ? '审批决策已签名发送，等待 AI 调用 workflow_continue 继续 Run。'
+    : '审批响应失败或请求已失效。'
+  await refreshRuntimeState(context)
+  return ok
+}
 
-  async function refreshRuntimeState() {
-    if (!targetId.value) return
-    const [nextRuns, nextApprovals] = await Promise.all([
-      desktopApi.listWorkbenchRuns(targetId.value),
-      desktopApi.listWorkflowApprovals(),
-    ])
-    runs.value = nextRuns
-    approvals.value = nextApprovals
-    if (
-      selectedRunId.value
-      && !runs.value.some(item => item.run_id === selectedRunId.value)
-    ) {
-      selectedRunId.value = ''
-    }
-    if (!selectedRunId.value && workflowId.value) {
-      selectedRunId.value = runs.value.find(
-        item => item.workflow_id === workflowId.value,
-      )?.run_id ?? ''
-    }
-    applyRunState()
-  }
+function startPolling(context: WorkflowEditorContext) {
+  window.clearInterval(context.timers.poll)
+  context.timers.poll = window.setInterval(() => void refreshRuntimeState(context), 1500)
+}
 
-  async function respondApproval(requestId: string, approved: boolean) {
-    const ok = await desktopApi.respondWorkflowApproval(requestId, approved)
-    notice.value = ok
-      ? '审批决策已签名发送，等待 AI 调用 workflow_continue 继续 Run。'
-      : '审批响应失败或请求已失效。'
-    await refreshRuntimeState()
-    return ok
-  }
+function stopPolling(context: WorkflowEditorContext) {
+  window.clearInterval(context.timers.poll)
+  context.timers.poll = 0
+}
 
-  function startPolling() {
-    window.clearInterval(pollTimer)
-    pollTimer = window.setInterval(() => void refreshRuntimeState(), 1500)
-  }
+function publicState(context: WorkflowEditorContext) {
+  const { timers: _timers, history: _history, historyIndex: _historyIndex, approvals: _approvals, ...state } = context
+  return state
+}
 
-  function stopPolling() {
-    window.clearInterval(pollTimer)
-    pollTimer = 0
-  }
-
-  watch(
-    () => historySnapshot(),
-    () => scheduleHistory(),
-    { deep: true },
-  )
-
-  onBeforeUnmount(() => {
-    stopPolling()
-    window.clearTimeout(historyTimer)
-  })
-
+function publicActions(context: WorkflowEditorContext) {
   return {
-    targets,
-    targetId,
-    selectedTarget,
-    catalog,
-    workflowId,
-    workflowName,
-    workflowDescription,
-    workflowVersion,
-    workflowScope,
-    workflowInputsSchema,
-    workflowTags,
-    workflowMetadata,
-    entryNodeId,
-    nodes,
-    edges,
-    validation,
-    runs,
-    selectedRunId,
-    selectedRun,
-    workflowApprovals,
-    busy,
-    error,
-    notice,
-    canUndo,
-    canRedo,
-    definition,
-    newWorkflow,
-    refreshTargets,
-    loadTarget,
-    loadWorkflow,
-    validate,
-    save,
-    remove,
-    refreshRuntimeState,
-    respondApproval,
-    undo,
-    redo,
-    startPolling,
-    stopPolling,
+    definition: () => definition(context),
+    newWorkflow: () => newWorkflow(context),
+    refreshTargets: () => refreshTargets(context),
+    loadTarget: (id: string) => loadTarget(context, id),
+    loadWorkflow: (id: string) => loadWorkflow(context, id),
+    validate: () => validateWorkflow(context),
+    save: () => saveWorkflow(context),
+    remove: () => removeWorkflow(context),
+    refreshRuntimeState: () => refreshRuntimeState(context),
+    respondApproval: (id: string, approved: boolean) => respondApproval(context, id, approved),
+    undo: () => undo(context),
+    redo: () => redo(context),
+    startPolling: () => startPolling(context),
+    stopPolling: () => stopPolling(context),
   }
+}
+
+export function useWorkflowEditor() {
+  const context = createWorkflowEditorContext(createWorkflowEditorState())
+  watch(() => historySnapshot(context), () => scheduleHistory(context), { deep: true })
+  onBeforeUnmount(() => {
+    stopPolling(context)
+    window.clearTimeout(context.timers.history)
+  })
+  return { ...publicState(context), ...publicActions(context) }
 }
