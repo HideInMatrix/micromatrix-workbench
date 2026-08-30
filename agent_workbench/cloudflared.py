@@ -12,6 +12,15 @@ from .resources import resolve_cloudflared
 
 
 TUNNEL_URL_PATTERN = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
+REQUEST_CANCELLATION_MARKERS = (
+    "incoming request ended abruptly: context canceled",
+    "failed to proxy http: incoming request ended abruptly: context canceled",
+)
+
+
+def is_request_cancellation_log(value: str) -> bool:
+    lowered = value.lower()
+    return any(marker in lowered for marker in REQUEST_CANCELLATION_MARKERS)
 
 
 class CloudflaredTunnel:
@@ -156,7 +165,13 @@ class CloudflaredTunnel:
             if not text:
                 continue
             self._lines.put(text)
-            self._log(f"[cloudflared] {text}")
+            if is_request_cancellation_log(text):
+                self._log(
+                    "[cloudflared][request-cancelled] 上游客户端/中转层取消了进行中的 "
+                    f"HTTP 请求；这不等于 Tunnel 进程退出。raw={text}"
+                )
+            else:
+                self._log(f"[cloudflared] {text}")
 
     def stop(self) -> None:
         stop_process(self.process, name="cloudflared", log=self._log)

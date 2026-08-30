@@ -16,6 +16,7 @@ from .config import (
     PERMISSION_MODE_CHOICES,
     LaunchConfig,
     NetworkConfig,
+    default_lifecycle,
 )
 from .user_settings import settings_dir
 
@@ -26,15 +27,6 @@ SERVER_LIFECYCLES = {"persistent", "ephemeral"}
 
 def _timestamp() -> int:
     return int(time.time())
-
-
-def default_lifecycle(network: NetworkConfig) -> str:
-    """Return the default OAuth persistence lifecycle for a network config."""
-
-    validated = network.validated()
-    if validated.provider in {"cloudflare", "ngrok"} and not validated.public_url:
-        return "ephemeral"
-    return "persistent"
 
 
 def _public_hostname_identity(value: str) -> str:

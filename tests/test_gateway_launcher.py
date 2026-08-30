@@ -248,6 +248,125 @@ class GatewayLauncherTests(unittest.TestCase):
                 finally:
                     launcher.stop()
 
+    def test_fixed_gateway_starts_origin_before_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            profiles = self._profiles(Path(temporary))
+            events: list[str] = []
+            provider = _FakeProvider(
+                "https://mcp.example.com",
+                "Cloudflare Named Tunnel",
+            )
+            launcher = MCPGatewayLauncher()
+            original_provider_start = provider.start
+
+            def start_provider(host, port, config):
+                events.append("provider")
+                return original_provider_start(host, port, config)
+
+            def start_gateway(_config, _env):
+                events.append("gateway")
+                launcher._gateway.process = _FakeProcess()  # type: ignore[assignment]
+
+            with (
+                patch(
+                    "agent_workbench.gateway_launcher.create_network_provider",
+                    return_value=provider,
+                ),
+                patch("agent_workbench.gateway_launcher.check_port_available"),
+                patch.object(provider, "start", side_effect=start_provider),
+                patch.object(launcher._gateway, "start", side_effect=start_gateway),
+                patch.object(launcher, "_diagnose_background"),
+            ):
+                launcher.start(
+                    GatewayLaunchConfig(
+                        network=NetworkConfig(
+                            provider="cloudflare",
+                            public_url="https://mcp.example.com",
+                            options={"tunnel_token": "token"},
+                        ),
+                        profiles=profiles,
+                    )
+                )
+                launcher.stop()
+
+            self.assertEqual(events, ["gateway", "provider"])
+
+    def test_dynamic_gateway_starts_provider_before_origin(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            profiles = self._profiles(Path(temporary))
+            events: list[str] = []
+            provider = _FakeProvider(
+                "https://random.trycloudflare.com",
+                "Cloudflare Quick Tunnel",
+            )
+            launcher = MCPGatewayLauncher()
+            original_provider_start = provider.start
+
+            def start_provider(host, port, config):
+                events.append("provider")
+                return original_provider_start(host, port, config)
+
+            def start_gateway(_config, _env):
+                events.append("gateway")
+                launcher._gateway.process = _FakeProcess()  # type: ignore[assignment]
+
+            with (
+                patch(
+                    "agent_workbench.gateway_launcher.create_network_provider",
+                    return_value=provider,
+                ),
+                patch("agent_workbench.gateway_launcher.check_port_available"),
+                patch.object(provider, "start", side_effect=start_provider),
+                patch.object(launcher._gateway, "start", side_effect=start_gateway),
+            ):
+                launcher.start(
+                    GatewayLaunchConfig(
+                        network=NetworkConfig(provider="cloudflare"),
+                        profiles=profiles,
+                    )
+                )
+                launcher.stop()
+
+            self.assertEqual(events, ["provider", "gateway"])
+
+    def test_fixed_gateway_provider_failure_does_not_commit_issuer_bindings(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            profiles = self._profiles(Path(temporary))
+            provider = _FakeProvider("https://mcp.example.com")
+            launcher = MCPGatewayLauncher()
+
+            def start_gateway(_config, _env):
+                launcher._gateway.process = _FakeProcess()  # type: ignore[assignment]
+
+            with (
+                patch(
+                    "agent_workbench.gateway_launcher.create_network_provider",
+                    return_value=provider,
+                ),
+                patch("agent_workbench.gateway_launcher.check_port_available"),
+                patch.object(launcher._gateway, "start", side_effect=start_gateway),
+                patch.object(
+                    provider,
+                    "start",
+                    side_effect=RuntimeError("tunnel failed"),
+                ),
+                patch.object(launcher._gateway, "bind_oauth_issuers") as bind_issuers,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "tunnel failed"):
+                    launcher.start(
+                        GatewayLaunchConfig(
+                            network=NetworkConfig(
+                                provider="cloudflare",
+                                public_url="https://mcp.example.com",
+                                options={"tunnel_token": "token"},
+                            ),
+                            profiles=profiles,
+                        )
+                    )
+
+            bind_issuers.assert_not_called()
+            self.assertTrue(provider.stopped)
+
     def test_gateway_child_environment_removes_single_profile_secrets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             profiles = self._profiles(Path(temporary))

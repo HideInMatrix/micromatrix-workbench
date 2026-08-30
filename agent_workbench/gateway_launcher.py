@@ -809,6 +809,22 @@ class MCPGatewayLauncher:
             )
         return profiles
 
+    def _start_gateway_origin(
+        self,
+        config: GatewayLaunchConfig,
+        public_base_url: str,
+        profiles: tuple[GatewayChildProfile, ...],
+    ) -> None:
+        self._gateway.start(
+            GatewayProcessConfig(
+                public_base_url=public_base_url,
+                profiles=profiles,
+                host=config.host,
+                port=config.port,
+            ),
+            self._gateway_environment(),
+        )
+
     def _gateway_environment(self) -> dict[str, str]:
         env = os.environ.copy()
         # Gateway profile secrets/broker identities are instance scoped inside
@@ -902,15 +918,34 @@ class MCPGatewayLauncher:
             self._exit_reason = ""
             check_port_available(validated.host, validated.port)
             try:
-                public_base_url, url_mode = self._start_network(validated)
                 profiles = self._launch_profiles(validated)
-                child_config = GatewayProcessConfig(
-                    public_base_url=public_base_url,
-                    profiles=profiles,
-                    host=validated.host,
-                    port=validated.port,
-                )
-                self._gateway.start(child_config, self._gateway_environment())
+                if validated.network.public_url:
+                    # Fixed hostnames may already have connected clients. Make
+                    # the local Gateway listen before exposing the tunnel so
+                    # startup does not create a deterministic 502 window.
+                    public_base_url = canonical_oauth_issuer(
+                        validated.network.public_url
+                    )
+                    self._start_gateway_origin(
+                        validated,
+                        public_base_url,
+                        profiles,
+                    )
+                    provider_url, url_mode = self._start_network(validated)
+                    if provider_url != public_base_url:
+                        raise RuntimeError(
+                            "Gateway Network Provider 返回的 Public URL 与配置的 OAuth issuer 不一致。"
+                        )
+                else:
+                    # Dynamic tunnels must reveal their random issuer before
+                    # the profile OAuth configuration can be generated.
+                    public_base_url, url_mode = self._start_network(validated)
+                    self._start_gateway_origin(
+                        validated,
+                        public_base_url,
+                        profiles,
+                    )
+                self._gateway.bind_oauth_issuers()
                 self._diagnostic_oauth_passwords = {
                     profile.server_id: profile.oauth_password for profile in profiles
                 }
@@ -1029,4 +1064,3 @@ class MCPGatewayLauncher:
     def wait(self) -> None:
         while self.is_running:
             time.sleep(0.5)
-

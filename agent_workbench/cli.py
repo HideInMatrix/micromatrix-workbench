@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import signal
+import sys
 from pathlib import Path
 
 from .config import DEFAULT_HOST, DEFAULT_PORT, LaunchConfig, load_env_file
 from .launcher import MCPLauncher
+from .network import create_network_provider
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -39,10 +41,15 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_ENV_FILE,
         help=f"OAuth / Network Provider 配置文件，默认: {DEFAULT_ENV_FILE}",
     )
+    parser.add_argument(
+        "--check-config",
+        action="store_true",
+        help="校验 Workspace 与基础部署配置后退出，不启动 Runtime/Tunnel",
+    )
     return parser.parse_args()
 
 
-def main() -> int:
+def _run() -> int:
     args = parse_args()
     env = load_env_file(args.env_file.expanduser().resolve())
     config = LaunchConfig.from_env(
@@ -51,6 +58,15 @@ def main() -> int:
         host=args.host,
         port=args.port,
     )
+    if args.check_config:
+        provider = create_network_provider(config.network.provider, lambda _message: None)
+        provider.validate_config(config.network)
+        print(
+            "配置检查通过: "
+            f"workspace={config.workspace}, provider={config.network.provider}, "
+            f"listen={config.host}:{config.port}, lifecycle={config.lifecycle}"
+        )
+        return 0
     launcher = MCPLauncher(log=print)
 
     def shutdown(_signum: int, _frame: object) -> None:
@@ -82,3 +98,18 @@ def main() -> int:
         return 1 if launcher.exit_reason else 0
     finally:
         launcher.stop()
+
+
+def main() -> int:
+    try:
+        return _run()
+    except KeyboardInterrupt:
+        print("\n正在退出...", file=sys.stderr)
+        return 130
+    except Exception as exc:  # CLI boundary: report expected startup failures cleanly.
+        print(f"\n启动失败:\n  {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

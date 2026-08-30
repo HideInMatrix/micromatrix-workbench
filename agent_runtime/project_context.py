@@ -41,6 +41,16 @@ class ProjectContext:
             for item in self.root_files:
                 parts.append(f"\n--- {item.path} ---\n{item.content}")
 
+        parts.append(
+            "\n--- MicroMatrix transport retry policy ---\n"
+            "Prefer bounded reads and focused patches. If a read-only MCP call is cancelled "
+            "or fails at the transport layer, retry it once with a smaller range. After an "
+            "ambiguous failure of a create, update, delete, command, or patch operation, read "
+            "the affected state before retrying; the operation may have completed even when "
+            "its response was cancelled. A transport cancellation or HTTP 502 is not evidence "
+            "of a Git/workspace failure."
+        )
+
         catalog: list[str] = []
         catalog_chars = 0
         omitted = 0

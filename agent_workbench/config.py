@@ -15,6 +15,58 @@ NETWORK_PROVIDER_CHOICES = (
     "external",
 )
 PERMISSION_MODE_CHOICES = ("safe", "trusted", "dangerous")
+RUNTIME_ENV_PREFIX = "AGENT_RUNTIME_"
+RUNTIME_ENV_RESERVED_KEYS = frozenset(
+    {
+        "AGENT_RUNTIME_ALLOW_NETWORK",
+        "AGENT_RUNTIME_AUTH_MODE",
+        "AGENT_RUNTIME_AUTH_TOKEN",
+        "AGENT_RUNTIME_ENABLE_VIEW_IMAGE",
+        "AGENT_RUNTIME_FRPC",
+        "AGENT_RUNTIME_FRP_CONFIG",
+        "AGENT_RUNTIME_GATEWAY_CONFIG",
+        "AGENT_RUNTIME_HOST",
+        "AGENT_RUNTIME_NETWORK_PROVIDER",
+        "AGENT_RUNTIME_NGROK",
+        "AGENT_RUNTIME_NGROK_AUTHTOKEN",
+        "AGENT_RUNTIME_OAUTH_CIMD_ENABLED",
+        "AGENT_RUNTIME_OAUTH_CLIENT_ID",
+        "AGENT_RUNTIME_OAUTH_CLIENT_REGISTRY_FILE",
+        "AGENT_RUNTIME_OAUTH_CLIENT_SECRET",
+        "AGENT_RUNTIME_OAUTH_MODE",
+        "AGENT_RUNTIME_OAUTH_PASSWORD",
+        "AGENT_RUNTIME_OAUTH_TOKEN_SECRET",
+        "AGENT_RUNTIME_PERMISSION_BROKER_DIR",
+        "AGENT_RUNTIME_PERMISSION_BROKER_SECRET",
+        "AGENT_RUNTIME_PERMISSION_BROKER_SERVER_ID",
+        "AGENT_RUNTIME_PERMISSION_MODE",
+        "AGENT_RUNTIME_PORT",
+        "AGENT_RUNTIME_ROUTE_PROBE_TOKEN",
+        "AGENT_RUNTIME_SERVER_URL",
+        "AGENT_RUNTIME_TAILSCALE",
+        "AGENT_RUNTIME_TUNNEL_TOKEN",
+        "AGENT_RUNTIME_WORKSPACE",
+    }
+)
+
+
+def default_lifecycle(network: "NetworkConfig") -> str:
+    """Choose OAuth persistence from the stability of the public endpoint."""
+
+    validated = network.validated()
+    if validated.provider in {"cloudflare", "ngrok"} and not validated.public_url:
+        return "ephemeral"
+    return "persistent"
+
+
+def runtime_environment_from_env(env: dict[str, str]) -> dict[str, str]:
+    """Keep advanced Runtime knobs while protecting launcher-owned values."""
+
+    return {
+        key: value
+        for key, value in env.items()
+        if key.startswith(RUNTIME_ENV_PREFIX) and key not in RUNTIME_ENV_RESERVED_KEYS
+    }
 
 
 def load_env_file(path: Path) -> dict[str, str]:
@@ -91,6 +143,7 @@ class LaunchConfig:
     permission_mode: str = "safe"
     allow_network: bool = False
     enable_view_image: bool = True
+    runtime_environment: dict[str, str] = field(default_factory=dict)
 
     def validated(self) -> "LaunchConfig":
         workspace = self.workspace.expanduser().resolve()
@@ -125,6 +178,7 @@ class LaunchConfig:
             permission_mode=permission_mode,
             allow_network=bool(self.allow_network),
             enable_view_image=bool(self.enable_view_image),
+            runtime_environment=runtime_environment_from_env(self.runtime_environment),
         )
 
     @classmethod
@@ -163,16 +217,18 @@ class LaunchConfig:
                 "",
             )
 
+        network = NetworkConfig(
+            provider=provider,
+            public_url=env.get("AGENT_RUNTIME_SERVER_URL", ""),
+            options=provider_options,
+        )
         return cls(
             workspace=workspace,
             oauth_password=env.get("AGENT_RUNTIME_OAUTH_PASSWORD", ""),
-            network=NetworkConfig(
-                provider=provider,
-                public_url=env.get("AGENT_RUNTIME_SERVER_URL", ""),
-                options=provider_options,
-            ),
+            network=network,
             host=host,
             port=port,
+            lifecycle=default_lifecycle(network),
             permission_mode=env.get("AGENT_RUNTIME_PERMISSION_MODE", "safe"),
             allow_network=env.get("AGENT_RUNTIME_ALLOW_NETWORK", "")
             .strip()
@@ -182,6 +238,7 @@ class LaunchConfig:
             .strip()
             .lower()
             not in {"0", "false", "no", "off"},
+            runtime_environment=runtime_environment_from_env(env),
         ).validated()
 
 

@@ -132,6 +132,7 @@ class PreparedGatewayConfig:
     temporary_dir: Path
     persistences: tuple[OAuthPersistence, ...]
     registry_files: dict[str, Path]
+    issuer_bindings: tuple[tuple[str, str], ...]
 
     def remove_config_file(self) -> None:
         try:
@@ -159,13 +160,14 @@ def prepare_gateway_config(
         profile_payloads: list[dict[str, object]] = []
         persistences: list[OAuthPersistence] = []
         registry_files: dict[str, Path] = {}
+        issuer_bindings: list[tuple[str, str]] = []
         for profile in validated.profiles:
             issuer = profile.public_url or f"{validated.public_base_url}{profile.instance_path}"
             if profile.lifecycle == "ephemeral":
                 persistence = prepare_ephemeral_oauth_persistence(profile.server_id)
             else:
                 persistence = prepare_issuer_oauth_persistence(issuer)
-                bind_server_oauth_issuer(profile.server_id, issuer)
+                issuer_bindings.append((profile.server_id, issuer))
             persistences.append(persistence)
             registry_files[profile.server_id] = persistence.registry_file
             profile_payload: dict[str, object] = {
@@ -221,6 +223,7 @@ def prepare_gateway_config(
             temporary_dir=directory,
             persistences=tuple(persistences),
             registry_files=registry_files,
+            issuer_bindings=tuple(issuer_bindings),
         )
     except Exception:
         shutil.rmtree(directory, ignore_errors=True)
@@ -297,9 +300,17 @@ class GatewayServerProcess:
         if prepared is not None:
             prepared.cleanup()
 
+    def bind_oauth_issuers(self) -> None:
+        """Commit management bindings after origin and provider startup."""
+
+        prepared = self._prepared
+        if prepared is None:
+            return
+        for server_id, issuer in prepared.issuer_bindings:
+            bind_server_oauth_issuer(server_id, issuer)
+
     def oauth_registry_file(self, server_id: str) -> Path | None:
         prepared = self._prepared
         if prepared is None:
             return None
         return prepared.registry_files.get(server_id.strip())
-

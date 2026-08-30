@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import hmac
 import http.client
+import io
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -47,13 +50,20 @@ from agent_runtime.protocol import (
     META_PROTOCOL_VERSION,
     dispatch,
 )
+from agent_runtime.project_context import ProjectContext
 from agent_runtime.runtime import Runtime
 from agent_runtime.workbench import WorkflowDefinition
 from agent_runtime.sandbox.backend import (
     MacSeatbeltBackend,
     WindowsRestrictedTokenBackend,
 )
-from agent_runtime.server import MCPHandler, MCPHTTPServer
+from agent_runtime.server import (
+    HEALTH_PATH,
+    ORIGIN_HEADER,
+    ORIGIN_HEADER_VALUE,
+    MCPHandler,
+    MCPHTTPServer,
+)
 from agent_runtime.server import _normalize_public_server_url
 from agent_runtime.toolchains import ToolchainResolver
 
@@ -61,6 +71,12 @@ from agent_runtime.toolchains import ToolchainResolver
 class CustomMCPServerContractTests(unittest.TestCase):
     def test_project_owned_version(self) -> None:
         self.assertEqual(__version__, "0.2.0")
+
+    def test_server_instructions_define_safe_transport_retry_semantics(self) -> None:
+        instructions = ProjectContext((), (), ()).server_instructions()
+        self.assertIn("MicroMatrix transport retry policy", instructions)
+        self.assertIn("read the affected state before retrying", instructions)
+        self.assertIn("HTTP 502 is not evidence of a Git/workspace failure", instructions)
 
     def test_oauth_defaults_match_project_contract(self) -> None:
         self.assertEqual(OAUTH_TOKEN_TTL_SECONDS, 24 * 60 * 60)
@@ -2248,6 +2264,103 @@ class RuntimeSafetyTests(unittest.TestCase):
 
 
 class HTTPTransportTests(unittest.TestCase):
+    def test_origin_health_endpoint_identifies_runtime_and_uses_burst_backlog(self) -> None:
+        self.assertGreaterEqual(MCPHTTPServer.request_queue_size, 128)
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = Runtime(Path(temporary))
+            server = MCPHTTPServer(("127.0.0.1", 0), runtime)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address[:2]
+                connection = http.client.HTTPConnection(host, port, timeout=5)
+                connection.request("GET", HEALTH_PATH)
+                response = connection.getresponse()
+                payload = json.loads(response.read())
+                self.assertEqual(response.status, 200)
+                self.assertEqual(payload, {"ok": True})
+                self.assertEqual(
+                    response.getheader(ORIGIN_HEADER),
+                    ORIGIN_HEADER_VALUE,
+                )
+                connection.close()
+            finally:
+                server.shutdown()
+                server.server_close()
+                runtime.close()
+                thread.join(timeout=2)
+
+    def test_malformed_mcp_request_logs_structured_400_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = Runtime(Path(temporary))
+            server = MCPHTTPServer(("127.0.0.1", 0), runtime)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            diagnostics = io.StringIO()
+            try:
+                host, port = server.server_address[:2]
+                with contextlib.redirect_stderr(diagnostics):
+                    connection = http.client.HTTPConnection(host, port, timeout=5)
+                    connection.request(
+                        "POST",
+                        "/mcp",
+                        body=b"{",
+                        headers={"Content-Type": "application/json"},
+                    )
+                    response = connection.getresponse()
+                    response.read()
+                    connection.close()
+                self.assertEqual(response.status, 400)
+                logged = diagnostics.getvalue()
+                self.assertIn("[http] response_error", logged)
+                self.assertIn("status=400", logged)
+                self.assertIn("rpc_code=-32700", logged)
+                self.assertIn("path=/mcp", logged)
+            finally:
+                server.shutdown()
+                server.server_close()
+                runtime.close()
+                thread.join(timeout=2)
+
+    def test_truncated_request_body_is_logged_as_cancellation_not_protocol_400(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = Runtime(Path(temporary))
+            server = MCPHTTPServer(("127.0.0.1", 0), runtime)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            diagnostics = io.StringIO()
+            try:
+                host, port = server.server_address[:2]
+                with contextlib.redirect_stderr(diagnostics):
+                    client = socket.create_connection((host, port), timeout=5)
+                    client.sendall(
+                        b"POST /mcp HTTP/1.1\r\n"
+                        + f"Host: {host}:{port}\r\n".encode("ascii")
+                        + b"Content-Type: application/json\r\n"
+                        + b"Content-Length: 32\r\n"
+                        + b"Connection: close\r\n\r\n"
+                        + b"{"
+                    )
+                    client.shutdown(socket.SHUT_WR)
+                    received = bytearray()
+                    while True:
+                        chunk = client.recv(4096)
+                        if not chunk:
+                            break
+                        received.extend(chunk)
+                    client.close()
+                self.assertNotIn(b" 400 ", bytes(received))
+                logged = diagnostics.getvalue()
+                self.assertIn("[http] request_cancelled", logged)
+                self.assertIn("expected_bytes=32", logged)
+                self.assertIn("received_bytes=1", logged)
+                self.assertNotIn("[http] response_error", logged)
+            finally:
+                server.shutdown()
+                server.server_close()
+                runtime.close()
+                thread.join(timeout=2)
+
     def test_protected_resource_metadata_separates_issuer_and_mcp_resource(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             config = OAuthService(

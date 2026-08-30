@@ -25,7 +25,12 @@ from agent_runtime.route_probe import (
     workspace_fingerprint,
 )
 from agent_runtime.runtime import Runtime
-from agent_runtime.server import MCPHTTPServer
+from agent_runtime.server import (
+    HEALTH_PATH,
+    ORIGIN_HEADER,
+    ORIGIN_HEADER_VALUE,
+    MCPHTTPServer,
+)
 
 
 class GatewayFrameworkTests(unittest.TestCase):
@@ -216,6 +221,21 @@ class GatewayFrameworkTests(unittest.TestCase):
             thread.start()
             port = int(server.server_address[1])
             try:
+                connection = http.client.HTTPConnection("127.0.0.1", port)
+                connection.request("GET", HEALTH_PATH)
+                response = connection.getresponse()
+                health = json.loads(response.read())
+                self.assertEqual(response.status, 200)
+                self.assertEqual(health, {"ok": True})
+                self.assertEqual(
+                    response.getheader(ORIGIN_HEADER),
+                    ORIGIN_HEADER_VALUE,
+                )
+                # The process health endpoint must not lazily create a
+                # profile Runtime or inspect a Workspace.
+                self.assertEqual(pool._runtimes, {})
+                connection.close()
+
                 connection = http.client.HTTPConnection("127.0.0.1", port)
                 connection.request("GET", "/", headers={"Host": "mcp-claude.example.com"})
                 response = connection.getresponse()

@@ -22,11 +22,21 @@ class CloudflareProvider(NetworkProvider):
         process = self._tunnel.process
         return process.returncode if process is not None else None
 
+    def validate_config(self, config: NetworkConfig) -> None:
+        validated = config.validated()
+        public_url = validated.public_url
+        tunnel_token = validated.options.get("tunnel_token", "").strip()
+        if bool(public_url) != bool(tunnel_token):
+            raise ValueError(
+                "Cloudflare 固定 Public URL 与 Tunnel Token 必须同时填写；"
+                "都留空则使用 Quick Tunnel。"
+            )
+
     def start(self, host: str, port: int, config: NetworkConfig) -> NetworkProviderResult:
+        config = config.validated()
+        self.validate_config(config)
         public_url = config.public_url
         tunnel_token = config.options.get("tunnel_token", "").strip()
-        if bool(public_url) != bool(tunnel_token):
-            raise ValueError("Cloudflare 固定 Public URL 与 Tunnel Token 必须同时填写；都留空则使用 Quick Tunnel。")
         resolved = self._tunnel.start(
             host,
             port,

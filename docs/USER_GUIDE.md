@@ -322,7 +322,7 @@ tailscale
 除了桌面版，也可以使用 CLI：
 
 ```bash
-python -m agent_workbench.cli /path/to/workspace
+python -m agent_workbench /path/to/workspace
 ```
 
 CLI 会从 `.env` 读取 OAuth 和网络配置。
@@ -332,6 +332,16 @@ CLI 会从 `.env` 读取 OAuth 和网络配置。
 ```bash
 cp .env.example .env
 ```
+
+`start.py` 保留为服务器部署和桌面端故障时的稳定入口，但内部仍调用同一套 CLI：
+
+```bash
+python start.py /srv/workspace --env-file /etc/micromatrix/server.env --check-config
+python start.py /srv/workspace --env-file /etc/micromatrix/server.env
+```
+
+第一条只做基础配置预检，第二条以前台方式运行，适合交给 systemd、supervisord
+或容器守护；不要再复制一份独立的 Tunnel/Runtime 启动代码。
 
 普通用户优先推荐桌面版，CLI 更适合开发调试、自动化启动和远程开发环境。
 
@@ -409,6 +419,59 @@ Windows 的 `.exe` 是当前正式安装与应用内更新包；Windows `.zip` �
 不同网络方案的排查方式见：
 
 [网络提供商安装与部署教程（新手版）](NETWORK_PROVIDER_BEGINNER_GUIDE.md)
+
+### AI 偶尔提示 HTTP 502
+
+`502 Bad Gateway` 不是 Agent Runtime 生成的业务响应。它表示公网代理、Tunnel
+或 MCP 客户端的中转层当时没有从本地 Runtime 取得有效响应，和 Git
+仓库状态没有直接关系。常见原因包括网络切换或休眠、Tunnel 临时重连、本地
+Runtime 重启、Published Application 回源端口填错，以及瞬时连接突发。
+
+先分别检查本地和公网入口：
+
+```bash
+curl -i http://127.0.0.1:8234/.well-known/micromatrix-workbench-health
+curl -i https://home.mcp.example.com/.well-known/micromatrix-workbench-health
+```
+
+健康检查只确认请求到达 Runtime/Gateway HTTP 进程，不读取 Workspace。需要继续确认
+具体 Profile 的 Host 路由时，再请求 Server Card 并带上对应的公网 Host：
+
+```bash
+curl -i -H 'Host: home.mcp.example.com' \
+  http://127.0.0.1:8234/
+```
+
+Server Card 返回 `HTTP 200` 说明 Host 已选中对应 Profile。健康检查的正常响应是
+`HTTP 200`、`{"ok":true}`，并包含：
+
+```text
+X-MicroMatrix-Origin: agent-runtime
+```
+
+- 本地正常、公网 502：检查 Tunnel 日志、网络状态、hostname 与回源端口。
+- 本地和公网都失败：检查 Runtime 进程、监听端口和 Gateway Profile。
+- 公网恢复 200 且带上述 Header：传输已恢复；再排查 OAuth、MCP 或具体工具调用。
+- health 和 Server Card 稳定，只有大读取或大 Patch 出现 502：重点检查 MCP 中转层的
+  请求/响应大小与超时限制；拆小请求只是规避手段，不等于已经确认根因。
+- 连 health 或 Server Card 也出现 502：更符合 Tunnel 重连、回源不可达或 Runtime
+  未监听。截图中后续连 `server-info` 都失败，属于这一类的可能性更高。
+
+如果日志顺序是本地 `[mcp] POST /mcp ... 400`，紧接多条 cloudflared
+`context canceled`，随后同一路径又返回 `200`，说明请求已经到达本地 origin；更符合
+某个请求不完整/协议校验失败后被上游取消，并由客户端重试成功。新版会把不完整请求体
+记为 `[http] request_cancelled`，把真正的 4xx 记为 `[http] response_error`（含 RPC
+错误码、reason、Content-Length 和协议版本），同时把 cloudflared 这类行标成
+`[request-cancelled]`，不再把单条取消日志等同于 Tunnel 断线。
+
+当前进程守护能发现 Runtime 或 Tunnel 子进程退出，但不能把“cloudflared 进程仍在、
+连接却持续重连”误判为健康。若本地 health 正常而公网持续 502，请先在服务页停止并
+重新启动对应 Provider/Service，同时检查 cloudflared 日志；当前版本不会自动重启一个
+仍存活但失联的 Tunnel。Tailscale Funnel 还需要先从客户端输出发现 `.ts.net` 地址，
+因此首次启动仍可能存在很短的 provider-first 空窗。
+
+只读请求可以在短暂 502 后重试。创建、修改、删除等非幂等操作不要盲目自动重试，
+因为请求可能已经执行，只是响应在返回途中丢失；应先读取状态确认。
 
 ### 提示找不到 frpc、ngrok 或 tailscale
 

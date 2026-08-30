@@ -10,6 +10,7 @@ from unittest.mock import patch
 from agent_workbench.gateway_process import (
     GatewayChildProfile,
     GatewayProcessConfig,
+    GatewayServerProcess,
     build_gateway_mcp_command,
     prepare_gateway_config,
 )
@@ -48,6 +49,7 @@ class GatewayProcessTests(unittest.TestCase):
             home_persistence = OAuthPersistence(
                 registry_file=root / "home-clients.json",
                 token_secret_hex="22" * 32,
+                ephemeral=True,
             )
             config = GatewayProcessConfig(
                 public_base_url="https://mcp.example.com",
@@ -65,26 +67,42 @@ class GatewayProcessTests(unittest.TestCase):
                         workspace=home_root,
                         oauth_password="home-password",
                         instance_path="/home/",
+                        lifecycle="ephemeral",
                     ),
                 ),
             )
 
-            persistence_by_issuer = {
-                "https://mcp.example.com/company": company_persistence,
-                "https://mcp.example.com/home": home_persistence,
-            }
-
             def persistence_for_issuer(issuer: str) -> OAuthPersistence:
-                return persistence_by_issuer[issuer]
+                self.assertEqual(issuer, "https://mcp.example.com/company")
+                return company_persistence
 
             with (
                 patch(
                     "agent_workbench.gateway_process.prepare_issuer_oauth_persistence",
                     side_effect=persistence_for_issuer,
                 ),
-                patch("agent_workbench.gateway_process.bind_server_oauth_issuer"),
+                patch(
+                    "agent_workbench.gateway_process.prepare_ephemeral_oauth_persistence",
+                    return_value=home_persistence,
+                ),
+                patch(
+                    "agent_workbench.gateway_process.bind_server_oauth_issuer"
+                ) as bind_issuer,
             ):
                 prepared = prepare_gateway_config(config)
+                bind_issuer.assert_not_called()
+                self.assertEqual(
+                    prepared.issuer_bindings,
+                    (("company", "https://mcp.example.com/company"),),
+                )
+                process = GatewayServerProcess(lambda _message: None)
+                process._prepared = prepared
+                process.bind_oauth_issuers()
+                bind_issuer.assert_called_once_with(
+                    "company",
+                    "https://mcp.example.com/company",
+                )
+                process._prepared = None
             try:
                 payload = json.loads(prepared.config_file.read_text(encoding="utf-8"))
                 self.assertEqual(payload["version"], 1)

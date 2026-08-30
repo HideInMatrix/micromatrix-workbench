@@ -831,6 +831,7 @@ agent_runtime/server.py
 
 ```text
 GET  /
+GET  /.well-known/micromatrix-workbench-health
 POST /mcp
 
 GET  /.well-known/oauth-protected-resource
@@ -849,9 +850,37 @@ HTTP 401
 WWW-Authenticate: Bearer resource_metadata="..."
 ```
 
+`/.well-known/micromatrix-workbench-health` 是进程级探针：在 Gateway 模式下也不会
+选择 Profile、构造 Runtime、读取 Workspace 或触发 OAuth 流程，正常返回
+`{"ok":true}`。Runtime 的所有 HTTP 响应都会带：
+
+```text
+X-MicroMatrix-Origin: agent-runtime
+```
+
+因此，缺少该 Header 的 `502/503/504` 表明响应没有由 Agent Runtime 生成，通常来自
+Cloudflare、ngrok、FRP 或其他中转层。该 Header 不是进程身份凭据；需要确认精确
+Workspace/进程时仍使用带随机 Token 和 Workspace fingerprint 的 route probe。
+`MCPHTTPServer` 同时把 TCP accept backlog 从标准库默认的
+小队列提升到 `128`，减少 Tunnel 短连接突发在到达应用层之前被拒绝的概率。
+
+HTTP 4xx 会额外输出脱敏的 `[http] response_error`，记录 status、path、JSON-RPC
+错误码/reason、Content-Length 和 MCP 协议版本。请求体在达到声明的 Content-Length
+前被上游取消时，不再伪装成 JSON parse 400，而是关闭该请求并记录
+`[http] request_cancelled`。写回响应时客户端已经断开则记录
+`[http] response_cancelled`，不把 BrokenPipe/ConnectionReset 当作 Runtime 崩溃。
+
 ## 17. Cloudflare Tunnel
 
 Cloudflare Tunnel 仍由桌面 launcher 管理。
+
+固定 Public URL（Named Tunnel、FRP、External 等）启动时，launcher 先让本地
+Runtime/Gateway 完成监听，再连接或暴露公网 Provider，避免已保存的 MCP Client
+在启动期间命中一个尚未监听的 origin。Quick Tunnel/ngrok 随机 URL 必须先由
+Provider 生成 issuer，再启动 Runtime；随机 URL 在启动完成前尚未交给客户端。
+Tailscale 当前也需要先启动 Funnel 才能从输出发现 `.ts.net` issuer，因此尚未应用
+origin-first 顺序。现有 watcher 检查的是子进程存活，不是 Tunnel connector 的端到端
+连通性；进程仍存活但持续重连时，需要依赖 health/E2E 自检定位并人工重启 Provider。
 
 结构：
 

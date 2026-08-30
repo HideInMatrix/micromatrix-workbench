@@ -19,6 +19,11 @@ class NetworkProvider(ABC):
     key = "base"
     display_name = "Network Provider"
 
+    def validate_config(self, config: NetworkConfig) -> None:
+        """Validate provider-specific static settings without starting it."""
+
+        config.validated()
+
     @abstractmethod
     def start(self, host: str, port: int, config: NetworkConfig) -> NetworkProviderResult:
         raise NotImplementedError

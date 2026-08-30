@@ -6,7 +6,7 @@ MicroMatrix Workbench 是一个面向本地开发环境的 AI Agent 工作台。
 
 项目的重点不是把整个电脑或整个文件系统暴露出去，而是让 AI 在你明确指定的 Workspace 范围内完成读取、搜索、修改和受限命令执行等开发工作。
 
-![](/assets/7ad1fe7dcf793a4f3d5f304a6f9c68c8.png)
+![](docs/assets/7ad1fe7dcf793a4f3d5f304a6f9c68c8.png)
 
 ## 这个项目适合谁
 
@@ -112,7 +112,7 @@ MicroMatrix Workbench 主要面向以下用户：
 开发/构建桌面端需要：
 
 ```text
-Python >= 3.10
+Python >= 3.11
 Node.js + npm
 ```
 
@@ -136,7 +136,26 @@ python desktop.py
 python build_desktop.py
 ```
 
-`build_desktop.py` 会先构建 Vue 静态资源，再执行 PyInstaller。Node.js 只用于开发和打包，最终用户运行安装包时不需要 Node.js。
+`build_desktop.py` 默认复用已有的 Vue `dist`；需要同时重建前端时使用
+`python build_desktop.py --build-web`。Node.js 只用于开发和打包，最终用户运行安装包时不需要 Node.js。
+
+CLI 的统一入口是：
+
+```bash
+python -m agent_workbench /path/to/workspace
+```
+
+服务器部署或桌面端无法启动时，仍可使用 `python start.py` 作为稳定的前台启动入口；
+它内部调用同一套模块化 CLI，不再维护第二份 Runtime/Tunnel 实现。部署时可用
+`--env-file` 指向服务器配置文件，并交给 systemd、supervisord 或容器负责进程守护。
+
+```bash
+# 部署前只校验配置，不启动服务
+python start.py /srv/workspace --env-file /etc/micromatrix/server.env --check-config
+
+# 前台启动；由 systemd / supervisord / 容器负责重启
+python start.py /srv/workspace --env-file /etc/micromatrix/server.env
+```
 
 ## 安全说明
 

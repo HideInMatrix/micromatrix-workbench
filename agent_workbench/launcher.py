@@ -118,7 +118,10 @@ class MCPLauncher:
                     )
                     return
                 if exc.code in {502, 503, 504}:
-                    last_error = f"HTTP {exc.code} Bad Gateway"
+                    last_error = (
+                        f"HTTP {exc.code}（中转层未取得有效 Runtime 响应："
+                        "可能是连接、超时或重连；该状态不是 Agent Runtime 生成的）"
+                    )
                 else:
                     last_error = f"HTTP {exc.code}"
             except urllib.error.URLError as exc:
@@ -217,8 +220,25 @@ class MCPLauncher:
                     config.network.provider,
                     self._log,
                 )
-                network_info = self._provider.start(config.host, config.port, config.network)
-                public_base_url = canonical_oauth_issuer(network_info.public_base_url)
+                # When the public issuer is already known, make the local
+                # origin listen before exposing/connecting the tunnel. This
+                # removes the deterministic startup window where a saved URL
+                # could reach the edge while the Runtime port was still down.
+                public_base_url = (
+                    canonical_oauth_issuer(config.network.public_url)
+                    if config.network.public_url
+                    else ""
+                )
+                network_info = None
+                if not public_base_url:
+                    network_info = self._provider.start(
+                        config.host,
+                        config.port,
+                        config.network,
+                    )
+                    public_base_url = canonical_oauth_issuer(
+                        network_info.public_base_url
+                    )
                 if config.lifecycle == "ephemeral":
                     oauth_persistence = prepare_ephemeral_oauth_persistence(
                         config.server_id or "session"
@@ -226,10 +246,12 @@ class MCPLauncher:
                 else:
                     issuer = public_base_url
                     oauth_persistence = prepare_issuer_oauth_persistence(issuer)
-                    if config.server_id:
-                        bind_server_oauth_issuer(config.server_id, issuer)
                 self._oauth_persistence = oauth_persistence
                 env = os.environ.copy()
+                # CLI .env files may carry advanced Runtime settings (for
+                # example OS sandbox policy). LaunchConfig filters out values
+                # owned by the launcher before they reach this boundary.
+                env.update(config.runtime_environment)
                 env.update(
                     {
                         "AGENT_RUNTIME_OAUTH_PASSWORD": config.oauth_password,
@@ -267,6 +289,24 @@ class MCPLauncher:
                         "OAuth 状态持久化已启用：DCR client_id 与 token secret 按 issuer 跨重启保留。"
                     )
                 self._mcp.start(config, env)
+                if network_info is None:
+                    network_info = self._provider.start(
+                        config.host,
+                        config.port,
+                        config.network,
+                    )
+                    provider_url = canonical_oauth_issuer(
+                        network_info.public_base_url
+                    )
+                    if provider_url != public_base_url:
+                        raise RuntimeError(
+                            "Network Provider 返回的 Public URL 与配置的 OAuth issuer 不一致。"
+                        )
+                if not oauth_persistence.ephemeral and config.server_id:
+                    # Commit the profile -> issuer management binding only
+                    # after both the origin and provider are healthy.
+                    bind_server_oauth_issuer(config.server_id, public_base_url)
+                assert network_info is not None
                 self._info = LaunchInfo(
                     workspace=config.workspace,
                     local_mcp_url=f"http://{config.host}:{config.port}/mcp",

@@ -21,6 +21,7 @@ dist/
 
 # Desktop web frontend
 node_modules/
+.pnpm-store/
 agent_workbench/web/dist/
 
 # Test / coverage

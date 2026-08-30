@@ -140,6 +140,8 @@ class OAuthHTTPController:
             if not isinstance(metadata, dict):
                 raise ValueError("registration body must be an object")
             response = config.registry.register(metadata)
+        except ConnectionAbortedError:
+            return
         except (ValueError, json.JSONDecodeError) as exc:
             handler._json(
                 400,
@@ -210,6 +212,8 @@ class OAuthHTTPController:
             return
         try:
             params = handler._form()
+        except ConnectionAbortedError:
+            return
         except (ValueError, UnicodeDecodeError) as exc:
             handler._json(
                 400,
@@ -290,6 +294,8 @@ class OAuthHTTPController:
             return
         try:
             params = handler._form()
+        except ConnectionAbortedError:
+            return
         except (ValueError, UnicodeDecodeError) as exc:
             handler._json(
                 400,

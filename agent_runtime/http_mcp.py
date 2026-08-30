@@ -285,6 +285,10 @@ class MCPHTTPController:
             return None
         try:
             request = json.loads(handler._read(MAX_HTTP_BODY_BYTES))
+        except ConnectionAbortedError:
+            # The upstream request was cancelled; the socket is already
+            # closing, so emitting a misleading protocol 400 only adds noise.
+            return None
         except (ValueError, json.JSONDecodeError) as exc:
             handler._json(
                 400,
