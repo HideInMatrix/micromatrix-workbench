@@ -1,16 +1,17 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Check, Copy, Eye, EyeOff, FolderOpen, LoaderCircle, Plus, Trash2 } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { CheckField, FormField, FormGrid } from '@/components/ui/form'
 import { InputGroup, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
-import type { GatewayDiagnosticDto, GatewayDraft, GatewayMemberDraft } from '../../types'
+import type { GatewayDiagnosticDto, GatewayDraft, GatewayMemberDraft, NetworkProviderDto } from '../../types'
 import { normalizePath } from './serviceModels'
 import ServiceDiagnosticPanel from './ServiceDiagnosticPanel.vue'
 
 const draft = defineModel<GatewayDraft>('draft', { required: true })
 const tunnelTokenVisible = defineModel<boolean>('tunnelTokenVisible', { required: true })
 
-defineProps<{
+const props = defineProps<{
   isNew: boolean
   locked: boolean
   busy: boolean
@@ -19,11 +20,16 @@ defineProps<{
   copiedUrl: string
   diagnostic: GatewayDiagnosticDto | null
   showDiagnostic: boolean
+  networkProviders: NetworkProviderDto[]
   isRootProfile: (member: GatewayMemberDraft, index: number) => boolean
   profileEnabled: (member: GatewayMemberDraft, index: number) => boolean
   runtimeUrl: (member: GatewayMemberDraft) => string
   isOAuthPasswordVisible: (member: GatewayMemberDraft) => boolean
 }>()
+
+const selectedProvider = computed(() => (
+  props.networkProviders.find(item => item.key === draft.value.network.provider)
+))
 
 const emit = defineEmits<{
   setMode: [mode: 'single' | 'multi']
@@ -100,13 +106,17 @@ function updateProfilePublicUrl(member: GatewayMemberDraft, index: number, event
       <FormField label="监听地址"><input v-model.trim="draft.host" disabled /></FormField>
       <FormField label="网络方案" span="2">
         <select v-model="draft.network.provider" :disabled="locked">
-          <option value="cloudflare">Cloudflare Tunnel</option><option value="frp">FRP</option><option value="ngrok">ngrok</option>
-          <option value="tailscale">Tailscale Funnel</option><option value="external">自定义公网 URL</option>
+          <option v-for="provider in networkProviders" :key="provider.key" :value="provider.key">{{ provider.label }}</option>
         </select>
       </FormField>
-      <FormField v-if="draft.network.provider === 'cloudflare'" label="Tunnel Token" span="2">
-        <InputGroup>
-          <InputGroupInput v-model="draft.network.options.tunnel_token" :disabled="locked" :type="tunnelTokenVisible ? 'text' : 'password'" autocomplete="off" />
+      <FormField
+        v-for="field in selectedProvider?.options || []"
+        :key="field.key"
+        :label="field.label"
+        :span="field.span"
+      >
+        <InputGroup v-if="field.key === 'tunnel_token'">
+          <InputGroupInput v-model="draft.network.options[field.key]" :disabled="locked" :type="tunnelTokenVisible ? 'text' : 'password'" autocomplete="off" />
           <InputGroupButton
             :aria-label="tunnelTokenVisible ? '隐藏 Tunnel Token' : '显示 Tunnel Token'"
             :aria-pressed="tunnelTokenVisible"
@@ -114,16 +124,14 @@ function updateProfilePublicUrl(member: GatewayMemberDraft, index: number, event
             @click="tunnelTokenVisible = !tunnelTokenVisible"
           ><EyeOff v-if="tunnelTokenVisible" :size="15" /><Eye v-else :size="15" /></InputGroupButton>
         </InputGroup>
+        <input
+          v-else
+          v-model.trim="draft.network.options[field.key]"
+          :disabled="locked"
+          :type="field.secret ? 'password' : 'text'"
+          autocomplete="off"
+        />
       </FormField>
-      <template v-else-if="draft.network.provider === 'frp'">
-        <FormField label="frpc 路径" span="2"><input v-model.trim="draft.network.options.executable" :disabled="locked" /></FormField>
-        <FormField label="frpc 配置文件" span="2"><input v-model.trim="draft.network.options.config_file" :disabled="locked" /></FormField>
-      </template>
-      <template v-else-if="draft.network.provider === 'ngrok'">
-        <FormField label="ngrok 路径"><input v-model.trim="draft.network.options.executable" :disabled="locked" /></FormField>
-        <FormField label="Auth Token"><input v-model="draft.network.options.authtoken" :disabled="locked" type="password" /></FormField>
-      </template>
-      <FormField v-else-if="draft.network.provider === 'tailscale'" label="Tailscale 路径" span="2"><input v-model.trim="draft.network.options.executable" :disabled="locked" /></FormField>
       <CheckField span="2"><input v-model="draft.remember_secrets" type="checkbox" /><span>在本机持久化网络 Token 与 OAuth Password</span></CheckField>
     </FormGrid>
 
@@ -151,7 +159,7 @@ function updateProfilePublicUrl(member: GatewayMemberDraft, index: number, event
           <FormField label="Public Hostname" span="2">
             <input
               :value="profilePublicUrl(member, index)"
-              :disabled="locked || draft.network.provider === 'tailscale'"
+              :disabled="locked || selectedProvider?.supports_public_url === false"
               placeholder="例如 https://mcp-claude.example.com"
               @input="updateProfilePublicUrl(member, index, $event)"
             />

@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import tempfile
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
 
+from ..atomic_io import atomic_write_json
 from .models import ResourceScope
 from .recovery import quarantine_path, should_quarantine_error
 from .workflows import WORKFLOW_ID_PATTERN, WorkflowDefinition
@@ -81,7 +79,7 @@ class WorkflowStore:
             source=f"workspace:{path}",
         )
         self.directory.mkdir(parents=True, exist_ok=True)
-        self._atomic_write(path, persisted.to_dict())
+        atomic_write_json(path, persisted.to_dict())
         return persisted
 
     def delete(self, workflow_id: str) -> bool:
@@ -108,23 +106,3 @@ class WorkflowStore:
             )
         except (TypeError, ValueError) as exc:
             raise RuntimeError(f"Workflow 定义无效: {path}: {exc}") from exc
-
-    @staticmethod
-    def _atomic_write(path: Path, payload: dict[str, Any]) -> None:
-        fd, raw_temporary = tempfile.mkstemp(
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            dir=path.parent,
-            text=True,
-        )
-        temporary = Path(raw_temporary)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
-                handle.write("\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary, path)
-        finally:
-            temporary.unlink(missing_ok=True)
-

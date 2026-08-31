@@ -62,7 +62,12 @@ class ProcessNetworkProvider(NetworkProvider):
             if not text:
                 continue
             self._lines.put(text)
-            self._log(f"[{prefix}] {text}")
+            self._log(self.format_output_line(prefix, text))
+
+    def format_output_line(self, prefix: str, line: str) -> str:
+        """Format one child-process line before forwarding it to the UI log."""
+
+        return f"[{prefix}] {line}"
 
     def wait_for_line(self, predicate, *, timeout: float, description: str) -> str:
         deadline = time.monotonic() + timeout

@@ -7,13 +7,14 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from agent_workbench.config import LaunchConfig, NetworkConfig
-from agent_workbench.cloudflared import is_request_cancellation_log
 from agent_workbench.launcher import MCPLauncher
 from agent_workbench.network.external import ExternalUrlProvider
 from agent_workbench.network.base import NetworkProviderResult
-from agent_workbench.network.factory import create_network_provider
+from agent_workbench.network.cloudflare import CloudflareProvider, is_request_cancellation_log
+from agent_workbench.network.factory import PROVIDER_TYPES, create_network_provider
 from agent_workbench.network.frp import FrpProvider
 from agent_workbench.network.ngrok import NgrokProvider
+from agent_workbench.network_specs import NETWORK_PROVIDER_CHOICES, network_provider_catalog
 
 
 class NetworkConfigTests(unittest.TestCase):
@@ -180,6 +181,66 @@ class ProviderTests(unittest.TestCase):
     def test_factory_returns_requested_provider(self) -> None:
         provider = create_network_provider("external", lambda _message: None)
         self.assertIsInstance(provider, ExternalUrlProvider)
+
+    def test_provider_metadata_and_implementations_have_one_registry_order(self) -> None:
+        catalog = network_provider_catalog()
+        self.assertEqual(tuple(PROVIDER_TYPES), NETWORK_PROVIDER_CHOICES)
+        self.assertEqual(tuple(item["key"] for item in catalog), NETWORK_PROVIDER_CHOICES)
+        cloudflare = catalog[0]
+        self.assertTrue(cloudflare["ephemeral_without_public_url"])
+        self.assertEqual(cloudflare["options"][0]["key"], "tunnel_token")
+
+    def test_cloudflare_quick_tunnel_uses_common_process_lifecycle(self) -> None:
+        provider = CloudflareProvider(lambda _message: None)
+        with (
+            patch(
+                "agent_workbench.network.cloudflare.resolve_cloudflared",
+                return_value=Path("/opt/cloudflared"),
+            ),
+            patch.object(provider, "spawn") as spawn,
+            patch.object(
+                provider,
+                "wait_for_line",
+                return_value="INF https://random.trycloudflare.com ready",
+            ),
+        ):
+            result = provider.start(
+                "127.0.0.1",
+                8234,
+                NetworkConfig(provider="cloudflare"),
+            )
+
+        self.assertEqual(result.public_base_url, "https://random.trycloudflare.com")
+        self.assertIn("--url", spawn.call_args.args[0])
+        self.assertEqual(spawn.call_args.kwargs["prefix"], "cloudflared")
+
+    def test_cloudflare_named_tunnel_keeps_fixed_url(self) -> None:
+        provider = CloudflareProvider(lambda _message: None)
+        with (
+            patch(
+                "agent_workbench.network.cloudflare.resolve_cloudflared",
+                return_value=Path("/opt/cloudflared"),
+            ),
+            patch.object(provider, "spawn") as spawn,
+            patch.object(
+                provider,
+                "wait_for_line",
+                return_value="INF Registered tunnel connection",
+            ),
+        ):
+            result = provider.start(
+                "127.0.0.1",
+                8234,
+                NetworkConfig(
+                    provider="cloudflare",
+                    public_url="https://mcp.example.com",
+                    options={"tunnel_token": "secret"},
+                ),
+            )
+
+        self.assertEqual(result.public_base_url, "https://mcp.example.com")
+        command = spawn.call_args.args[0]
+        self.assertEqual(command[-2:], ["--token", "secret"])
 
     def test_external_provider_has_no_child_process(self) -> None:
         logs: list[str] = []

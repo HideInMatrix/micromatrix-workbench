@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import tempfile
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
 
+from ..atomic_io import atomic_write_json
 from .global_assets import global_asset_root
 from .mcp_connections import MCPConnectionDefinition
 from .models import ResourceScope, WORKBENCH_ID_PATTERN
@@ -79,7 +77,7 @@ class MCPConnectionStore:
             source=f"global:{path}",
         )
         self.directory.mkdir(parents=True, exist_ok=True)
-        self._atomic_write(path, persisted.to_dict())
+        atomic_write_json(path, persisted.to_dict())
         return persisted
 
     def delete(self, connection_id: str) -> bool:
@@ -106,23 +104,3 @@ class MCPConnectionStore:
             )
         except (TypeError, ValueError) as exc:
             raise RuntimeError(f"MCP Connection 定义无效: {path}: {exc}") from exc
-
-    @staticmethod
-    def _atomic_write(path: Path, payload: dict[str, Any]) -> None:
-        fd, raw_temp = tempfile.mkstemp(
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            dir=path.parent,
-            text=True,
-        )
-        temp = Path(raw_temp)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
-                handle.write("\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temp, path)
-        finally:
-            temp.unlink(missing_ok=True)
-

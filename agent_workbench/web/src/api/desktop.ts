@@ -8,6 +8,7 @@ import type {
   MCPConnectionDefinitionDto,
   MCPConnectionProbeDto,
   MCPConnectionValidationDto,
+  NetworkProviderDto,
   OAuthClientDto,
   PermissionRequestDto,
   SkillDefinitionDto,
@@ -66,6 +67,9 @@ export const desktopApi = {
   },
   async saveUpdateDownloadProxy(prefix: string): Promise<string> {
     return (await bridge()).save_update_download_proxy(prefix)
+  },
+  async networkProviders(): Promise<NetworkProviderDto[]> {
+    return (await bridge()).list_network_providers()
   },
   async listServers(): Promise<ServerDto[]> {
     return (await bridge()).list_servers()

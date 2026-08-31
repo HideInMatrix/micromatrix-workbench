@@ -16,11 +16,12 @@ import {
   type ServiceItem,
 } from '../components/services/serviceModels'
 import { isSelectedResourceStarting } from '../lib/serverState'
-import type { GatewayDiagnosticDto, GatewayDraft, GatewayDto, GatewayMemberDraft, ServerDto } from '../types'
+import type { GatewayDiagnosticDto, GatewayDraft, GatewayDto, GatewayMemberDraft, NetworkProviderDto, ServerDto } from '../types'
 
 interface ServiceState {
   servers: Ref<ServerDto[]>
   gateways: Ref<GatewayDto[]>
+  networkProviders: Ref<NetworkProviderDto[]>
   selectedKey: Ref<string>
   draft: Ref<GatewayDraft>
   isNew: Ref<boolean>
@@ -54,6 +55,7 @@ function createServiceState(): ServiceState {
   return {
     servers: ref<ServerDto[]>([]),
     gateways: ref<GatewayDto[]>([]),
+    networkProviders: ref<NetworkProviderDto[]>([]),
     selectedKey: ref(''),
     draft: ref<GatewayDraft>(emptyDraft(8234)),
     isNew: ref(true),
@@ -322,6 +324,7 @@ async function pollServices(context: ServiceContext) {
 
 async function initializeServiceManager(context: ServiceContext) {
   try {
+    context.networkProviders.value = await desktopApi.networkProviders()
     await refreshServices(context, false)
     if (context.services.value.length) await selectService(context, context.services.value[0].key)
     else await createNewService(context)

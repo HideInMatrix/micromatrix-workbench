@@ -27,7 +27,6 @@
     "@typescript/native": "npm:typescript@7.0.2",
     "@unocss/preset-wind4": "66.7.5",
     "@vitejs/plugin-vue": "6.0.8",
-    "shadcn-vue": "2.8.1",
     "typescript": "npm:@typescript/typescript6@6.0.2",
     "unocss": "66.7.5",
     "vite": "8.0.14",

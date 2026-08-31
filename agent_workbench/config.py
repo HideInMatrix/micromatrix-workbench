@@ -4,16 +4,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
+from .network_specs import NETWORK_PROVIDER_CHOICES, network_provider_spec
+
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8234
-NETWORK_PROVIDER_CHOICES = (
-    "cloudflare",
-    "frp",
-    "ngrok",
-    "tailscale",
-    "external",
-)
 PERMISSION_MODE_CHOICES = ("safe", "trusted", "dangerous")
 RUNTIME_ENV_PREFIX = "AGENT_RUNTIME_"
 RUNTIME_ENV_RESERVED_KEYS = frozenset(
@@ -54,7 +49,10 @@ def default_lifecycle(network: "NetworkConfig") -> str:
     """Choose OAuth persistence from the stability of the public endpoint."""
 
     validated = network.validated()
-    if validated.provider in {"cloudflare", "ngrok"} and not validated.public_url:
+    if (
+        network_provider_spec(validated.provider).ephemeral_without_public_url
+        and not validated.public_url
+    ):
         return "ephemeral"
     return "persistent"
 

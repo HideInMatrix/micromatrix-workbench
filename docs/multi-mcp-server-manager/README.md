@@ -10,13 +10,12 @@
 2. `02-ARCHITECTURE.md`：整体架构与模块职责
 3. `03-OAUTH-LIFECYCLE.md`：OAuth Client 生命周期
 4. `04-DATA-MODEL.md`：Server Profile、Runtime、OAuth 数据模型
-5. `05-IMPLEMENTATION-PLAN.md`：分阶段代码实施计划
-6. `06-CODE-STANDARDS.md`：本轮重构代码规范
-7. `07-TEST-ACCEPTANCE.md`：测试与验收标准
-8. `08-MIGRATION.md`：旧单 Server 配置迁移策略
-9. `09-PYWEBVIEW-VUE-MIGRATION.md`：pywebview + Vue 展示层重构方案
-10. `10-UI-DESIGN-GUIDELINES.md`：桌面端 UI 设计、按钮、导航、间距与组件统一规范
-11. `11-LOCAL-MCP-GATEWAY.md`：同一台机器一个入口端口按独立 Public Hostname 承载多个 Profile 的架构
+5. `06-CODE-STANDARDS.md`：本轮重构代码规范
+6. `07-TEST-ACCEPTANCE.md`：测试与验收标准
+7. `08-MIGRATION.md`：旧单 Server 配置迁移策略
+8. `09-PYWEBVIEW-VUE-MIGRATION.md`：pywebview + Vue 展示层重构方案
+9. `10-UI-DESIGN-GUIDELINES.md`：桌面端 UI 设计、按钮、导航、间距与组件统一规范
+10. `11-LOCAL-MCP-GATEWAY.md`：同一台机器一个入口端口按独立 Public Hostname 承载多个 Profile 的架构
 
 ## 核心设计结论
 

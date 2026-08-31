@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from ..atomic_io import atomic_write_text
 from .workflows import NODE_ID_PATTERN
 
 
@@ -90,7 +89,7 @@ class ArtifactStore:
                 raise ValueError("text Artifact 的 source output 必须是字符串")
             content = value
 
-        self._atomic_write(path, content)
+        atomic_write_text(path, content)
         relative = path.relative_to(self.workspace).as_posix()
         return ArtifactRef(
             artifact_id=artifact_id,
@@ -99,21 +98,3 @@ class ArtifactStore:
             producer_node_id=producer_node_id,
             created_at=int(time.time()),
         )
-
-    @staticmethod
-    def _atomic_write(path: Path, content: str) -> None:
-        fd, raw_temporary = tempfile.mkstemp(
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            dir=path.parent,
-            text=True,
-        )
-        temporary = Path(raw_temporary)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(content)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary, path)
-        finally:
-            temporary.unlink(missing_ok=True)

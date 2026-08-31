@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ..process_utils import LogCallback
+from ..network_specs import NETWORK_PROVIDER_CHOICES
 from .base import NetworkProvider
 from .cloudflare import CloudflareProvider
 from .external import ExternalUrlProvider
@@ -16,6 +17,9 @@ PROVIDER_TYPES: dict[str, type[NetworkProvider]] = {
     "tailscale": TailscaleProvider,
     "external": ExternalUrlProvider,
 }
+
+if tuple(PROVIDER_TYPES) != NETWORK_PROVIDER_CHOICES:
+    raise RuntimeError("Network Provider 实现与元数据注册顺序不一致。")
 
 
 def create_network_provider(provider: str, log: LogCallback) -> NetworkProvider:

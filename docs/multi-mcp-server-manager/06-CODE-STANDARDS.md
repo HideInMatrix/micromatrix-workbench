@@ -108,7 +108,6 @@ TypeScript          7.0.2
 vue-tsc             3.3.8
 UnoCSS              66.7.5
 @unocss/preset-wind4 66.7.5
-shadcn-vue          2.8.1
 @lucide/vue         1.28.0
 ```
 
@@ -130,7 +129,7 @@ typescript         -> @typescript/typescript6，仅供 vue-tsc 等 API 工具兼
 - 禁止业务代码依赖 `getCurrentInstance()`。
 - 禁止业务代码手写 `h()`、VNode、render function 或读取 VNode 内部结构。
 - 避免自定义 Directive；确有必要时必须单独验证 Vapor 接口兼容性。
-- UI 组件体系统一采用 shadcn-vue，组件源码保存在仓库中，不把 shadcn-vue 当成黑盒运行时组件库。
+- UI 组件体系统一采用仓库内的 shadcn-vue 风格源码组件，不把 shadcn-vue 当成黑盒运行时组件库或正式构建依赖。
 - shadcn-vue 底层使用到 Reka UI 的组件必须封装在 `components/ui/`，业务页面不直接依赖 Reka UI 私有实现。
 - 图标统一使用 `@lucide/vue`，不再用字母、Emoji 或自制文本符号代替功能图标。
 - UI 基础样式统一优先使用 UnoCSS `presetWind4` utility，也就是项目当前采用的 Tailwind CSS v4 / Wind4 风格语法，例如 `flex items-center gap-2 border-border bg-card text-muted-foreground`。
@@ -202,7 +201,7 @@ lib/utils.ts
 
 ## 12. shadcn-vue / Lucide 规范
 
-- shadcn-vue CLI 版本固定在当前稳定线，升级必须单独检查生成组件 diff。
+- shadcn-vue CLI 不常驻安装；需要新增组件时使用固定版本的 `pnpm dlx shadcn-vue@2.8.1`，并单独检查生成组件 diff。
 - 新增通用 Button、Dialog、Select、Table、Tooltip 等组件优先通过 shadcn-vue 组件体系实现。
 - 业务组件禁止复制另一份 Button/Input/Dialog 样式形成第二套 Design System。
 - 图标从 `@lucide/vue` 按需静态导入，禁止整包动态注册。

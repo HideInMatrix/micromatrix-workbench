@@ -55,7 +55,7 @@ MicroMatrix Workbench 主要面向以下用户：
 - 支持自定义公网 URL
 - 支持 FRP、ngrok、Tailscale 客户端自动检测和手动选择
 - 提供 pywebview + Vue 3.5 + TypeScript 7 桌面界面
-- 前端使用 UnoCSS Tailwind v4 preset、shadcn-vue 和 Lucide Vue 图标
+- 前端使用 UnoCSS Tailwind v4 preset、仓库内 shadcn-vue 风格组件和 Lucide Vue 图标
 - 提供 CLI 启动方式
 - 支持 macOS、Windows 和 Linux
 
@@ -107,7 +107,9 @@ MicroMatrix Workbench 主要面向以下用户：
 
 ## 桌面端开发
 
-桌面展示层使用 `pywebview + Vue 3.5 + TypeScript 7 + Vite + UnoCSS + shadcn-vue`。
+桌面展示层使用 `pywebview + Vue 3.5 + TypeScript 7 + Vite + UnoCSS`；
+shadcn-vue 组件源码直接维护在仓库内，CLI 只在新增组件时通过 `pnpm dlx` 按需运行，
+不作为正式构建的常驻依赖。
 
 开发/构建桌面端需要：
 

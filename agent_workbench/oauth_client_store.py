@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from agent_runtime.atomic_io import atomic_write_json
 
 from .oauth_persistence import (
     _validated_server_id,
@@ -117,26 +117,7 @@ class OAuthClientStore:
         return payload
 
     def _write_payload(self, payload: dict[str, Any]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        fd, temporary = tempfile.mkstemp(
-            prefix=f".{self.path.name}.",
-            suffix=".tmp",
-            dir=self.path.parent,
-            text=True,
-        )
-        temporary_path = Path(temporary)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
-                handle.write("\n")
-            if os.name != "nt":
-                temporary_path.chmod(0o600)
-            os.replace(temporary_path, self.path)
-            if os.name != "nt":
-                self.path.chmod(0o600)
-        finally:
-            if temporary_path.exists():
-                temporary_path.unlink(missing_ok=True)
+        atomic_write_json(self.path, payload, mode=0o600)
 
 
 class CIMDClientStore:

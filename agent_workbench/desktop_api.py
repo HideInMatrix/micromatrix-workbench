@@ -16,6 +16,7 @@ from .gateway_profiles import (
     MCPGatewayMember,
     MCPGatewayProfile,
 )
+from .network_specs import network_provider_catalog
 from .oauth_persistence import (
     bound_server_oauth_issuer,
     delete_issuer_oauth_storage,
@@ -641,14 +642,11 @@ class DesktopAPI:
             "next_default_port": self._next_available_port(),
             "servers": [self._profile_payload(profile) for profile in profiles],
             "gateways": [self._gateway_payload(gateway) for gateway in gateways],
-            "network_providers": [
-                {"key": "cloudflare", "label": "Cloudflare Tunnel"},
-                {"key": "frp", "label": "FRP"},
-                {"key": "ngrok", "label": "ngrok"},
-                {"key": "tailscale", "label": "Tailscale Funnel"},
-                {"key": "external", "label": "自定义公网 URL"},
-            ],
+            "network_providers": network_provider_catalog(),
         }
+
+    def list_network_providers(self) -> list[dict[str, object]]:
+        return network_provider_catalog()
 
     def get_app_version(self) -> str:
         """Return version metadata without waiting for the full bootstrap."""

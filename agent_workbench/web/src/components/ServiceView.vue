@@ -46,6 +46,7 @@ const manager = useServiceManager()
         :copied-url="manager.copiedUrl.value"
         :diagnostic="manager.diagnostic.value"
         :show-diagnostic="manager.showDiagnostic.value"
+        :network-providers="manager.networkProviders.value"
         :is-root-profile="manager.isRootProfile"
         :profile-enabled="manager.profileEnabled"
         :runtime-url="manager.runtimeUrl"

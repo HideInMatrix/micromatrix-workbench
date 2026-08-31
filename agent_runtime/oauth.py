@@ -12,15 +12,15 @@ import base64
 import hashlib
 import hmac
 import json
-import os
 import secrets
-import tempfile
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+
+from .atomic_io import atomic_write_json
 
 
 OAUTH_TOKEN_TTL_SECONDS = 24 * 60 * 60
@@ -238,22 +238,12 @@ class OAuthObservedClientRegistry:
             ],
         }
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            fd, temporary = tempfile.mkstemp(
-                prefix=f".{path.name}.",
-                suffix=".tmp",
-                dir=path.parent,
-                text=True,
+            atomic_write_json(
+                path,
+                payload,
+                compact=True,
+                trailing_newline=False,
             )
-            temporary_path = Path(temporary)
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                    json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                os.replace(temporary_path, path)
-            finally:
-                temporary_path.unlink(missing_ok=True)
         except OSError:
             return
 
@@ -390,25 +380,15 @@ class OAuthClientRegistry:
                 for client in clients
             ],
         }
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, temporary = tempfile.mkstemp(
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            dir=path.parent,
-            text=True,
-        )
-        temporary_path = Path(temporary)
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary_path, path)
-        finally:
-            try:
-                temporary_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+            atomic_write_json(
+                path,
+                payload,
+                compact=True,
+                trailing_newline=False,
+            )
+        except OSError:
+            return
 
     def get(self, client_id: str) -> OAuthClient | None:
         with self._lock:

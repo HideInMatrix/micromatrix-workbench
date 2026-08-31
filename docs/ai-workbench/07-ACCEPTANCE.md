@@ -25,7 +25,8 @@
 
 ## 1. 验收范围
 
-本次验收覆盖 `03-IMPLEMENTATION-PLAN.md` 中 Phase 0 到 Phase 9。
+本次验收覆盖历史实施计划中的 Phase 0 到 Phase 9；已完成的逐项计划保留在 Git 历史中，
+主分支只维护当前验收契约。
 
 目标能力：
 

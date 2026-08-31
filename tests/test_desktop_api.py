@@ -694,6 +694,15 @@ class DesktopAPITests(unittest.TestCase):
         self.assertEqual(self.api.get_app_version(), "0.2.7")
         self.assertEqual(self.api.bootstrap()["version"], "0.2.7")
 
+    def test_network_provider_metadata_is_shared_with_editor(self) -> None:
+        providers = self.api.list_network_providers()
+        self.assertEqual(
+            [item["key"] for item in providers],
+            ["cloudflare", "frp", "ngrok", "tailscale", "external"],
+        )
+        self.assertEqual(self.api.bootstrap()["network_providers"], providers)
+        self.assertFalse(providers[3]["supports_public_url"])
+
     def test_startup_metadata_is_available_without_bootstrap(self) -> None:
         first = self.api.create_server(self.payload())
         self.api.select_server(first["server_id"])

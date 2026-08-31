@@ -1,7 +1,22 @@
 export interface NetworkConfigDto {
-  provider: 'cloudflare' | 'frp' | 'ngrok' | 'tailscale' | 'external'
+  provider: string
   public_url: string
   options: Record<string, string>
+}
+
+export interface NetworkProviderOptionDto {
+  key: string
+  label: string
+  secret: boolean
+  span: '1' | '2'
+}
+
+export interface NetworkProviderDto {
+  key: string
+  label: string
+  supports_public_url: boolean
+  ephemeral_without_public_url: boolean
+  options: NetworkProviderOptionDto[]
 }
 
 export interface ServerDto {
@@ -131,7 +146,7 @@ export interface BootstrapDto {
   next_default_port: number
   servers: ServerDto[]
   gateways: GatewayDto[]
-  network_providers: Array<{ key: string; label: string }>
+  network_providers: NetworkProviderDto[]
 }
 
 export interface ReleaseDto {
@@ -449,6 +464,7 @@ export interface DesktopBridge {
   get_selected_server_id(): Promise<string>
   get_update_download_proxy(): Promise<string>
   save_update_download_proxy(prefix: string): Promise<string>
+  list_network_providers(): Promise<NetworkProviderDto[]>
   list_servers(): Promise<ServerDto[]>
   list_gateways(): Promise<GatewayDto[]>
   get_next_port(): Promise<number>

@@ -39,6 +39,7 @@ from .gateway_process import (
     GatewayServerProcess,
 )
 from .network import NetworkProvider, create_network_provider
+from .network_specs import network_provider_spec
 from .launcher import MCPLauncher
 from .oauth_persistence import (
     OAUTH_REGISTRY_FILE_ENV,
@@ -167,7 +168,10 @@ class GatewayDiagnosticReport:
 
 
 def _ephemeral_network(network: NetworkConfig) -> bool:
-    return network.provider in {"cloudflare", "ngrok"} and not network.public_url
+    return (
+        network_provider_spec(network.provider).ephemeral_without_public_url
+        and not network.public_url
+    )
 
 
 def _effective_profiles(

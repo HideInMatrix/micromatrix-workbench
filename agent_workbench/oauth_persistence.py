@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from agent_runtime.atomic_io import atomic_write_json
+
 from .user_settings import settings_dir
 
 
@@ -229,26 +231,6 @@ def prepare_ephemeral_oauth_persistence(server_id: str) -> OAuthPersistence:
 
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        dir=path.parent,
-        text=True,
-    )
-    temporary_path = Path(temporary)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
-            handle.write("\n")
-        if os.name != "nt":
-            temporary_path.chmod(0o600)
-        os.replace(temporary_path, path)
-        if os.name != "nt":
-            path.chmod(0o600)
-    finally:
-        if temporary_path.exists():
-            temporary_path.unlink(missing_ok=True)
-
+    atomic_write_json(path, payload, mode=0o600)
 
 
