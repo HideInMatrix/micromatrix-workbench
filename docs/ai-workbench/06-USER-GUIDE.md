@@ -112,6 +112,25 @@ System Tools
 MCP Tools
 ```
 
+HTTPS 连接同时加载操作系统信任库和随应用发布的 `certifi` CA bundle，避免冻结版 Python 因缺少本地根证书而出现 `CERTIFICATE_VERIFY_FAILED`。证书校验不会被关闭。
+
+当前外部 MCP 管理器支持匿名 Endpoint，以及通过 `Header Refs` 注入的 API Key / Bearer Token；暂不执行需要浏览器跳转的交互式 OAuth。以 Context7 为例，可直接配置：
+
+```text
+Endpoint: https://mcp.context7.com/mcp
+Header Refs: {}
+```
+
+匿名模式可以发现并使用 `query-docs`、`resolve-library-id`。需要 API Key 时，将环境变量 `CONTEXT7_MCP_AUTH` 的值设为完整的 `Bearer ctx7sk...`，再配置：
+
+```json
+{
+  "Authorization": "env:CONTEXT7_MCP_AUTH"
+}
+```
+
+不要在当前管理器中使用 `https://mcp.context7.com/mcp/oauth`；该地址会返回 OAuth challenge，需由支持 MCP OAuth 的客户端完成浏览器授权。
+
 禁用一个 MCP 服务不会删除已有 Skill 引用，只会暂时让对应 Tool 不可用。仍被 Skill 引用的 MCP 服务不能直接删除，必须先移除 Skill 引用。
 
 Phase 13 起，已启用且完成 Discovery 的 MCP Tool 可以直接被 Workflow Tool Node 引用和执行。HTTP MCP 调用仍受 Network permission 约束，stdio MCP 调用仍受外部可执行程序授权约束；Workflow 不会获得额外权限。

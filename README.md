@@ -85,6 +85,7 @@ MicroMatrix Workbench 主要面向以下用户：
 
 1. [使用文档](docs/USER_GUIDE.md)
 2. [网络提供商安装与部署教程（新手版）](docs/NETWORK_PROVIDER_BEGINNER_GUIDE.md)
+3. [Linux 服务器部署与运维（systemd / Docker）](docs/SERVER_DEPLOYMENT.md)
 
 如果你需要了解开发和扩展相关内容：
 
@@ -158,6 +159,14 @@ python start.py /srv/workspace --env-file /etc/micromatrix/server.env --check-co
 # 前台启动；由 systemd / supervisord / 容器负责重启
 python start.py /srv/workspace --env-file /etc/micromatrix/server.env
 ```
+
+仓库已提供加固后的 systemd unit、非 root Server Dockerfile、Compose 模板和完整的
+安装、反向代理、健康检查、升级与回滚步骤，见
+[Linux 服务器部署与运维](docs/SERVER_DEPLOYMENT.md)。
+
+需要让 AI 检查服务器 SSH、sudo、PAM、sysctl、systemd、Web 服务、防火墙、容器配置和
+安全日志时，可使用独立的只读 Host Audit systemd profile。它只映射筛选后的主机信息，
+报告写入单独目录，默认不授予 root、Docker Socket 或任意主机写入权限。
 
 ## 安全说明
 

@@ -306,6 +306,7 @@ onMounted(load)
           <FormField v-if="draft.transport === 'http'">
             <span>Endpoint</span>
             <input v-model.trim="draft.endpoint" placeholder="https://example.com/mcp" />
+            <small class="text-[10px] font-normal leading-4 text-muted-foreground">支持匿名或 API Key/Bearer Header，暂不自动发起浏览器 OAuth。Context7 使用 https://mcp.context7.com/mcp。</small>
           </FormField>
 
           <template v-else>

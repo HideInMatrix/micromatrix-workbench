@@ -1,0 +1,47 @@
+[Unit]
+Description=MicroMatrix Workbench MCP Server
+Documentation=file:/opt/micromatrix-workbench/docs/SERVER_DEPLOYMENT.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=micromatrix
+Group=micromatrix
+WorkingDirectory=/opt/micromatrix-workbench
+Environment=HOME=/var/lib/micromatrix-workbench
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/opt/micromatrix-workbench/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+
+ExecStartPre=/opt/micromatrix-workbench/.venv/bin/python /opt/micromatrix-workbench/start.py /srv/micromatrix-workspace --host 127.0.0.1 --port 8234 --env-file /etc/micromatrix-workbench/server.env --check-config
+ExecStart=/opt/micromatrix-workbench/.venv/bin/python /opt/micromatrix-workbench/start.py /srv/micromatrix-workspace --host 127.0.0.1 --port 8234 --env-file /etc/micromatrix-workbench/server.env
+
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=90s
+TimeoutStopSec=20s
+KillSignal=SIGTERM
+UMask=0077
+
+StateDirectory=micromatrix-workbench
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/micromatrix-workspace
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

@@ -6,10 +6,12 @@ import sys
 import textwrap
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from agent_runtime.runtime import Runtime
 from agent_runtime.server import MCPHTTPServer
 from agent_runtime.tools import build_tool_registry
+from agent_runtime.workbench import mcp_connection_client
 from agent_runtime.workbench import (
     CapabilityAssetService,
     MCPConnectionService,
@@ -36,6 +38,59 @@ def http_connection(endpoint: str, *, connection_id: str = "external") -> dict[s
 
 
 class MCPConnectionDomainTests(unittest.TestCase):
+    def test_https_context_combines_system_and_certifi_ca_bundles(self) -> None:
+        context = Mock()
+        certifi_module = Mock()
+        certifi_module.where.return_value = "/bundled/cacert.pem"
+
+        with (
+            patch.object(
+                mcp_connection_client.ssl,
+                "create_default_context",
+                return_value=context,
+            ),
+            patch.object(mcp_connection_client, "certifi", certifi_module),
+        ):
+            built = mcp_connection_client._https_context()
+
+        self.assertIs(built, context)
+        context.load_verify_locations.assert_called_once_with(
+            cafile="/bundled/cacert.pem"
+        )
+
+    def test_https_rpc_passes_explicit_ssl_context_to_urlopen(self) -> None:
+        definition = mcp_connection_client.MCPConnectionDefinition.from_mapping(
+            http_connection("https://mcp.example.com/mcp")
+        )
+        context = Mock()
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        response.headers = {"Content-Type": "application/json"}
+        response.read.return_value = b'{"jsonrpc":"2.0","id":1,"result":{}}'
+
+        with (
+            patch.object(
+                mcp_connection_client,
+                "_https_context",
+                return_value=context,
+            ),
+            patch.object(
+                mcp_connection_client.urllib.request,
+                "urlopen",
+                return_value=response,
+            ) as urlopen,
+        ):
+            mcp_connection_client._http_rpc(
+                definition,
+                {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+                modern=False,
+                timeout=3,
+            )
+
+        self.assertIs(urlopen.call_args.kwargs["context"], context)
+        self.assertEqual(urlopen.call_args.kwargs["timeout"], 3)
+
     def test_global_connection_crud_version_and_plain_secret_rejection(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -403,4 +458,3 @@ class MCPConnectionDomainTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -1,0 +1,45 @@
+name: micromatrix-workbench
+
+services:
+  server:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        APP_UID: ${MICROMATRIX_UID:-10001}
+        APP_GID: ${MICROMATRIX_GID:-10001}
+    image: micromatrix-workbench-server:${MICROMATRIX_IMAGE_TAG:-local}
+    init: true
+    restart: unless-stopped
+    command:
+      - /workspace
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8234"
+      - --env-file
+      - /run/micromatrix/server.env
+    ports:
+      - "127.0.0.1:${MICROMATRIX_PORT:-8234}:8234"
+    volumes:
+      - type: bind
+        source: ${MICROMATRIX_WORKSPACE:?Set MICROMATRIX_WORKSPACE to an absolute host directory}
+        target: /workspace
+      - type: bind
+        source: ./server.env
+        target: /run/micromatrix/server.env
+        read_only: true
+      - type: volume
+        source: state
+        target: /var/lib/micromatrix
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 20s
+
+volumes:
+  state:

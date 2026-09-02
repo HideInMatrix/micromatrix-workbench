@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import ssl
 import subprocess
 import threading
 import time
@@ -10,6 +11,11 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Mapping
+
+try:
+    import certifi
+except ImportError:  # pragma: no cover - minimal source installs may omit it
+    certifi = None
 
 from .mcp_connections import DiscoveredMCPTool, MCPConnectionDefinition
 
@@ -25,6 +31,20 @@ class MCPConnectionProbe:
     tools: tuple[DiscoveredMCPTool, ...] = ()
     error: str = ""
     elapsed_ms: int = 0
+
+
+def _https_context() -> ssl.SSLContext:
+    """Use OS trust plus the CA bundle shipped with desktop/server builds."""
+
+    context = ssl.create_default_context()
+    if certifi is not None:
+        try:
+            context.load_verify_locations(cafile=certifi.where())
+        except OSError:
+            # Keep the system trust store usable if a minimal/frozen build has
+            # an incomplete optional certifi resource.
+            pass
+    return context
 
 
 def _resolve_ref(reference: str) -> str:
@@ -127,8 +147,11 @@ def _http_rpc(
         headers=headers,
         method="POST",
     )
+    open_options: dict[str, Any] = {"timeout": timeout}
+    if definition.endpoint.lower().startswith("https://"):
+        open_options["context"] = _https_context()
     try:
-        with urllib.request.urlopen(raw_request, timeout=timeout) as response:
+        with urllib.request.urlopen(raw_request, **open_options) as response:
             content_type = str(response.headers.get("Content-Type") or "")
             payload = response.read(2 * 1024 * 1024)
     except urllib.error.HTTPError as exc:
@@ -136,6 +159,13 @@ def _http_rpc(
             detail = exc.read(8192).decode("utf-8", errors="replace")
         finally:
             exc.close()
+        authenticate = str(exc.headers.get("WWW-Authenticate") or "")
+        if exc.code == 401 and authenticate.lower().startswith("bearer"):
+            raise RuntimeError(
+                "HTTP 401：该 MCP Endpoint 需要 Bearer/OAuth 认证。"
+                "当前外部 MCP 管理器尚不支持交互式 OAuth；请改用服务商的 "
+                "API Key Endpoint，并通过 Header Refs 配置 Authorization。"
+            ) from exc
         raise RuntimeError(f"HTTP {exc.code}: {detail or exc.reason}") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"MCP HTTP connection failed: {exc.reason}") from exc
@@ -427,4 +457,3 @@ def call_connection_tool(
     by_id = {item.get("id"): item for item in responses}
     _result(by_id[1])
     return _result(by_id[2])
-

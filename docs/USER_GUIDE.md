@@ -343,6 +343,9 @@ python start.py /srv/workspace --env-file /etc/micromatrix/server.env
 第一条只做基础配置预检，第二条以前台方式运行，适合交给 systemd、supervisord
 或容器守护；不要再复制一份独立的 Tunnel/Runtime 启动代码。
 
+Linux 服务器的 systemd unit、Docker Compose、Nginx/Caddy、状态备份和升级回滚步骤见
+[Linux 服务器部署与运维](SERVER_DEPLOYMENT.md)。
+
 普通用户优先推荐桌面版，CLI 更适合开发调试、自动化启动和远程开发环境。
 
 ## 15. 关于与检查更新
@@ -514,6 +517,7 @@ X-MicroMatrix-Origin: agent-runtime
 
 ## 18. 进一步阅读
 
+- [Linux 服务器部署与运维（systemd / Docker）](SERVER_DEPLOYMENT.md)
 - [网络提供商安装与部署教程（新手版）](NETWORK_PROVIDER_BEGINNER_GUIDE.md)
 - [NetworkProvider 架构与开发说明](NETWORK_PROVIDERS.md)
 - [MCP Server 开发文档](MCP_SERVER_DEVELOPMENT.md)
