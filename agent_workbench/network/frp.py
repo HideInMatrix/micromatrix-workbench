@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..config import NetworkConfig
-from ..process_utils import LogCallback
+from ..core.config import NetworkConfig
+from ..runtime.process import LogCallback
 from .base import NetworkProviderResult
 from .process import ProcessNetworkProvider
 

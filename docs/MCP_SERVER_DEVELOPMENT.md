@@ -202,7 +202,7 @@ MCPServerProcess
     ↓
 agent_workbench.mcp_worker
     ↓
-agent_workbench.mcp_process.run_internal_mcp_server()
+agent_workbench.runtime.mcp_process.run_internal_mcp_server()
     ↓
 agent_runtime.server.main()
 ```
@@ -791,7 +791,7 @@ ctm1.<payload>.<signature>
 桌面启动器已有：
 
 ```text
-agent_workbench/oauth_persistence.py
+agent_workbench/oauth/persistence.py
 ```
 
 它会持久化：

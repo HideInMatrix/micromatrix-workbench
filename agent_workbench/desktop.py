@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import sys
 
-from .mcp_process import INTERNAL_MCP_FLAG, run_internal_mcp_server
-from .resources import web_ui_entrypoint
-from .version import current_version
+from .core.resources import web_ui_entrypoint
+from .core.version import current_version
+from .runtime.mcp_process import INTERNAL_MCP_FLAG, run_internal_mcp_server
 from agent_runtime.sandbox.windows_launcher import (
     INTERNAL_WINDOWS_SANDBOX_FLAG,
     run_internal_windows_sandbox_process,
@@ -27,7 +27,7 @@ def main() -> int:
             "桌面版需要 pywebview。开发环境请执行 pip install -r requirements-desktop.txt"
         ) from exc
 
-    from .desktop_api import DesktopAPI
+    from .api.desktop import DesktopAPI
 
     entrypoint = web_ui_entrypoint()
     if not entrypoint.is_file():

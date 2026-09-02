@@ -11,9 +11,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from build_desktop import MACOS_BUNDLE_IDENTIFIER, resolve_build_version
-import agent_workbench.self_update as self_update
-from agent_workbench.self_update import _parse_checksum
-from agent_workbench.version import DEV_VERSION, git_release_version
+import agent_workbench.updates.installer as update_installer
+from agent_workbench.updates.installer import _parse_checksum
+from agent_workbench.core.version import DEV_VERSION, git_release_version
 from agent_workbench.updates import (
     DEFAULT_GITHUB_DOWNLOAD_PROXY,
     apply_download_proxy,
@@ -73,18 +73,21 @@ class UpdateNamingTests(unittest.TestCase):
     def test_windows_updater_replaces_current_executable_not_install_directory(self) -> None:
         executable = Path("C:/Portable/MicroMatrix Workbench.exe")
         with (
-            patch.object(self_update, "is_frozen", return_value=True),
-            patch.object(self_update.sys, "platform", "win32"),
-            patch.object(self_update.sys, "executable", str(executable)),
+            patch.object(update_installer, "is_frozen", return_value=True),
+            patch.object(update_installer.sys, "platform", "win32"),
+            patch.object(update_installer.sys, "executable", str(executable)),
         ):
-            self.assertEqual(self_update.current_install_target(), executable.resolve())
+            self.assertEqual(
+                update_installer.current_install_target(),
+                executable.resolve(),
+            )
 
     def test_windows_update_launches_installer_instead_of_replacing_itself(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             installer = Path(temporary) / "MicroMatrix-Workbench-windows-x64.exe"
             installer.write_bytes(b"installer")
-            with patch("agent_workbench.self_update.subprocess.Popen") as popen:
-                self_update._spawn_windows_installer(installer)
+            with patch("agent_workbench.updates.installer.subprocess.Popen") as popen:
+                update_installer.spawn_windows_installer(installer)
 
         command = popen.call_args.args[0]
         self.assertEqual(command[0], str(installer))
@@ -186,7 +189,7 @@ class UpdateNamingTests(unittest.TestCase):
             stdout="v0.1.5\n",
             stderr="",
         )
-        with patch("agent_workbench.version.subprocess.run", return_value=completed):
+        with patch("agent_workbench.core.version.subprocess.run", return_value=completed):
             self.assertEqual(git_release_version(), "0.1.5")
 
     def test_version_comparison(self) -> None:
@@ -284,15 +287,15 @@ class UpdateNamingTests(unittest.TestCase):
         response = io.BytesIO(json.dumps(payload).encode("utf-8"))
         with (
             patch(
-                "agent_workbench.updates.platform_asset_name",
+                "agent_workbench.updates.release.platform_asset_name",
                 return_value="MicroMatrix-Workbench-windows-arm64.exe",
             ),
             patch(
-                "agent_workbench.updates.updater_asset_name",
+                "agent_workbench.updates.release.updater_asset_name",
                 return_value="MicroMatrix-Workbench-windows-arm64.exe",
             ),
             patch(
-                "agent_workbench.updates.urllib.request.urlopen",
+                "agent_workbench.updates.release.urllib.request.urlopen",
                 return_value=response,
             ),
         ):
@@ -319,14 +322,14 @@ class UpdateNamingTests(unittest.TestCase):
         incomplete = http.client.IncompleteRead(b'{"tag_name":"v0.2', 10)
         with (
             patch(
-                "agent_workbench.updates.platform_asset_name",
+                "agent_workbench.updates.release.platform_asset_name",
                 return_value="MicroMatrix-Workbench-windows-arm64.exe",
             ),
             patch(
-                "agent_workbench.updates.urllib.request.urlopen",
+                "agent_workbench.updates.release.urllib.request.urlopen",
                 side_effect=[incomplete, good_response],
             ) as urlopen,
-            patch("agent_workbench.updates.time.sleep") as sleep,
+            patch("agent_workbench.updates.release.time.sleep") as sleep,
         ):
             info = fetch_latest_release("0.2.2")
 
@@ -339,10 +342,10 @@ class UpdateNamingTests(unittest.TestCase):
         incomplete = http.client.IncompleteRead(b"partial", 100)
         with (
             patch(
-                "agent_workbench.updates.urllib.request.urlopen",
+                "agent_workbench.updates.release.urllib.request.urlopen",
                 side_effect=incomplete,
             ),
-            patch("agent_workbench.updates.time.sleep"),
+            patch("agent_workbench.updates.release.time.sleep"),
         ):
             with self.assertRaisesRegex(RuntimeError, "网络响应不完整.*自动重试 3 次"):
                 fetch_latest_release("0.2.2")

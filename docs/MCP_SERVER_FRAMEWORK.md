@@ -250,10 +250,13 @@ agent_runtime/gateway/
 └── config.py
 
 agent_workbench/
-├── gateway_process.py
-├── gateway_launcher.py
-├── gateway_profiles.py
-└── gateway_manager.py
+└── gateways/
+    ├── models.py
+    ├── store.py
+    ├── process.py
+    ├── diagnostics.py
+    ├── launcher.py
+    └── manager.py
 ```
 
 `MCPHTTPServer` 支持显式 `gateway_pool` 模式；默认单 Runtime 构造方式保持兼容。详细设计见 `docs/LOCAL_MCP_GATEWAY.md`。

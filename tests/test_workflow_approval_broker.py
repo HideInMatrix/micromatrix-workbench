@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_workbench.permission_broker import DesktopPermissionBroker
+from agent_workbench.runtime.permission_broker import DesktopPermissionBroker
 from agent_runtime.local_permission_broker import LocalWorkflowApprovalBrokerClient
 from agent_runtime.runtime import Runtime
 from tests.workbench_fixtures import install_project_development_fixture

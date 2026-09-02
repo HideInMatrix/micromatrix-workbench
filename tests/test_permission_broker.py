@@ -6,7 +6,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from agent_workbench.permission_broker import DesktopPermissionBroker
+from agent_workbench.runtime.permission_broker import DesktopPermissionBroker
 from agent_runtime.local_permission_broker import LocalPermissionBrokerClient
 
 

@@ -4,19 +4,19 @@ import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from .gateway_launcher import (
-    DIAGNOSTIC_OAUTH_CLIENT_NAME,
+from .launcher import DIAGNOSTIC_OAUTH_CLIENT_NAME, MCPGatewayLauncher
+from .models import (
     GatewayDiagnosticReport,
     GatewayLaunchConfig,
     GatewayLaunchInfo,
-    MCPGatewayLauncher,
+    MCPGatewayProfile,
 )
-from .gateway_profiles import GatewayProfileStore, MCPGatewayProfile
-from .oauth_client_store import CIMDClientStore, OAuthClientStore, OAuthClientSummary
-from .process_utils import LogCallback
+from .store import GatewayProfileStore
+from ..oauth.client_store import CIMDClientStore, OAuthClientStore, OAuthClientSummary
+from ..runtime.process import LogCallback
 
 if TYPE_CHECKING:
-    from .permission_broker import DesktopPermissionBroker
+    from ..runtime.permission_broker import DesktopPermissionBroker
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,4 +247,3 @@ class MCPGatewayManager:
             if deleted:
                 self._launchers.pop(gateway_id, None)
             return deleted
-

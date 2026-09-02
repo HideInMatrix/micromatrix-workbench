@@ -5,13 +5,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_workbench.config import NetworkConfig
-from agent_workbench.mcp_process import _mcp_arguments
-from agent_workbench.server_profiles import (
-    MCPServerProfile,
-    ServerProfileStore,
-    default_lifecycle,
-)
+from agent_workbench.core.config import NetworkConfig, default_lifecycle
+from agent_workbench.runtime.mcp_process import _mcp_arguments
+from agent_workbench.servers.models import MCPServerProfile
+from agent_workbench.servers.store import ServerProfileStore
 
 
 class ServerProfileTests(unittest.TestCase):

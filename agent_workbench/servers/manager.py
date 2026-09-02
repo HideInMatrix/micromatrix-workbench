@@ -4,19 +4,20 @@ import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from .config import LaunchConfig, LaunchInfo
+from ..core.config import LaunchConfig, LaunchInfo
 from .launcher import MCPLauncher
-from .oauth_client_store import CIMDClientStore, OAuthClientStore, OAuthClientSummary
-from .oauth_persistence import (
+from ..oauth.client_store import CIMDClientStore, OAuthClientStore, OAuthClientSummary
+from ..oauth.persistence import (
     bound_server_oauth_issuer,
     delete_issuer_oauth_storage,
     delete_server_oauth_storage,
 )
-from .process_utils import LogCallback
-from .server_profiles import MCPServerProfile, ServerProfileStore
+from ..runtime.process import LogCallback
+from .models import MCPServerProfile
+from .store import ServerProfileStore
 
 if TYPE_CHECKING:
-    from .permission_broker import DesktopPermissionBroker
+    from ..runtime.permission_broker import DesktopPermissionBroker
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,4 +186,3 @@ class MCPServerManager:
             if self.is_running(server_id):
                 raise RuntimeError("请先停止 MCP Server，再撤销 OAuth Client。")
             return OAuthClientStore(profile.server_id).clear()
-

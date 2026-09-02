@@ -3,17 +3,15 @@ from __future__ import annotations
 import subprocess
 import sys
 
-from .config import LaunchConfig
-from .process_utils import (
+from ..core.config import LaunchConfig
+from ..core.resources import PROJECT_ROOT, is_frozen
+from .process import (
     LogCallback,
     forward_process_output,
     hidden_process_kwargs,
     stop_process,
     wait_for_tcp_port,
 )
-from .resources import PROJECT_ROOT, is_frozen
-
-
 INTERNAL_MCP_FLAG = "--internal-mcp-server"
 
 

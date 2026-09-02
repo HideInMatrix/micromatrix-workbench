@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 
-from .mcp_process import run_internal_mcp_server
+from .runtime.mcp_process import run_internal_mcp_server
 
 
 def main() -> int:
@@ -11,4 +11,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -5,15 +5,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_workbench.config import NetworkConfig
-from agent_workbench.gateway_launcher import GatewayLaunchInfo
-from agent_workbench.gateway_manager import MCPGatewayManager
-from agent_workbench.gateway_profiles import (
-    GatewayProfileStore,
+from agent_workbench.core.config import NetworkConfig
+from agent_workbench.gateways.manager import MCPGatewayManager
+from agent_workbench.gateways.models import (
+    GatewayLaunchInfo,
     MCPGatewayMember,
     MCPGatewayProfile,
 )
-from agent_workbench.oauth_persistence import (
+from agent_workbench.gateways.store import GatewayProfileStore
+from agent_workbench.oauth.persistence import (
     bind_server_oauth_issuer,
     prepare_issuer_oauth_persistence,
 )
@@ -277,7 +277,7 @@ class GatewayManagerTests(unittest.TestCase):
             )
 
             with patch(
-                "agent_workbench.gateway_manager.MCPGatewayLauncher.start",
+                "agent_workbench.gateways.manager.MCPGatewayLauncher.start",
                 return_value=fake_info,
             ) as start:
                 info = manager.start(gateway.gateway_id)
@@ -310,7 +310,7 @@ class GatewayManagerTests(unittest.TestCase):
             issuer = "https://mcp.example.com/member"
 
             with patch(
-                "agent_workbench.oauth_persistence.settings_dir",
+                "agent_workbench.oauth.persistence.settings_dir",
                 return_value=root,
             ):
                 bind_server_oauth_issuer(member.server_id, issuer)
@@ -403,7 +403,7 @@ class GatewayManagerTests(unittest.TestCase):
             with (
                 patch.object(manager, "is_running", return_value=True),
                 patch(
-                    "agent_workbench.gateway_manager.OAuthClientStore.clear",
+                    "agent_workbench.gateways.manager.OAuthClientStore.clear",
                     return_value=2,
                 ) as clear,
             ):

@@ -6,15 +6,15 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from agent_workbench.config import LaunchConfig, NetworkConfig
-from agent_workbench.launcher import MCPLauncher
+from agent_workbench.core.config import LaunchConfig, NetworkConfig
+from agent_workbench.servers.launcher import MCPLauncher
 from agent_workbench.network.external import ExternalUrlProvider
 from agent_workbench.network.base import NetworkProviderResult
 from agent_workbench.network.cloudflare import CloudflareProvider, is_request_cancellation_log
 from agent_workbench.network.factory import PROVIDER_TYPES, create_network_provider
 from agent_workbench.network.frp import FrpProvider
 from agent_workbench.network.ngrok import NgrokProvider
-from agent_workbench.network_specs import NETWORK_PROVIDER_CHOICES, network_provider_catalog
+from agent_workbench.network.specs import NETWORK_PROVIDER_CHOICES, network_provider_catalog
 
 
 class NetworkConfigTests(unittest.TestCase):
@@ -289,10 +289,10 @@ class ProviderTests(unittest.TestCase):
         response.__enter__.return_value = response
         with (
             patch(
-                "agent_workbench.launcher.urllib.request.urlopen",
+                "agent_workbench.servers.launcher.urllib.request.urlopen",
                 return_value=response,
             ) as urlopen,
-            patch("agent_workbench.launcher.time.sleep"),
+            patch("agent_workbench.servers.launcher.time.sleep"),
         ):
             launcher._verify_named_tunnel_route(
                 "https://mcp.example.com/company",
@@ -317,7 +317,7 @@ class ProviderTests(unittest.TestCase):
             None,
         )
         with patch(
-            "agent_workbench.launcher.urllib.request.urlopen",
+            "agent_workbench.servers.launcher.urllib.request.urlopen",
             side_effect=error,
         ):
             with self.assertRaisesRegex(RuntimeError, "Public Hostname"):
@@ -338,7 +338,7 @@ class ProviderTests(unittest.TestCase):
             None,
         )
         with patch(
-            "agent_workbench.launcher.urllib.request.urlopen",
+            "agent_workbench.servers.launcher.urllib.request.urlopen",
             side_effect=error,
         ):
             launcher._verify_named_tunnel_route(
@@ -392,13 +392,13 @@ class ProviderTests(unittest.TestCase):
                 captured_env.update(env)
 
             with (
-                patch("agent_workbench.launcher.check_port_available"),
+                patch("agent_workbench.servers.launcher.check_port_available"),
                 patch(
-                    "agent_workbench.launcher.create_network_provider",
+                    "agent_workbench.servers.launcher.create_network_provider",
                     return_value=provider,
                 ),
                 patch(
-                    "agent_workbench.launcher.prepare_issuer_oauth_persistence"
+                    "agent_workbench.servers.launcher.prepare_issuer_oauth_persistence"
                 ) as persistence,
                 patch.object(launcher._mcp, "start", side_effect=start_runtime),
             ):
@@ -431,13 +431,13 @@ class ProviderTests(unittest.TestCase):
                 lifecycle="ephemeral",
             )
             with (
-                patch("agent_workbench.launcher.check_port_available"),
+                patch("agent_workbench.servers.launcher.check_port_available"),
                 patch(
-                    "agent_workbench.launcher.create_network_provider",
+                    "agent_workbench.servers.launcher.create_network_provider",
                     return_value=provider,
                 ),
                 patch(
-                    "agent_workbench.launcher.prepare_ephemeral_oauth_persistence"
+                    "agent_workbench.servers.launcher.prepare_ephemeral_oauth_persistence"
                 ) as persistence,
                 patch.object(
                     launcher._mcp,
@@ -469,16 +469,16 @@ class ProviderTests(unittest.TestCase):
                 server_id="server-a",
             )
             with (
-                patch("agent_workbench.launcher.check_port_available"),
+                patch("agent_workbench.servers.launcher.check_port_available"),
                 patch(
-                    "agent_workbench.launcher.create_network_provider",
+                    "agent_workbench.servers.launcher.create_network_provider",
                     return_value=provider,
                 ),
                 patch(
-                    "agent_workbench.launcher.prepare_issuer_oauth_persistence"
+                    "agent_workbench.servers.launcher.prepare_issuer_oauth_persistence"
                 ) as persistence,
                 patch(
-                    "agent_workbench.launcher.bind_server_oauth_issuer"
+                    "agent_workbench.servers.launcher.bind_server_oauth_issuer"
                 ) as bind_issuer,
                 patch.object(
                     launcher._mcp,

@@ -4,7 +4,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from .resources import resource_root
+from .resources import PROJECT_ROOT, resource_root
 
 BUILD_VERSION_FILENAME = "build-version.txt"
 DEV_VERSION = "0.0.0-dev"
@@ -22,7 +22,7 @@ def normalize_version(value: str) -> str:
 def git_release_version(repo_root: Path | None = None) -> str | None:
     """Return the semantic version tag attached to the current Git commit."""
 
-    root = repo_root or Path(__file__).resolve().parents[1]
+    root = repo_root or PROJECT_ROOT
     try:
         result = subprocess.run(
             ["git", "describe", "--tags", "--exact-match", "HEAD"],

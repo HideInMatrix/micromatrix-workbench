@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import re
 
-from ..config import NetworkConfig, normalize_server_url
-from ..process_utils import LogCallback
+from ..core.config import NetworkConfig, normalize_server_url
+from ..runtime.process import LogCallback
 from .base import NetworkProviderResult
 from .process import ProcessNetworkProvider
 

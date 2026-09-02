@@ -5,9 +5,9 @@ import signal
 import sys
 from pathlib import Path
 
-from .config import DEFAULT_HOST, DEFAULT_PORT, LaunchConfig, load_env_file
-from .launcher import MCPLauncher
-from .network import create_network_provider
+from .core.config import DEFAULT_HOST, DEFAULT_PORT, LaunchConfig, load_env_file
+from .servers.launcher import MCPLauncher
+from .network.factory import create_network_provider
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

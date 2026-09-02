@@ -44,7 +44,7 @@ NETWORK_PROVIDER_SPECS = (
         key="cloudflare",
         label="Cloudflare Tunnel",
         ephemeral_without_public_url=True,
-        options=(NetworkOptionSpec("tunnel_token", "Tunnel Token", True, "2"),),
+        options=(NetworkOptionSpec("tunnel_token", "隧道令牌", True, "2"),),
     ),
     NetworkProviderSpec(
         key="frp",
@@ -60,7 +60,7 @@ NETWORK_PROVIDER_SPECS = (
         ephemeral_without_public_url=True,
         options=(
             NetworkOptionSpec("executable", "ngrok 路径"),
-            NetworkOptionSpec("authtoken", "Auth Token", True),
+            NetworkOptionSpec("authtoken", "认证令牌", True),
         ),
     ),
     NetworkProviderSpec(

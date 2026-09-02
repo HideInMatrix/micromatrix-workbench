@@ -294,13 +294,13 @@ ngrok Auth Token
 ## 8. 新增 Provider
 
 Provider 的名称、配置字段、是否支持固定 Public URL，以及动态 URL 是否使用
-ephemeral OAuth，统一声明在 `agent_workbench/network_specs.py`。桌面编辑器直接读取
+ephemeral OAuth，统一声明在 `agent_workbench/network/specs.py`。桌面编辑器直接读取
 这份元数据，不再维护第二份 Provider 下拉框和配置字段列表。
 
 新增一个网络方案通常只需要两步：
 
 1. 在 `network/` 下创建新的 Provider 类，并在 `factory.py` 注册；
-2. 在 `network_specs.py` 声明展示名称和配置字段。
+2. 在 `agent_workbench/network/specs.py` 声明展示名称和配置字段。
 
 `factory.py` 启动时会校验实现注册顺序与元数据注册表一致，缺少任意一侧都会立即失败，
 避免后端已经支持但桌面端无法配置的半成品 Provider。

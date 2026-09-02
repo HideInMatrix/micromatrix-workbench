@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 import subprocess
 
-from ..config import NetworkConfig, normalize_server_url
-from ..process_utils import LogCallback, hidden_process_kwargs
+from ..core.config import NetworkConfig, normalize_server_url
+from ..runtime.process import LogCallback, hidden_process_kwargs
 from .base import NetworkProviderResult
 from .process import ProcessNetworkProvider
 

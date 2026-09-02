@@ -1,10 +1,11 @@
 """Agent Workbench orchestration layer for the MicroMatrix Workbench desktop app."""
 
-from .config import LaunchConfig, LaunchInfo
-from .launcher import MCPLauncher
-from .oauth_client_store import OAuthClientStore, OAuthClientSummary
-from .server_manager import MCPServerManager, ManagedServerStatus
-from .server_profiles import MCPServerProfile, ServerProfileStore
+from .core.config import LaunchConfig, LaunchInfo
+from .servers.launcher import MCPLauncher
+from .oauth.client_store import OAuthClientStore, OAuthClientSummary
+from .servers.manager import MCPServerManager, ManagedServerStatus
+from .servers.models import MCPServerProfile
+from .servers.store import ServerProfileStore
 
 __all__ = [
     "LaunchConfig",

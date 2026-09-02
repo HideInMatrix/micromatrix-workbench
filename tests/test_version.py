@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_workbench import version
+from agent_workbench.core import version
 
 
 class CurrentVersionTests(unittest.TestCase):

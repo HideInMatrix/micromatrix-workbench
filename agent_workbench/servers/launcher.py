@@ -14,10 +14,10 @@ try:
 except ImportError:  # pragma: no cover - desktop requirements normally include it
     certifi = None
 
-from .config import LaunchConfig, LaunchInfo
-from .mcp_process import MCPServerProcess
-from .network import NetworkProvider, create_network_provider
-from .oauth_persistence import (
+from ..core.config import LaunchConfig, LaunchInfo
+from ..network.base import NetworkProvider
+from ..network.factory import create_network_provider
+from ..oauth.persistence import (
     OAUTH_REGISTRY_FILE_ENV,
     OAUTH_TOKEN_SECRET_ENV,
     OAuthPersistence,
@@ -26,7 +26,8 @@ from .oauth_persistence import (
     prepare_ephemeral_oauth_persistence,
     prepare_issuer_oauth_persistence,
 )
-from .process_utils import LogCallback, check_port_available
+from ..runtime.mcp_process import MCPServerProcess
+from ..runtime.process import LogCallback, check_port_available
 from agent_runtime.route_probe import (
     ROUTE_PROBE_HEADER,
     ROUTE_PROBE_PATH,
@@ -34,7 +35,7 @@ from agent_runtime.route_probe import (
 )
 
 if TYPE_CHECKING:
-    from .permission_broker import DesktopPermissionBroker
+    from ..runtime.permission_broker import DesktopPermissionBroker
 
 
 class MCPLauncher:

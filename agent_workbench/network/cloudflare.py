@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import re
 
-from ..config import NetworkConfig
-from ..process_utils import LogCallback
-from ..resources import resolve_cloudflared
+from ..core.config import NetworkConfig
+from ..core.resources import resolve_cloudflared
+from ..runtime.process import LogCallback
 from .base import NetworkProviderResult
 from .process import ProcessNetworkProvider
 

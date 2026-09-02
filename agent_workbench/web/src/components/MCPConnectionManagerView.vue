@@ -1,13 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import {
-  CheckCircle2,
-  Plus,
-  RefreshCw,
-  Save,
-  Server,
-  Trash2,
-} from '@lucide/vue'
+import { CheckCircle2, Plus, RefreshCw, Save, Server, Trash2 } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { FormField } from '@/components/ui/form'
 import { desktopApi } from '../api/desktop'
@@ -74,7 +67,7 @@ function applyConnection(value: MCPConnectionDefinitionDto) {
 function parseObject(text: string, label: string): Record<string, string> {
   const value = JSON.parse(text)
   if (!value || Array.isArray(value) || typeof value !== 'object') {
-    throw new Error(`${label} 必须是 JSON object。`)
+    throw new Error(`${label} 必须是 JSON 对象。`)
   }
   return value as Record<string, string>
 }
@@ -82,15 +75,15 @@ function parseObject(text: string, label: string): Record<string, string> {
 function definition(): MCPConnectionDefinitionDto {
   const args = JSON.parse(argumentsText.value)
   if (!Array.isArray(args) || args.some(item => typeof item !== 'string')) {
-    throw new Error('Arguments 必须是 string[]。')
+    throw new Error('启动参数必须是字符串数组。')
   }
   return {
     ...draft.value,
     arguments: args,
-    environment: parseObject(environmentText.value, 'Environment'),
-    environment_refs: parseObject(environmentRefsText.value, 'Environment Refs'),
-    headers: parseObject(headersText.value, 'Headers'),
-    header_refs: parseObject(headerRefsText.value, 'Header Refs'),
+    environment: parseObject(environmentText.value, '环境变量'),
+    environment_refs: parseObject(environmentRefsText.value, '环境变量引用'),
+    headers: parseObject(headersText.value, '请求头'),
+    header_refs: parseObject(headerRefsText.value, '请求头引用'),
   }
 }
 
@@ -202,7 +195,7 @@ async function testConnection() {
   try {
     const result = await desktopApi.testWorkbenchMCPConnection(selectedId.value)
     if (!result.ok) throw new Error(result.error || 'MCP 服务连接失败。')
-    notice.value = `连接成功 · MCP ${result.protocol_version || 'unknown'} · ${result.elapsed_ms}ms`
+    notice.value = `连接成功 · MCP ${result.protocol_version || '未知'} · ${result.elapsed_ms}ms`
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
@@ -221,9 +214,9 @@ async function discoverTools() {
       await refreshCatalog(result.connection.id)
     }
     if (!result.ok || !result.connection) {
-      throw new Error(result.error || 'MCP Tool Discovery 失败。')
+      throw new Error(result.error || 'MCP 工具发现失败。')
     }
-    notice.value = `已发现 ${result.connection.tool_count} 个 MCP Tools。`
+    notice.value = `已发现 ${result.connection.tool_count} 个 MCP 工具。`
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
@@ -240,7 +233,7 @@ onMounted(load)
       <div>
         <h1 class="m-0 text-xl font-medium tracking-[-0.02em]">MCP 服务</h1>
         <p class="mt-1 mb-0 text-xs leading-[18px] text-muted-foreground">
-          管理全局外部 MCP 能力来源。连接成功后可发现其 Tools，供 Skill 和 Workflow 引用。
+          管理全局外部 MCP 能力来源。连接成功后可发现工具，供技能和工作流引用。
         </p>
       </div>
       <div class="flex items-center gap-2">
@@ -280,8 +273,9 @@ onMounted(load)
         <div class="grid max-w-4xl gap-4">
           <div class="grid grid-cols-2 gap-3">
             <FormField>
-              <span>MCP ID</span>
+              <span>MCP 服务标识</span>
               <input v-model="draft.id" :disabled="Boolean(selectedId)" placeholder="github" />
+              <small class="text-[10px] font-normal text-muted-foreground">服务的唯一标识，例如 context7。</small>
             </FormField>
             <FormField>
               <span>名称</span>
@@ -291,7 +285,7 @@ onMounted(load)
 
           <div class="grid grid-cols-2 gap-3">
             <FormField>
-              <span>Transport</span>
+              <span>传输方式</span>
               <select v-model="draft.transport">
                 <option value="http">HTTP</option>
                 <option value="stdio">stdio</option>
@@ -304,47 +298,51 @@ onMounted(load)
           </div>
 
           <FormField v-if="draft.transport === 'http'">
-            <span>Endpoint</span>
+            <span>服务地址</span>
             <input v-model.trim="draft.endpoint" placeholder="https://example.com/mcp" />
-            <small class="text-[10px] font-normal leading-4 text-muted-foreground">支持匿名或 API Key/Bearer Header，暂不自动发起浏览器 OAuth。Context7 使用 https://mcp.context7.com/mcp。</small>
+            <small class="text-[10px] font-normal text-muted-foreground">HTTP MCP 地址，例如 https://example.com/mcp。</small>
           </FormField>
 
           <template v-else>
             <FormField>
-              <span>Command</span>
+              <span>启动命令</span>
               <input v-model.trim="draft.command" placeholder="/path/to/mcp-server" />
+              <small class="text-[10px] font-normal text-muted-foreground">stdio 服务程序，例如 npx。</small>
             </FormField>
             <FormField>
-              <span>Arguments JSON</span>
+              <span>启动参数 JSON</span>
               <textarea v-model="argumentsText" class="min-h-20 resize-y font-mono" spellcheck="false" />
+              <small class="text-[10px] font-normal text-muted-foreground">参数数组，例如 ["-y", "@upstash/context7-mcp"]。</small>
             </FormField>
             <FormField>
-              <span>Environment JSON（仅非敏感值）</span>
+              <span>环境变量 JSON（仅非敏感值）</span>
               <textarea v-model="environmentText" class="min-h-20 resize-y font-mono" spellcheck="false" />
+              <small class="text-[10px] font-normal text-muted-foreground">例如 { "LOG_LEVEL": "info" }。</small>
             </FormField>
             <FormField>
-              <span>Environment Refs JSON</span>
+              <span>环境变量引用 JSON</span>
               <textarea v-model="environmentRefsText" class="min-h-20 resize-y font-mono" spellcheck="false" />
-              <small class="text-[10px] font-normal text-muted-foreground">敏感值使用引用，例如 { "API_KEY": "env:GITHUB_TOKEN" }。</small>
+              <small class="text-[10px] font-normal text-muted-foreground">敏感值引用，例如 { "API_KEY": "env:GITHUB_TOKEN" }。</small>
             </FormField>
           </template>
 
           <template v-if="draft.transport === 'http'">
             <FormField>
-              <span>Headers JSON（仅非敏感值）</span>
+              <span>请求头 JSON（仅非敏感值）</span>
               <textarea v-model="headersText" class="min-h-20 resize-y font-mono" spellcheck="false" />
+              <small class="text-[10px] font-normal text-muted-foreground">例如 { "X-Client": "workbench" }。</small>
             </FormField>
             <FormField>
-              <span>Header Refs JSON</span>
+              <span>请求头引用 JSON</span>
               <textarea v-model="headerRefsText" class="min-h-20 resize-y font-mono" spellcheck="false" />
-              <small class="text-[10px] font-normal text-muted-foreground">例如 { "Authorization": "env:GITHUB_MCP_AUTH" }，不会把真实 Secret 写入资产文件。</small>
+              <small class="text-[10px] font-normal text-muted-foreground">敏感值引用，例如 { "Authorization": "env:MCP_AUTH" }。</small>
             </FormField>
           </template>
 
           <div class="grid gap-2">
             <div class="flex items-center justify-between">
-              <span class="text-[11px] font-medium">Discovered Tools</span>
-              <span class="text-[10px] text-muted-foreground">{{ draft.tools.length }} Tools</span>
+              <span class="text-[11px] font-medium">已发现工具</span>
+              <span class="text-[10px] text-muted-foreground">{{ draft.tools.length }} 个工具</span>
             </div>
             <div class="max-h-64 overflow-y-auto rounded-md border border-border bg-background">
               <div
@@ -358,14 +356,14 @@ onMounted(load)
                 </div>
               </div>
               <div v-if="!draft.tools.length" class="px-3 py-6 text-center text-[10px] text-muted-foreground">
-                保存连接后点击“发现 Tools”。
+                保存连接后点击“发现工具”。
               </div>
             </div>
           </div>
 
           <div class="flex items-center justify-between border-t border-border pt-3">
             <div class="text-[10px] text-muted-foreground">
-              {{ selectedSummary ? `global · v${selectedSummary.version}` : 'global · unsaved' }}
+              {{ selectedSummary ? `全局 · v${selectedSummary.version}` : '全局 · 未保存' }}
               <span v-if="draft.last_error" class="ml-2 text-destructive">{{ draft.last_error }}</span>
             </div>
             <div class="flex flex-wrap items-center justify-end gap-2">
@@ -385,7 +383,7 @@ onMounted(load)
                 <Server :size="14" />测试连接
               </Button>
               <Button variant="outline" size="sm" :disabled="busy || !canProbe" @click="discoverTools">
-                <RefreshCw :size="14" />发现 Tools
+                <RefreshCw :size="14" />发现工具
               </Button>
               <Button size="sm" :disabled="busy" @click="saveConnection">
                 <Save :size="14" />保存

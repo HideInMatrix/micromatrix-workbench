@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from ..process_utils import LogCallback
-from ..network_specs import NETWORK_PROVIDER_CHOICES
+from ..runtime.process import LogCallback
 from .base import NetworkProvider
 from .cloudflare import CloudflareProvider
 from .external import ExternalUrlProvider
 from .frp import FrpProvider
 from .ngrok import NgrokProvider
 from .tailscale import TailscaleProvider
+from .specs import NETWORK_PROVIDER_CHOICES
 
 
 PROVIDER_TYPES: dict[str, type[NetworkProvider]] = {

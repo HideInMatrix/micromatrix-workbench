@@ -8,122 +8,28 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlsplit
-
-from agent_runtime.gateway import normalize_instance_path, normalize_public_url
 from agent_runtime.local_permission_broker import (
     BROKER_DIR_ENV,
     BROKER_SECRET_ENV,
     BROKER_SERVER_ID_ENV,
 )
 
-from .config import DEFAULT_HOST, DEFAULT_PORT, PERMISSION_MODE_CHOICES
-from .mcp_process import INTERNAL_MCP_FLAG
-from .oauth_persistence import (
+from ..core.resources import PROJECT_ROOT, is_frozen
+from ..oauth.persistence import (
     OAuthPersistence,
     bind_server_oauth_issuer,
-    canonical_oauth_issuer,
     prepare_ephemeral_oauth_persistence,
     prepare_issuer_oauth_persistence,
 )
-from .process_utils import (
+from ..runtime.mcp_process import INTERNAL_MCP_FLAG
+from ..runtime.process import (
     LogCallback,
     forward_process_output,
     hidden_process_kwargs,
     stop_process,
     wait_for_tcp_port,
 )
-from .resources import PROJECT_ROOT, is_frozen
-
-
-@dataclass(frozen=True, slots=True)
-class GatewayChildProfile:
-    server_id: str
-    name: str
-    workspace: Path
-    oauth_password: str
-    instance_path: str
-    public_url: str = ""
-    permission_mode: str = "safe"
-    lifecycle: str = "persistent"
-    allow_network: bool = False
-    enable_view_image: bool = True
-
-    def validated(self) -> "GatewayChildProfile":
-        server_id = self.server_id.strip()
-        if not server_id:
-            raise ValueError("Gateway Profile server_id 不能为空。")
-        name = self.name.strip()
-        if not name:
-            raise ValueError("Gateway Profile 名称不能为空。")
-        workspace = self.workspace.expanduser().resolve()
-        if not workspace.exists() or not workspace.is_dir():
-            raise ValueError(f"Gateway Profile Workspace 无效: {workspace}")
-        password = self.oauth_password.strip()
-        if not password:
-            raise ValueError("Gateway Profile OAuth 登录密码不能为空。")
-        permission_mode = self.permission_mode.strip().lower() or "safe"
-        if permission_mode not in PERMISSION_MODE_CHOICES:
-            raise ValueError(f"不支持的权限模式: {permission_mode}")
-        lifecycle = self.lifecycle.strip().lower() or "persistent"
-        if lifecycle not in {"persistent", "ephemeral"}:
-            raise ValueError(f"不支持的 Gateway Profile lifecycle: {lifecycle}")
-        return GatewayChildProfile(
-            server_id=server_id,
-            name=name,
-            workspace=workspace,
-            oauth_password=password,
-            instance_path=normalize_instance_path(self.instance_path),
-            public_url=normalize_public_url(self.public_url),
-            permission_mode=permission_mode,
-            lifecycle=lifecycle,
-            allow_network=bool(self.allow_network),
-            enable_view_image=bool(self.enable_view_image),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class GatewayProcessConfig:
-    public_base_url: str
-    profiles: tuple[GatewayChildProfile, ...]
-    host: str = DEFAULT_HOST
-    port: int = DEFAULT_PORT
-
-    def validated(self) -> "GatewayProcessConfig":
-        public_base_url = canonical_oauth_issuer(self.public_base_url)
-        parsed = urlsplit(public_base_url)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise ValueError("Gateway Public URL 必须是完整的 http/https URL。")
-        if (parsed.path or "").rstrip("/"):
-            raise ValueError(
-                "Gateway Public URL 必须只包含 hostname；子 Profile 使用独立 Public Hostname。"
-            )
-        if not 1 <= int(self.port) <= 65535:
-            raise ValueError(f"无效 Gateway 端口: {self.port}")
-        profiles = tuple(profile.validated() for profile in self.profiles)
-        if not profiles:
-            raise ValueError("Gateway 至少需要一个 Profile。")
-        ids: set[str] = set()
-        paths: set[str] = set()
-        hostnames: set[str] = set()
-        for profile in profiles:
-            if profile.server_id in ids:
-                raise ValueError(f"重复 Gateway Profile server_id: {profile.server_id}")
-            if profile.instance_path in paths:
-                raise ValueError(f"重复 Gateway Profile Path: {profile.instance_path}")
-            ids.add(profile.server_id)
-            paths.add(profile.instance_path)
-            if profile.public_url:
-                hostname = (urlsplit(profile.public_url).hostname or "").lower()
-                if hostname in hostnames:
-                    raise ValueError(f"重复 Gateway Profile Public Hostname: {hostname}")
-                hostnames.add(hostname)
-        return GatewayProcessConfig(
-            public_base_url=public_base_url,
-            profiles=profiles,
-            host=self.host.strip() or DEFAULT_HOST,
-            port=int(self.port),
-        )
+from .models import GatewayProcessConfig
 
 
 @dataclass(slots=True)

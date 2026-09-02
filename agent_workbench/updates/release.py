@@ -38,13 +38,6 @@ class ReleaseInfo:
 
 
 def normalize_download_proxy_prefix(value: object) -> str:
-    """Validate and normalize a GitHub release download proxy prefix.
-
-    An empty value explicitly disables acceleration. A proxy is a URL prefix,
-    so query strings, fragments and embedded credentials are rejected before
-    it is persisted.
-    """
-
     prefix = str(value or "").strip()
     if not prefix:
         return ""
@@ -59,8 +52,6 @@ def normalize_download_proxy_prefix(value: object) -> str:
 
 
 def apply_download_proxy(url: str, prefix: str) -> str:
-    """Prefix GitHub release assets while leaving unrelated URLs untouched."""
-
     normalized = normalize_download_proxy_prefix(prefix)
     if not normalized or not url:
         return url
@@ -71,13 +62,9 @@ def apply_download_proxy(url: str, prefix: str) -> str:
 
 
 def _github_ssl_context() -> ssl.SSLContext:
-    """Build a TLS context that also works inside the packaged desktop app."""
-
     try:
         import certifi
     except ImportError:
-        # Source/development environments can still use the operating system CA
-        # store. Release builds install certifi from requirements-desktop.txt.
         return ssl.create_default_context()
     return ssl.create_default_context(cafile=certifi.where())
 
@@ -128,8 +115,6 @@ def updater_asset_name(
     system: str | None = None,
     machine: str | None = None,
 ) -> str:
-    """Return the release asset consumed by the in-app updater."""
-
     current_system = (system or platform.system()).strip().lower()
     arch = _architecture(machine)
     if current_system == "windows":
@@ -158,16 +143,6 @@ def _fetch_release_payload(
     timeout: float,
     attempts: int = UPDATE_CHECK_ATTEMPTS,
 ) -> dict[str, Any]:
-    """Fetch the latest GitHub release with bounded transient retries.
-
-    Packaged desktop apps may sit behind transparent proxies/VPNs that
-    occasionally close an HTTPS response before the advertised Content-Length
-    has been received. ``json.load(response)`` surfaces that as
-    ``http.client.IncompleteRead``. Treat it like the other transient network
-    failures and retry with a fresh connection instead of leaking the raw
-    Python exception into the About page.
-    """
-
     last_error: BaseException | None = None
     for attempt in range(1, max(1, attempts) + 1):
         request = urllib.request.Request(
@@ -191,8 +166,6 @@ def _fetch_release_payload(
                 raise RuntimeError("GitHub Release API 返回了无效数据")
             return payload
         except urllib.error.HTTPError:
-            # 4xx/5xx responses are actionable server/API failures; retrying a
-            # rate-limit or authentication failure would only delay feedback.
             raise
         except (
             http.client.IncompleteRead,
@@ -264,3 +237,19 @@ def fetch_latest_release(
         checksum_url=checksum_url,
         update_available=is_newer_version(latest_version, current_version),
     )
+
+
+__all__ = [
+    "DEFAULT_GITHUB_DOWNLOAD_PROXY",
+    "GITHUB_API_VERSION",
+    "GITHUB_REPOSITORY",
+    "LATEST_RELEASE_API",
+    "ReleaseInfo",
+    "UPDATE_CHECK_ATTEMPTS",
+    "apply_download_proxy",
+    "fetch_latest_release",
+    "is_newer_version",
+    "normalize_download_proxy_prefix",
+    "platform_asset_name",
+    "updater_asset_name",
+]

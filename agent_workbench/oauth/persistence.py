@@ -14,7 +14,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from agent_runtime.atomic_io import atomic_write_json
 
-from .user_settings import settings_dir
+from ..core.settings import settings_dir
 
 
 OAUTH_REGISTRY_FILE_ENV = "AGENT_RUNTIME_OAUTH_CLIENT_REGISTRY_FILE"
@@ -232,5 +232,3 @@ def prepare_ephemeral_oauth_persistence(server_id: str) -> OAuthPersistence:
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     atomic_write_json(path, payload, mode=0o600)
-
-

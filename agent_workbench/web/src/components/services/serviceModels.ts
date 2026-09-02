@@ -111,6 +111,10 @@ export function normalizedGatewayDraft(value: GatewayDraft): GatewayDraft {
   }
 }
 
+export function visibleProfiles(value: GatewayDraft): GatewayMemberDraft[] {
+  return value.mode === 'single' ? value.members.slice(0, 1) : value.members
+}
+
 export function serverDraft(value: GatewayDraft): ServerDraft {
   const root = value.members[0]
   return {

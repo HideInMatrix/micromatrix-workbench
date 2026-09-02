@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ..config import NetworkConfig
-from ..process_utils import LogCallback
+from ..core.config import NetworkConfig
+from ..runtime.process import LogCallback
 from .base import NetworkProvider, NetworkProviderResult
 
 

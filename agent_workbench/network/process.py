@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from ..executables import resolve_executable
-from ..process_utils import LogCallback, hidden_process_kwargs, stop_process
+from ..runtime.process import LogCallback, hidden_process_kwargs, stop_process
 from .base import NetworkProvider
 
 

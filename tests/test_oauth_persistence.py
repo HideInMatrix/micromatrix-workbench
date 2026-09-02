@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_workbench import oauth_persistence
+from agent_workbench.oauth import persistence as oauth_persistence
 
 
 class OAuthPersistenceTests(unittest.TestCase):

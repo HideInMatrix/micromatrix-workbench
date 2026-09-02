@@ -6,7 +6,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from ..process_utils import hidden_process_kwargs
+from ..runtime.process import hidden_process_kwargs
 from .models import ExecutableCandidate, ExecutableSpec
 
 

@@ -12,18 +12,18 @@ from agent_runtime.workbench import (
     WorkflowDefinition,
     WorkflowStore,
     build_capability_catalog,
-    capability_catalog_revision,
     build_effective_tool_catalog,
     build_workflow_registry,
+    capability_catalog_revision,
     is_workbench_control_tool,
     validate_capability_references,
     validate_workflow,
 )
 
-from .gateway_manager import MCPGatewayManager
-from .gateway_profiles import GatewayProfileStore, MCPGatewayMember
-from .server_manager import MCPServerManager
-from .server_profiles import MCPServerProfile, ServerProfileStore
+from ..gateways.manager import MCPGatewayManager
+from ..gateways.store import GatewayProfileStore
+from ..servers.manager import MCPServerManager
+from ..servers.store import ServerProfileStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,7 +129,10 @@ class DesktopWorkbenchManager:
         tool_names = self._all_system_tool_names()
         return CapabilityAssetService(global_root=self.global_root), tool_names
 
-    def _asset_service(self, target: WorkbenchTarget) -> tuple[CapabilityAssetService, set[str]]:
+    def _asset_service(
+        self,
+        target: WorkbenchTarget,
+    ) -> tuple[CapabilityAssetService, set[str]]:
         tool_names = self._tool_names(
             enable_view_image=target.enable_view_image,
         )
@@ -305,7 +308,11 @@ class DesktopWorkbenchManager:
             raise KeyError(f"找不到 Workflow: {workflow_id}")
         return {**workflow.to_dict(), "scope": workflow.scope.value}
 
-    def validate_workflow(self, target_id: str, raw: dict[str, Any]) -> dict[str, object]:
+    def validate_workflow(
+        self,
+        target_id: str,
+        raw: dict[str, Any],
+    ) -> dict[str, object]:
         target = self.target(target_id)
         skills, tools, _store, _workflows = self._context(target)
         effective_tools = build_effective_tool_catalog(
@@ -342,7 +349,11 @@ class DesktopWorkbenchManager:
             tool_keys={item.key for item in effective_tools},
         )
         if not result.ok:
-            return {**result.to_dict(), "saved": False, "workflow": workflow.to_dict()}
+            return {
+                **result.to_dict(),
+                "saved": False,
+                "workflow": workflow.to_dict(),
+            }
         saved = store.save(workflow, expected_version=expected_version)
         return {**result.to_dict(), "saved": True, "workflow": saved.to_dict()}
 
@@ -350,4 +361,10 @@ class DesktopWorkbenchManager:
         return WorkflowStore(self.target(target_id).workspace).delete(workflow_id)
 
     def runs(self, target_id: str) -> list[dict[str, object]]:
-        return [run.public_dict() for run in RunStore(self.target(target_id).workspace).list()]
+        return [
+            run.public_dict()
+            for run in RunStore(self.target(target_id).workspace).list()
+        ]
+
+
+__all__ = ["DesktopWorkbenchManager", "WorkbenchTarget"]

@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agent_workbench.version import current_version  # noqa: E402
+from agent_workbench.core.version import current_version  # noqa: E402
 
 
 DIST_DIR = ROOT / "dist"

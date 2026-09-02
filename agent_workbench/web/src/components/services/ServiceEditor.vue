@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { CheckField, FormField, FormGrid } from '@/components/ui/form'
 import { InputGroup, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
 import type { GatewayDiagnosticDto, GatewayDraft, GatewayMemberDraft, NetworkProviderDto } from '../../types'
-import { normalizePath } from './serviceModels'
+import { normalizePath, visibleProfiles } from './serviceModels'
 import ServiceDiagnosticPanel from './ServiceDiagnosticPanel.vue'
 
 const draft = defineModel<GatewayDraft>('draft', { required: true })
@@ -77,7 +77,7 @@ function updateProfilePublicUrl(member: GatewayMemberDraft, index: number, event
       </span>
     </div>
 
-    <div class="mt-3.5 inline-flex w-fit items-center gap-0.5 rounded-lg border border-border bg-secondary p-[3px]" role="tablist" aria-label="Workspace 运行模式">
+    <div class="mt-3.5 inline-flex w-fit items-center gap-0.5 rounded-lg border border-border bg-secondary p-[3px]" role="tablist" aria-label="工作区运行模式">
       <button
         v-for="mode in (['single', 'multi'] as const)"
         :key="mode"
@@ -118,9 +118,9 @@ function updateProfilePublicUrl(member: GatewayMemberDraft, index: number, event
         <InputGroup v-if="field.key === 'tunnel_token'">
           <InputGroupInput v-model="draft.network.options[field.key]" :disabled="locked" :type="tunnelTokenVisible ? 'text' : 'password'" autocomplete="off" />
           <InputGroupButton
-            :aria-label="tunnelTokenVisible ? '隐藏 Tunnel Token' : '显示 Tunnel Token'"
+            :aria-label="tunnelTokenVisible ? '隐藏隧道令牌' : '显示隧道令牌'"
             :aria-pressed="tunnelTokenVisible"
-            :title="tunnelTokenVisible ? '隐藏 Tunnel Token' : '显示 Tunnel Token'"
+            :title="tunnelTokenVisible ? '隐藏隧道令牌' : '显示隧道令牌'"
             @click="tunnelTokenVisible = !tunnelTokenVisible"
           ><EyeOff v-if="tunnelTokenVisible" :size="15" /><Eye v-else :size="15" /></InputGroupButton>
         </InputGroup>
@@ -132,16 +132,16 @@ function updateProfilePublicUrl(member: GatewayMemberDraft, index: number, event
           autocomplete="off"
         />
       </FormField>
-      <CheckField span="2"><input v-model="draft.remember_secrets" type="checkbox" /><span>在本机持久化网络 Token 与 OAuth Password</span></CheckField>
+      <CheckField span="2"><input v-model="draft.remember_secrets" type="checkbox" /><span>在本机保存网络令牌与 OAuth 密码</span></CheckField>
     </FormGrid>
 
-    <div class="mt-[22px] mb-2.5 flex items-center justify-between gap-4">
+    <div v-if="draft.mode === 'multi'" class="mt-[22px] mb-2.5 flex items-center justify-between gap-4">
       <Button variant="outline" size="sm" class="min-h-[30px] px-2.5" :disabled="locked" @click="emit('addProfile')"><Plus :size="14" /> 添加 Profile</Button>
     </div>
 
-    <div class="grid gap-3">
+    <div :class="['grid gap-3', { 'mt-[22px]': draft.mode === 'single' }]">
       <article
-        v-for="(member, index) in draft.members"
+        v-for="(member, index) in visibleProfiles(draft)"
         :key="member.server_id || `new-${index}`"
         :class="['overflow-hidden rounded-[9px] border border-border bg-card', { 'opacity-60': !profileEnabled(member, index) }]"
       >
@@ -156,7 +156,7 @@ function updateProfilePublicUrl(member: GatewayMemberDraft, index: number, event
         <FormGrid class="p-3">
           <FormField label="名称"><input v-model.trim="member.name" :disabled="locked" /></FormField>
           <FormField label="本地路由"><input :value="isRootProfile(member, index) ? '/' : normalizePath(member.instance_path)" disabled /></FormField>
-          <FormField label="Public Hostname" span="2">
+          <FormField label="公网地址" span="2">
             <input
               :value="profilePublicUrl(member, index)"
               :disabled="locked || selectedProvider?.supports_public_url === false"
@@ -164,29 +164,29 @@ function updateProfilePublicUrl(member: GatewayMemberDraft, index: number, event
               @input="updateProfilePublicUrl(member, index, $event)"
             />
           </FormField>
-          <FormField label="Workspace" span="2">
+          <FormField label="工作区目录" span="2">
             <InputGroup>
               <InputGroupInput v-model="member.workspace" :disabled="locked" />
               <InputGroupButton
                 :disabled="locked"
-                aria-label="选择 Workspace 文件夹"
-                title="选择 Workspace 文件夹"
+                aria-label="选择工作区文件夹"
+                title="选择工作区文件夹"
                 @click="emit('chooseWorkspace', member)"
               ><FolderOpen :size="15" /></InputGroupButton>
             </InputGroup>
           </FormField>
-          <FormField label="OAuth Password">
+          <FormField label="OAuth 密码">
             <InputGroup>
               <InputGroupInput v-model="member.oauth_password" :disabled="locked" :type="isOAuthPasswordVisible(member) ? 'text' : 'password'" autocomplete="off" />
               <InputGroupButton
-                :aria-label="isOAuthPasswordVisible(member) ? '隐藏 OAuth Password' : '显示 OAuth Password'"
+                :aria-label="isOAuthPasswordVisible(member) ? '隐藏 OAuth 密码' : '显示 OAuth 密码'"
                 :aria-pressed="isOAuthPasswordVisible(member)"
-                :title="isOAuthPasswordVisible(member) ? '隐藏 OAuth Password' : '显示 OAuth Password'"
+                :title="isOAuthPasswordVisible(member) ? '隐藏 OAuth 密码' : '显示 OAuth 密码'"
                 @click="emit('toggleOAuthPassword', member)"
               ><EyeOff v-if="isOAuthPasswordVisible(member)" :size="15" /><Eye v-else :size="15" /></InputGroupButton>
             </InputGroup>
           </FormField>
-          <FormField label="权限模式"><select v-model="member.permission_mode" :disabled="locked"><option value="safe">Safe</option><option value="trusted">Trusted</option><option value="dangerous">Dangerous</option></select></FormField>
+          <FormField label="权限模式"><select v-model="member.permission_mode" :disabled="locked"><option value="safe">安全</option><option value="trusted">受信任</option><option value="dangerous">危险</option></select></FormField>
           <CheckField><input v-model="member.allow_network" :disabled="locked" type="checkbox" /><span>允许网络</span></CheckField>
           <CheckField><input v-model="member.enable_view_image" :disabled="locked" type="checkbox" /><span>启用图片工具</span></CheckField>
         </FormGrid>

@@ -1,6 +1,5 @@
-"""Network provider abstractions for exposing the local MCP endpoint."""
+"""Network providers.
 
-from .base import NetworkProvider, NetworkProviderResult
-from .factory import create_network_provider
-
-__all__ = ["NetworkProvider", "NetworkProviderResult", "create_network_provider"]
+Import concrete modules directly.  Keeping this package initializer light
+prevents ``core.config -> network.specs`` from loading provider implementations.
+"""

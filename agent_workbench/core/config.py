@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-from .network_specs import NETWORK_PROVIDER_CHOICES, network_provider_spec
+from ..network.specs import NETWORK_PROVIDER_CHOICES, network_provider_spec
 
 
 DEFAULT_HOST = "127.0.0.1"

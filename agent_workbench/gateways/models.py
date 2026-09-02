@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -8,21 +7,15 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from typing import Any, Mapping
 
-from agent_runtime.atomic_io import atomic_write_json
 from agent_runtime.gateway import normalize_instance_path, normalize_public_url
 
-from .config import (
+from ..core.config import (
     DEFAULT_HOST,
     DEFAULT_PORT,
     PERMISSION_MODE_CHOICES,
     NetworkConfig,
 )
-from .gateway_launcher import GatewayLaunchConfig
-from .gateway_process import GatewayChildProfile
-from .user_settings import settings_dir
-
-
-GATEWAY_PROFILE_SCHEMA_VERSION = 1
+from ..oauth.persistence import canonical_oauth_issuer
 GATEWAY_MEMBER_LIFECYCLES = {"persistent", "ephemeral"}
 SERVICE_MODES = {"single", "multi"}
 
@@ -36,6 +29,200 @@ def _public_hostname(value: str) -> str:
     if not raw:
         return ""
     return (urlsplit(raw).hostname or "").lower()
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayChildProfile:
+    server_id: str
+    name: str
+    workspace: Path
+    oauth_password: str
+    instance_path: str
+    public_url: str = ""
+    permission_mode: str = "safe"
+    lifecycle: str = "persistent"
+    allow_network: bool = False
+    enable_view_image: bool = True
+
+    def validated(self) -> "GatewayChildProfile":
+        server_id = self.server_id.strip()
+        if not server_id:
+            raise ValueError("Gateway Profile server_id 不能为空。")
+        name = self.name.strip()
+        if not name:
+            raise ValueError("Gateway Profile 名称不能为空。")
+        workspace = self.workspace.expanduser().resolve()
+        if not workspace.exists() or not workspace.is_dir():
+            raise ValueError(f"Gateway Profile Workspace 无效: {workspace}")
+        password = self.oauth_password.strip()
+        if not password:
+            raise ValueError("Gateway Profile OAuth 登录密码不能为空。")
+        permission_mode = self.permission_mode.strip().lower() or "safe"
+        if permission_mode not in PERMISSION_MODE_CHOICES:
+            raise ValueError(f"不支持的权限模式: {permission_mode}")
+        lifecycle = self.lifecycle.strip().lower() or "persistent"
+        if lifecycle not in GATEWAY_MEMBER_LIFECYCLES:
+            raise ValueError(f"不支持的 Gateway Profile lifecycle: {lifecycle}")
+        return GatewayChildProfile(
+            server_id=server_id,
+            name=name,
+            workspace=workspace,
+            oauth_password=password,
+            instance_path=normalize_instance_path(self.instance_path),
+            public_url=normalize_public_url(self.public_url),
+            permission_mode=permission_mode,
+            lifecycle=lifecycle,
+            allow_network=bool(self.allow_network),
+            enable_view_image=bool(self.enable_view_image),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayProcessConfig:
+    public_base_url: str
+    profiles: tuple[GatewayChildProfile, ...]
+    host: str = DEFAULT_HOST
+    port: int = DEFAULT_PORT
+
+    def validated(self) -> "GatewayProcessConfig":
+        public_base_url = canonical_oauth_issuer(self.public_base_url)
+        parsed = urlsplit(public_base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Gateway Public URL 必须是完整的 http/https URL。")
+        if (parsed.path or "").rstrip("/"):
+            raise ValueError(
+                "Gateway Public URL 必须只包含 hostname；子 Profile 使用独立 Public Hostname。"
+            )
+        if not 1 <= int(self.port) <= 65535:
+            raise ValueError(f"无效 Gateway 端口: {self.port}")
+        profiles = tuple(profile.validated() for profile in self.profiles)
+        if not profiles:
+            raise ValueError("Gateway 至少需要一个 Profile。")
+        ids: set[str] = set()
+        paths: set[str] = set()
+        hostnames: set[str] = set()
+        for profile in profiles:
+            if profile.server_id in ids:
+                raise ValueError(f"重复 Gateway Profile server_id: {profile.server_id}")
+            if profile.instance_path in paths:
+                raise ValueError(f"重复 Gateway Profile Path: {profile.instance_path}")
+            ids.add(profile.server_id)
+            paths.add(profile.instance_path)
+            if profile.public_url:
+                hostname = (urlsplit(profile.public_url).hostname or "").lower()
+                if hostname in hostnames:
+                    raise ValueError(f"重复 Gateway Profile Public Hostname: {hostname}")
+                hostnames.add(hostname)
+        return GatewayProcessConfig(
+            public_base_url=public_base_url,
+            profiles=profiles,
+            host=self.host.strip() or DEFAULT_HOST,
+            port=int(self.port),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayLaunchConfig:
+    network: NetworkConfig
+    profiles: tuple[GatewayChildProfile, ...]
+    mode: str = "multi"
+    host: str = DEFAULT_HOST
+    port: int = DEFAULT_PORT
+
+    def validated(self) -> "GatewayLaunchConfig":
+        network = self.network.validated()
+        host = self.host.strip() or DEFAULT_HOST
+        port = int(self.port)
+        if not 1 <= port <= 65535:
+            raise ValueError(f"无效 Gateway 端口: {port}")
+        profiles = tuple(profile.validated() for profile in self.profiles)
+        if not profiles:
+            raise ValueError("Local MCP Gateway 至少需要一个 Profile。")
+        mode = self.mode.strip().lower() or "multi"
+        if mode not in SERVICE_MODES:
+            raise ValueError(f"不支持的 Service mode: {mode}")
+        if mode == "single" and not any(profile.instance_path == "" for profile in profiles):
+            raise ValueError("单 Workspace 模式必须包含一个根 Workspace Profile。")
+        ids: set[str] = set()
+        paths: set[str] = set()
+        hostnames: set[str] = set()
+        for profile in profiles:
+            if profile.server_id in ids:
+                raise ValueError(f"重复 Gateway Profile server_id: {profile.server_id}")
+            if profile.instance_path in paths:
+                raise ValueError(f"重复 Gateway Profile Path: {profile.instance_path}")
+            ids.add(profile.server_id)
+            paths.add(profile.instance_path)
+            if profile.public_url:
+                hostname = (urlsplit(profile.public_url).hostname or "").lower()
+                if hostname in hostnames:
+                    raise ValueError(f"重复 Gateway Profile Public Hostname: {hostname}")
+                hostnames.add(hostname)
+        if network.public_url:
+            parsed = urlsplit(network.public_url)
+            if (parsed.path or "").rstrip("/"):
+                raise ValueError(
+                    "Gateway 固定 Public URL 只能填写 hostname；各 MCP Profile 使用独立 Public Hostname。"
+                )
+        if network.public_url and profiles[0].public_url:
+            if canonical_oauth_issuer(network.public_url) != profiles[0].public_url:
+                raise ValueError("服务 Public Hostname 必须与主 Workspace Profile Hostname 一致。")
+        return GatewayLaunchConfig(
+            network=network,
+            profiles=profiles,
+            mode=mode,
+            host=host,
+            port=port,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayProfileLaunchInfo:
+    server_id: str
+    name: str
+    workspace: Path
+    instance_path: str
+    local_mcp_url: str
+    public_mcp_url: str
+    oauth_issuer: str
+    lifecycle: str
+    public_base_url: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayLaunchInfo:
+    host: str
+    port: int
+    public_base_url: str
+    tunnel_url: str
+    url_mode: str
+    profiles: tuple[GatewayProfileLaunchInfo, ...]
+
+    def profile(self, server_id: str) -> GatewayProfileLaunchInfo | None:
+        target = server_id.strip()
+        return next(
+            (profile for profile in self.profiles if profile.server_id == target),
+            None,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayProfileDiagnostic:
+    server_id: str
+    name: str
+    instance_path: str
+    ok: bool
+    checks: tuple[str, ...]
+    errors: tuple[str, ...]
+    public_base_url: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayDiagnosticReport:
+    ok: bool
+    public_base_url: str
+    checked_at: int
+    profiles: tuple[GatewayProfileDiagnostic, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -355,146 +542,3 @@ class MCPGatewayProfile:
             created_at=int(value.get("created_at") or _timestamp()),
             updated_at=int(value.get("updated_at") or _timestamp()),
         ).validated()
-
-
-class GatewayProfileStore:
-    def __init__(self, path: Path | None = None) -> None:
-        self.path = path or (settings_dir() / "gateways.json")
-
-    def list(self) -> list[MCPGatewayProfile]:
-        if not self.path.exists():
-            return []
-        try:
-            payload = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise RuntimeError(f"Gateway Profile 文件损坏: {self.path}") from exc
-        if (
-            not isinstance(payload, dict)
-            or payload.get("version") != GATEWAY_PROFILE_SCHEMA_VERSION
-        ):
-            raise RuntimeError(f"Gateway Profile 文件格式不受支持: {self.path}")
-        raw_gateways = payload.get("gateways")
-        if not isinstance(raw_gateways, list):
-            raise RuntimeError(f"Gateway Profile gateways 字段无效: {self.path}")
-        try:
-            return [
-                MCPGatewayProfile.from_dict(item)
-                for item in raw_gateways
-                if isinstance(item, dict)
-            ]
-        except ValueError as exc:
-            raise RuntimeError(f"Gateway Profile 内容无效: {self.path}") from exc
-
-    def get(self, gateway_id: str) -> MCPGatewayProfile | None:
-        target = gateway_id.strip()
-        return next(
-            (gateway for gateway in self.list() if gateway.gateway_id == target),
-            None,
-        )
-
-    def create(
-        self,
-        *,
-        name: str,
-        network: NetworkConfig,
-        members: tuple[MCPGatewayMember, ...],
-        mode: str = "multi",
-        host: str = DEFAULT_HOST,
-        port: int = DEFAULT_PORT,
-    ) -> MCPGatewayProfile:
-        gateway = MCPGatewayProfile.create(
-            name=name,
-            network=network,
-            members=members,
-            mode=mode,
-            host=host,
-            port=port,
-        )
-        gateways = self.list()
-        gateways.append(gateway)
-        self._save(gateways)
-        return gateway
-
-    def save(self, gateway: MCPGatewayProfile) -> MCPGatewayProfile:
-        validated = gateway.validated()
-        replacement = MCPGatewayProfile(
-            gateway_id=validated.gateway_id,
-            name=validated.name,
-            network=validated.network,
-            members=validated.members,
-            mode=validated.mode,
-            host=validated.host,
-            port=validated.port,
-            created_at=validated.created_at,
-            updated_at=_timestamp(),
-        )
-        gateways = self.list()
-        for index, existing in enumerate(gateways):
-            if existing.gateway_id == replacement.gateway_id:
-                gateways[index] = replacement
-                self._save(gateways)
-                return replacement
-        gateways.append(replacement)
-        self._save(gateways)
-        return replacement
-
-    def delete(self, gateway_id: str) -> bool:
-        target = gateway_id.strip()
-        gateways = self.list()
-        remaining = [item for item in gateways if item.gateway_id != target]
-        if len(remaining) == len(gateways):
-            return False
-        self._save(remaining)
-        return True
-
-    def next_default_port(self, start: int = DEFAULT_PORT) -> int:
-        used = {gateway.port for gateway in self.list()}
-        for port in range(max(1, int(start)), 65536):
-            if port not in used:
-                return port
-        raise RuntimeError("没有可用的 Gateway TCP 端口可分配。")
-
-    def _save(self, gateways: list[MCPGatewayProfile]) -> None:
-        ids: set[str] = set()
-        endpoints: set[tuple[str, int]] = set()
-        hostnames: set[str] = set()
-        member_ids: set[str] = set()
-        validated: list[MCPGatewayProfile] = []
-        for gateway in gateways:
-            item = gateway.validated()
-            if item.gateway_id in ids:
-                raise ValueError(f"重复 gateway_id: {item.gateway_id}")
-            ids.add(item.gateway_id)
-            endpoint = (item.host, item.port)
-            if endpoint in endpoints:
-                raise ValueError(
-                    f"多个 Gateway 不能配置相同地址: {item.host}:{item.port}"
-                )
-            endpoints.add(endpoint)
-            gateway_hostnames = {
-                hostname
-                for hostname in (
-                    _public_hostname(item.network.public_url),
-                    *(_public_hostname(member.public_url) for member in item.members),
-                )
-                if hostname
-            }
-            overlap = hostnames.intersection(gateway_hostnames)
-            if overlap:
-                raise ValueError(
-                    f"多个 Gateway 不能配置相同 Public Hostname: {sorted(overlap)[0]}"
-                )
-            hostnames.update(gateway_hostnames)
-            for member in item.members:
-                if member.server_id in member_ids:
-                    raise ValueError(
-                        f"Gateway Member server_id 必须全局唯一: {member.server_id}"
-                    )
-                member_ids.add(member.server_id)
-            validated.append(item)
-
-        payload = {
-            "version": GATEWAY_PROFILE_SCHEMA_VERSION,
-            "gateways": [item.to_dict() for item in validated],
-        }
-        atomic_write_json(self.path, payload, mode=0o600)

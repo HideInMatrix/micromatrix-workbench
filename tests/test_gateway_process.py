@@ -7,15 +7,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_workbench.gateway_process import (
-    GatewayChildProfile,
-    GatewayProcessConfig,
+from agent_workbench.gateways.models import GatewayChildProfile, GatewayProcessConfig
+from agent_workbench.gateways.process import (
     GatewayServerProcess,
     build_gateway_mcp_command,
     prepare_gateway_config,
 )
-from agent_workbench.oauth_persistence import OAuthPersistence
-from agent_workbench.permission_broker import DesktopPermissionBroker
+from agent_workbench.oauth.persistence import OAuthPersistence
+from agent_workbench.runtime.permission_broker import DesktopPermissionBroker
 
 
 class GatewayProcessTests(unittest.TestCase):
@@ -78,15 +77,15 @@ class GatewayProcessTests(unittest.TestCase):
 
             with (
                 patch(
-                    "agent_workbench.gateway_process.prepare_issuer_oauth_persistence",
+                    "agent_workbench.gateways.process.prepare_issuer_oauth_persistence",
                     side_effect=persistence_for_issuer,
                 ),
                 patch(
-                    "agent_workbench.gateway_process.prepare_ephemeral_oauth_persistence",
+                    "agent_workbench.gateways.process.prepare_ephemeral_oauth_persistence",
                     return_value=home_persistence,
                 ),
                 patch(
-                    "agent_workbench.gateway_process.bind_server_oauth_issuer"
+                    "agent_workbench.gateways.process.bind_server_oauth_issuer"
                 ) as bind_issuer,
             ):
                 prepared = prepare_gateway_config(config)
@@ -172,10 +171,10 @@ class GatewayProcessTests(unittest.TestCase):
 
             with (
                 patch(
-                    "agent_workbench.gateway_process.prepare_issuer_oauth_persistence",
+                    "agent_workbench.gateways.process.prepare_issuer_oauth_persistence",
                     side_effect=lambda issuer: persistence_by_issuer[issuer],
                 ),
-                patch("agent_workbench.gateway_process.bind_server_oauth_issuer"),
+                patch("agent_workbench.gateways.process.bind_server_oauth_issuer"),
             ):
                 prepared = prepare_gateway_config(config)
             try:
@@ -205,7 +204,7 @@ class GatewayProcessTests(unittest.TestCase):
                 port=8234,
             )
             config_file = root / "gateway.json"
-            with patch("agent_workbench.gateway_process.is_frozen", return_value=False):
+            with patch("agent_workbench.gateways.process.is_frozen", return_value=False):
                 command = build_gateway_mcp_command(config, config_file)
 
             self.assertIn("agent_workbench.mcp_worker", command)
@@ -255,10 +254,10 @@ class GatewayProcessTests(unittest.TestCase):
             try:
                 with (
                     patch(
-                        "agent_workbench.gateway_process.prepare_issuer_oauth_persistence",
+                        "agent_workbench.gateways.process.prepare_issuer_oauth_persistence",
                         side_effect=lambda issuer: persistence_by_issuer[issuer],
                     ),
-                    patch("agent_workbench.gateway_process.bind_server_oauth_issuer"),
+                    patch("agent_workbench.gateways.process.bind_server_oauth_issuer"),
                 ):
                     prepared = prepare_gateway_config(
                         config,

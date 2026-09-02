@@ -8,15 +8,17 @@ from email.message import Message
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_workbench.config import LaunchInfo, NetworkConfig
-from agent_workbench.gateway_launcher import (
+from agent_workbench.core.config import LaunchInfo, NetworkConfig
+from agent_workbench.gateways.launcher import (
     DIAGNOSTIC_USER_AGENT,
+    MCPGatewayLauncher,
+)
+from agent_workbench.gateways.models import (
+    GatewayChildProfile,
     GatewayLaunchConfig,
     GatewayLaunchInfo,
     GatewayProfileLaunchInfo,
-    MCPGatewayLauncher,
 )
-from agent_workbench.gateway_process import GatewayChildProfile
 from agent_workbench.network.base import NetworkProviderResult
 from agent_runtime.local_permission_broker import (
     BROKER_DIR_ENV,
@@ -113,10 +115,10 @@ class GatewayLauncherTests(unittest.TestCase):
 
             with (
                 patch(
-                    "agent_workbench.gateway_launcher.create_network_provider",
+                    "agent_workbench.gateways.launcher.create_network_provider",
                     return_value=provider,
                 ),
-                patch("agent_workbench.gateway_launcher.check_port_available"),
+                patch("agent_workbench.gateways.launcher.check_port_available"),
                 patch.object(launcher._gateway, "start", side_effect=fake_gateway_start),
             ):
                 info = launcher.start(
@@ -177,10 +179,10 @@ class GatewayLauncherTests(unittest.TestCase):
 
             with (
                 patch(
-                    "agent_workbench.gateway_launcher.create_network_provider",
+                    "agent_workbench.gateways.launcher.create_network_provider",
                     return_value=provider,
                 ),
-                patch("agent_workbench.gateway_launcher.check_port_available"),
+                patch("agent_workbench.gateways.launcher.check_port_available"),
                 patch.object(launcher._gateway, "start", side_effect=fake_gateway_start),
                 patch.object(launcher, "_diagnose_background"),
             ):
@@ -223,10 +225,10 @@ class GatewayLauncherTests(unittest.TestCase):
 
             with (
                 patch(
-                    "agent_workbench.gateway_launcher.create_network_provider",
+                    "agent_workbench.gateways.launcher.create_network_provider",
                     return_value=provider,
                 ),
-                patch("agent_workbench.gateway_launcher.check_port_available"),
+                patch("agent_workbench.gateways.launcher.check_port_available"),
                 patch.object(launcher._gateway, "start", side_effect=fake_gateway_start),
             ):
                 info = launcher.start(
@@ -269,10 +271,10 @@ class GatewayLauncherTests(unittest.TestCase):
 
             with (
                 patch(
-                    "agent_workbench.gateway_launcher.create_network_provider",
+                    "agent_workbench.gateways.launcher.create_network_provider",
                     return_value=provider,
                 ),
-                patch("agent_workbench.gateway_launcher.check_port_available"),
+                patch("agent_workbench.gateways.launcher.check_port_available"),
                 patch.object(provider, "start", side_effect=start_provider),
                 patch.object(launcher._gateway, "start", side_effect=start_gateway),
                 patch.object(launcher, "_diagnose_background"),
@@ -312,10 +314,10 @@ class GatewayLauncherTests(unittest.TestCase):
 
             with (
                 patch(
-                    "agent_workbench.gateway_launcher.create_network_provider",
+                    "agent_workbench.gateways.launcher.create_network_provider",
                     return_value=provider,
                 ),
-                patch("agent_workbench.gateway_launcher.check_port_available"),
+                patch("agent_workbench.gateways.launcher.check_port_available"),
                 patch.object(provider, "start", side_effect=start_provider),
                 patch.object(launcher._gateway, "start", side_effect=start_gateway),
             ):
@@ -340,10 +342,10 @@ class GatewayLauncherTests(unittest.TestCase):
 
             with (
                 patch(
-                    "agent_workbench.gateway_launcher.create_network_provider",
+                    "agent_workbench.gateways.launcher.create_network_provider",
                     return_value=provider,
                 ),
-                patch("agent_workbench.gateway_launcher.check_port_available"),
+                patch("agent_workbench.gateways.launcher.check_port_available"),
                 patch.object(launcher._gateway, "start", side_effect=start_gateway),
                 patch.object(
                     provider,
@@ -390,10 +392,10 @@ class GatewayLauncherTests(unittest.TestCase):
             with (
                 patch.dict(os.environ, polluted),
                 patch(
-                    "agent_workbench.gateway_launcher.create_network_provider",
+                    "agent_workbench.gateways.launcher.create_network_provider",
                     return_value=provider,
                 ),
-                patch("agent_workbench.gateway_launcher.check_port_available"),
+                patch("agent_workbench.gateways.launcher.check_port_available"),
                 patch.object(launcher._gateway, "start", side_effect=fake_gateway_start),
             ):
                 launcher.start(
@@ -457,10 +459,10 @@ class GatewayLauncherTests(unittest.TestCase):
 
             with (
                 patch(
-                    "agent_workbench.gateway_launcher.create_network_provider",
+                    "agent_workbench.gateways.launcher.create_network_provider",
                     return_value=provider,
                 ),
-                patch("agent_workbench.gateway_launcher.check_port_available"),
+                patch("agent_workbench.gateways.launcher.check_port_available"),
                 patch.object(launcher._gateway, "start", side_effect=fake_gateway_start),
                 patch.object(launcher, "_diagnose_background"),
             ):
@@ -511,6 +513,7 @@ class GatewayLauncherTests(unittest.TestCase):
                 profiles=(profile,),
             )
             launcher._route_probe_token = "probe-secret"
+            diagnostics = launcher._diagnostics
             fingerprint = workspace_fingerprint(workspace)
 
             def fake_json_get(url: str, **_kwargs):
@@ -551,10 +554,10 @@ class GatewayLauncherTests(unittest.TestCase):
             )
 
             with (
-                patch.object(launcher, "_json_get", side_effect=fake_json_get),
-                patch.object(launcher, "_check_oauth_token_exchange"),
+                patch.object(diagnostics, "_json_get", side_effect=fake_json_get),
+                patch.object(diagnostics, "_check_oauth_token_exchange"),
                 patch(
-                    "agent_workbench.gateway_launcher.urllib.request.urlopen",
+                    "agent_workbench.gateways.diagnostics.urllib.request.urlopen",
                     side_effect=unauthorized,
                 ),
             ):
@@ -580,7 +583,8 @@ class GatewayLauncherTests(unittest.TestCase):
             workspace = Path(temporary) / "company"
             workspace.mkdir()
             launcher = MCPGatewayLauncher()
-            launcher._diagnostic_oauth_passwords = {"company": "password"}
+            diagnostics = launcher._diagnostics
+            diagnostics.configure_oauth_passwords({"company": "password"})
             profile = GatewayProfileLaunchInfo(
                 server_id="company",
                 name="Company",
@@ -611,11 +615,11 @@ class GatewayLauncherTests(unittest.TestCase):
                 }
 
             with (
-                patch.object(launcher, "_diagnostic_client_id", return_value="client-id"),
-                patch.object(launcher, "_form_post_redirect", side_effect=fake_authorize),
-                patch.object(launcher, "_form_post_json", side_effect=fake_token),
+                patch.object(diagnostics, "_diagnostic_client_id", return_value="client-id"),
+                patch.object(diagnostics, "_form_post_redirect", side_effect=fake_authorize),
+                patch.object(diagnostics, "_form_post_json", side_effect=fake_token),
             ):
-                launcher._check_oauth_token_exchange(profile)
+                diagnostics._check_oauth_token_exchange(profile)
 
             self.assertEqual(authorize_fields["password"], "password")
             self.assertEqual(len(authorize_fields["code_challenge"]), 43)
@@ -627,6 +631,7 @@ class GatewayLauncherTests(unittest.TestCase):
 
     def test_gateway_diagnostic_requests_use_explicit_user_agent(self) -> None:
         launcher = MCPGatewayLauncher()
+        diagnostics = launcher._diagnostics
         captured_requests: list[object] = []
 
         class _JsonResponse:
@@ -647,10 +652,10 @@ class GatewayLauncherTests(unittest.TestCase):
             return _JsonResponse()
 
         with patch(
-            "agent_workbench.gateway_launcher.urllib.request.urlopen",
+            "agent_workbench.gateways.diagnostics.urllib.request.urlopen",
             side_effect=fake_urlopen,
         ):
-            launcher._json_get("https://mcp.example.com/")
+            diagnostics._json_get("https://mcp.example.com/")
 
         self.assertEqual(len(captured_requests), 1)
         self.assertEqual(

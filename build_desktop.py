@@ -9,8 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from agent_workbench.resources import bundled_cloudflared_path
-from agent_workbench.version import (
+from agent_workbench.core.resources import bundled_cloudflared_path
+from agent_workbench.core.version import (
     BUILD_VERSION_FILENAME,
     DEV_VERSION,
     git_release_version,
@@ -150,6 +150,8 @@ def main(argv: list[str] | None = None) -> int:
         str(ROOT),
         "--collect-submodules",
         "agent_runtime",
+        "--collect-submodules",
+        "agent_workbench",
         "--collect-all",
         "webview",
         "--add-binary",

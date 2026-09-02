@@ -5,7 +5,7 @@ import platform
 import shutil
 from pathlib import Path
 
-from ..resources import bundled_executable_path
+from ..core.resources import bundled_executable_path
 from .models import ExecutableSpec
 
 

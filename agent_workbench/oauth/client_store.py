@@ -7,7 +7,7 @@ from typing import Any
 
 from agent_runtime.atomic_io import atomic_write_json
 
-from .oauth_persistence import (
+from .persistence import (
     _validated_server_id,
     bound_server_oauth_issuer,
     issuer_oauth_directory,
