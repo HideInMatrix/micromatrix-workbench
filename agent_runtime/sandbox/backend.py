@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -168,6 +169,10 @@ class MacSeatbeltBackend(ProcessSandboxBackend):
             components.append(
                 f"(deny file-write* ({qualifier} {self._quoted(resolved)}))"
             )
+        # Children must never rewrite the policy used by a later execution.
+        policy_pattern = re.escape(str(self.runtime_dir)) + r"/seatbelt[^/]*\.sbpl$"
+        policy_pattern = policy_pattern.replace("\\", "\\\\").replace('"', '\\"')
+        components.append(f'(deny file-write* (regex "{policy_pattern}"))')
         if network:
             components.extend(
                 [
@@ -203,7 +208,8 @@ class MacSeatbeltBackend(ProcessSandboxBackend):
                     readable_roots=[*self.readable_roots, *readable_roots],
                     writable_roots=self.writable_roots,
                     protected_paths=(
-                        [] if allow_protected_write else self.protected_paths
+                        [p for p in self.protected_paths if p.resolve() != self.workspace / ".git"]
+                        if allow_protected_write else self.protected_paths
                     ),
                     network=network,
                 ),
@@ -360,11 +366,12 @@ class LinuxBubblewrapBackend(ProcessSandboxBackend):
             args.extend(self._mkdir_args(root, covered_roots, created))
             args.extend(["--bind", key, key])
             bound.add(key)
-        if "git_metadata_write" not in permissions:
-            for protected in self.protected_paths:
-                key = str(protected)
-                args.extend(self._mkdir_args(protected, covered_roots, created))
-                args.extend(["--ro-bind", key, key])
+        for protected in self.protected_paths:
+            if "git_metadata_write" in permissions and protected.resolve() == self.workspace / ".git":
+                continue
+            key = str(protected)
+            args.extend(self._mkdir_args(protected, covered_roots, created))
+            args.extend(["--ro-bind", key, key])
         args.extend(["--chdir", str(cwd.resolve()), "--", *argv])
         return args
 
@@ -586,6 +593,9 @@ def create_process_sandbox(
                 network_isolation=False,
                 experimental_appcontainer_available=backend.state.experimental_appcontainer_available,
             )
-    if preference == "require" and not backend.state.enabled:
-        raise RuntimeError(f"OS sandbox is required but unavailable: {backend.state.reason}")
+    if preference == "require" and not (
+        backend.state.enabled and backend.state.filesystem_isolation
+        and backend.state.network_isolation
+    ):
+        raise RuntimeError(f"完整 OS 文件/网络隔离不可用，拒绝降级启动: {backend.state.reason}")
     return backend

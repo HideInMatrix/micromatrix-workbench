@@ -68,6 +68,7 @@ def _effective_profiles(
             lifecycle="ephemeral",
             allow_network=profile.allow_network,
             enable_view_image=profile.enable_view_image,
+            toolchains=profile.toolchains,
         )
         for profile in profiles
     )
@@ -413,6 +414,7 @@ class MCPGatewayLauncher:
                 permission_mode=root.permission_mode,
                 allow_network=root.allow_network,
                 enable_view_image=root.enable_view_image,
+                toolchains=root.toolchains,
             )
         )
         profile_info = GatewayProfileLaunchInfo(

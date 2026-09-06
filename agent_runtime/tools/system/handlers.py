@@ -69,7 +69,9 @@ class SystemHandlers:
                     else "blocked"
                 ),
                 "inline_script": (
-                    "allowed" if self.permission_mode != "safe" else "blocked"
+                    "allowed" if self.permission_mode != "safe" or (
+                        self.sandbox_profile.filesystem_isolation
+                        and self.sandbox_profile.network_isolation) else "approval_required"
                 ),
                 "secret_env_filter": self.permission_mode != "dangerous",
                 "global_tmp_write": (
@@ -100,6 +102,7 @@ class SystemHandlers:
             "shell_env_exclude": [],
             "safe_exec_path": list(self.safe_exec_path),
             "toolchains": self._toolchain_snapshot.get("toolchains", {}),
+            "registered_toolchains": list(self.toolchain_registrations),
             "output_retention": {
                 "buffer_bytes_per_stream": STREAM_LIMIT_BYTES,
                 "head_bytes_per_stream": STREAM_HEAD_BYTES,
@@ -161,6 +164,7 @@ class SystemHandlers:
                 else os.environ.get("PATH", "").split(os.pathsep)
             ),
             "toolchains": self._toolchain_snapshot.get("toolchains", {}),
+            "registered_toolchains": list(self.toolchain_registrations),
             "warnings": warnings,
             "sandbox": self.sandbox_profile.to_dict(),
         }

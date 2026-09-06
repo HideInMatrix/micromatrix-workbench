@@ -84,6 +84,7 @@ def prepare_gateway_config(
                     "permission_mode": profile.permission_mode,
                     "allow_network": profile.allow_network,
                     "enable_view_image": profile.enable_view_image,
+                    "toolchains": list(profile.toolchains),
                     "oauth": {
                         "password": profile.oauth_password,
                         "server_url": issuer,
@@ -162,6 +163,7 @@ class GatewayServerProcess:
         self._prepared: PreparedGatewayConfig | None = None
 
     def start(self, config: GatewayProcessConfig, env: dict[str, str]) -> None:
+        env = {**env, "AGENT_RUNTIME_OS_SANDBOX": "require"}
         validated = config.validated()
         prepared = prepare_gateway_config(
             validated,

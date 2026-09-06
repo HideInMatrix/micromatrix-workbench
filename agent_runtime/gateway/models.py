@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
+from agent_runtime.toolchains.registration import normalize_registrations
+
 from ..permissions.capabilities import PERMISSION_MODES
 
 
@@ -46,6 +48,7 @@ class GatewayProfile:
     permission_mode: str = "safe"
     allow_network: bool = False
     enable_view_image: bool = True
+    toolchains: tuple[dict, ...] = ()
 
     def validated(self) -> "GatewayProfile":
         profile_id = self.profile_id.strip()
@@ -62,5 +65,6 @@ class GatewayProfile:
             permission_mode=permission_mode,
             allow_network=bool(self.allow_network),
             enable_view_image=bool(self.enable_view_image),
+            toolchains=normalize_registrations(self.toolchains),
         )
 

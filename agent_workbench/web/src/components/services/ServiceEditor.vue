@@ -7,6 +7,7 @@ import { InputGroup, InputGroupButton, InputGroupInput } from '@/components/ui/i
 import type { GatewayDiagnosticDto, GatewayDraft, GatewayMemberDraft, NetworkProviderDto } from '../../types'
 import { normalizePath, visibleProfiles } from './serviceModels'
 import ServiceDiagnosticPanel from './ServiceDiagnosticPanel.vue'
+import ToolchainEditor from './ToolchainEditor.vue'
 
 const draft = defineModel<GatewayDraft>('draft', { required: true })
 const tunnelTokenVisible = defineModel<boolean>('tunnelTokenVisible', { required: true })
@@ -188,6 +189,7 @@ function updateProfilePublicUrl(member: GatewayMemberDraft, index: number, event
           </FormField>
           <FormField label="权限模式"><select v-model="member.permission_mode" :disabled="locked"><option value="safe">安全</option><option value="trusted">受信任</option><option value="dangerous">危险</option></select></FormField>
           <CheckField><input v-model="member.allow_network" :disabled="locked" type="checkbox" /><span>允许网络</span></CheckField>
+          <FormField label="工具链与隔离" span="2"><ToolchainEditor v-model="member.toolchains" :locked="locked" :mode="member.permission_mode" /></FormField>
           <CheckField><input v-model="member.enable_view_image" :disabled="locked" type="checkbox" /><span>启用图片工具</span></CheckField>
         </FormGrid>
 

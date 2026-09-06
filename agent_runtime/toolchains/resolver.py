@@ -75,7 +75,9 @@ class ToolchainResolver:
         home: Path | None = None,
         safe_path: Sequence[str] | None = None,
         probe_runner: ProbeRunner | None = None,
+        registered_programs: Mapping[str, str] | None = None,
     ) -> None:
+        self.registered_programs = dict(registered_programs or {})
         self.workspace = workspace.resolve()
         self.home = (home or Path.home()).expanduser().resolve()
         self._safe_path = self._normalize_path_entries(
@@ -182,6 +184,10 @@ class ToolchainResolver:
         raw = name.strip()
         if not raw:
             return None
+        registered = self.registered_programs.get(raw)
+        if registered is not None:
+            path = self._validated_executable(Path(registered))
+            return str(path) if path is not None else None
         path = Path(raw).expanduser()
         if path.is_absolute():
             resolved = self._validated_executable(path)
@@ -359,7 +365,8 @@ class ToolchainResolver:
             except OSError:
                 continue
             key = os.path.normcase(str(resolved))
-            if key in seen or not self._trusted_executable(resolved, bin_dir, resolved_root):
+            registered = str(resolved) in self.registered_programs.values()
+            if key in seen or (not registered and not self._trusted_executable(resolved, bin_dir, resolved_root)):
                 continue
             seen.add(key)
             version = self._read_version(
@@ -390,6 +397,8 @@ class ToolchainResolver:
         cache_key = (name, privileged)
         if cache_key in self._program_cache:
             return self._program_cache[cache_key]
+        if name in self.registered_programs:
+            return self._validated_executable(Path(self.registered_programs[name]))
         env = self._probe_env(privileged=privileged)
         if os.name == "nt":
             system_root = Path(os.environ.get("SYSTEMROOT", "C:/Windows"))

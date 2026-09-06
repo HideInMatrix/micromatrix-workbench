@@ -1778,7 +1778,10 @@ class RuntimeSafetyTests(unittest.TestCase):
 
         self.assertIn("(deny file-write*", strict_profile)
         self.assertIn(str(git_dir.resolve()), strict_profile)
-        self.assertNotIn("(deny file-write*", elevated_profile)
+        self.assertNotIn(
+            f'(deny file-write* (subpath "{git_dir.resolve()}"))', elevated_profile
+        )
+        self.assertIn("seatbelt", elevated_profile)
         self.assertNotIn("(allow network-outbound)", elevated_profile)
 
     @unittest.skipUnless(sys.platform == "darwin", "macOS Seatbelt profile test")

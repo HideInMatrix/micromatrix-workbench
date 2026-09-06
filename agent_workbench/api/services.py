@@ -64,6 +64,7 @@ class ServiceAPI:
             "permission_mode": profile.permission_mode,
             "allow_network": profile.allow_network,
             "enable_view_image": profile.enable_view_image,
+            "toolchains": list(profile.toolchains),
             "created_at": profile.created_at,
             "updated_at": profile.updated_at,
             "network": {
@@ -216,6 +217,7 @@ class ServiceAPI:
                     "lifecycle": member.lifecycle,
                     "allow_network": member.allow_network,
                     "enable_view_image": member.enable_view_image,
+                    "toolchains": list(member.toolchains),
                     "public_mcp_url": (
                         runtime_info.public_mcp_url if runtime_info else ""
                     ),
@@ -323,6 +325,7 @@ class ServiceAPI:
                         current.allow_network if current else False,
                     )
                 ),
+                toolchains=tuple(value.get("toolchains", current.toolchains if current else ())),
                 enable_view_image=bool(
                     value.get(
                         "enable_view_image",
@@ -340,6 +343,7 @@ class ServiceAPI:
             lifecycle=lifecycle,
             allow_network=bool(value.get("allow_network", False)),
             enable_view_image=bool(value.get("enable_view_image", True)),
+            toolchains=tuple(value.get("toolchains", [])),
         )
 
     def list_servers(self) -> list[dict[str, object]]:
@@ -377,6 +381,7 @@ class ServiceAPI:
             permission_mode=str(payload.get("permission_mode") or "safe"),
             allow_network=bool(payload.get("allow_network", False)),
             enable_view_image=bool(payload.get("enable_view_image", True)),
+            toolchains=tuple(payload.get("toolchains", [])),
         )
         self._save_selected_server_id(profile.server_id)
         return self._profile_payload(profile)
@@ -424,6 +429,7 @@ class ServiceAPI:
                 enable_view_image=bool(
                     payload.get("enable_view_image", current.enable_view_image)
                 ),
+                toolchains=tuple(payload.get("toolchains", current.toolchains)),
                 created_at=current.created_at,
                 updated_at=current.updated_at,
             )
@@ -484,6 +490,7 @@ class ServiceAPI:
                 permission_mode=profile.permission_mode,
                 allow_network=profile.allow_network,
                 enable_view_image=profile.enable_view_image,
+                toolchains=profile.toolchains,
             ).validated()
             self.manager.start_config(server_id, config)
         else:
@@ -640,6 +647,7 @@ class ServiceAPI:
                     lifecycle=lifecycle,
                     allow_network=bool(value.get("allow_network", False)),
                     enable_view_image=bool(value.get("enable_view_image", True)),
+                    toolchains=tuple(value.get("toolchains", current.toolchains)),
                 ).validated()
             )
         if not root_seen:

@@ -1,4 +1,6 @@
 import type {
+  ToolchainProposal,
+  ToolchainRegistration,
   CapabilityCatalogDto,
   DesktopBridge,
   GatewayDiagnosticDto,
@@ -56,6 +58,12 @@ function bridge(): Promise<DesktopBridge> {
 }
 
 export const desktopApi = {
+  async inspectToolchain(program: string, executable: string, roots: string[]): Promise<ToolchainProposal> {
+    return (await bridge()).inspect_toolchain(program, executable, roots)
+  },
+  async registerToolchain(program: string, executable: string, roots: string[]): Promise<ToolchainRegistration> {
+    return (await bridge()).register_toolchain(program, executable, roots)
+  },
   async appVersion(): Promise<string> {
     return (await bridge()).get_app_version()
   },
@@ -140,7 +148,7 @@ export const desktopApi = {
   async listPermissionRequests(): Promise<PermissionRequestDto[]> {
     return (await bridge()).list_permission_requests()
   },
-  async respondPermissionRequest(requestId: string, decision: 'deny' | 'once' | 'session'): Promise<boolean> {
+  async respondPermissionRequest(requestId: string, decision: 'deny' | 'once' | 'session' | 'remember'): Promise<boolean> {
     return (await bridge()).respond_permission_request(requestId, decision)
   },
   async listWorkflowApprovals(): Promise<WorkflowApprovalDto[]> {

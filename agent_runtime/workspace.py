@@ -26,6 +26,7 @@ class Workspace:
         if not root.is_dir():
             raise ValueError(f"workspace is not a directory: {root}")
         self.root = root
+        self.readonly_roots: tuple[Path, ...] = ()
 
     def _resolve(self, raw: str, *, require_exists: bool) -> ResolvedPath:
         candidate = Path(raw or ".").expanduser()
@@ -55,7 +56,13 @@ class Workspace:
         return self._resolve(raw, require_exists=True)
 
     def writable(self, raw: str) -> ResolvedPath:
-        return self._resolve(raw, require_exists=False)
+        resolved = self._resolve(raw, require_exists=False)
+        for root in self.readonly_roots:
+            if (resolved.absolute == root or root in resolved.absolute.parents
+                    or resolved.absolute in root.parents):
+                raise ToolError("REGISTERED_TOOLCHAIN_READ_ONLY",
+                                "已注册工具链目录只读；请先在桌面解除注册。", "permission", False)
+        return resolved
 
     @staticmethod
     def hidden(relative: Path) -> bool:

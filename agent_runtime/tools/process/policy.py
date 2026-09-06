@@ -67,10 +67,12 @@ class ProcessCommandPolicy:
         self,
         *,
         permission_mode: str,
+        kernel_confined: bool = False,
         allow_network: bool,
         permission_granted: Callable[[str], bool],
         validate_writable_path: Callable[[str], object],
     ) -> None:
+        self.kernel_confined = kernel_confined
         self.permission_mode = permission_mode
         self.allow_network = allow_network
         self.permission_granted = permission_granted
@@ -135,20 +137,17 @@ class ProcessCommandPolicy:
             ),
         ]
         if self.permission_mode == "safe":
-            checks.extend(
-                [
-                    (
-                        SHELL_EXPANSION_RE,
-                        "shell_expansion",
-                        "shell expansion is blocked in safe mode",
-                    ),
-                    (
-                        INLINE_SCRIPT_RE,
-                        "inline_script",
-                        "inline scripts are blocked in safe mode",
-                    ),
-                ]
-            )
+            checks.append((
+                SHELL_EXPANSION_RE,
+                "shell_expansion",
+                "shell expansion is blocked in safe mode",
+            ))
+            if not self.kernel_confined:
+                checks.append((
+                    INLINE_SCRIPT_RE,
+                    "inline_script",
+                    "inline scripts require approval without full OS confinement",
+                ))
             if not self.allow_network:
                 checks.extend(
                     [

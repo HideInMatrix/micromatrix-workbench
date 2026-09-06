@@ -48,6 +48,12 @@ class SandboxProfile:
     def to_dict(self) -> dict[str, object]:
         return {
             "mode": self.mode,
+            "isolation_level": ("full" if self.os_kernel_sandbox and self.filesystem_isolation
+                                and self.network_isolation else "partial"
+                                if self.os_kernel_sandbox else "none"),
+            "security_warning": ("" if self.os_kernel_sandbox and self.filesystem_isolation
+                                 and self.network_isolation else
+                                 "未启用完整 OS 文件/网络隔离；命令规则不等于沙箱。"),
             "capabilities": list(self.capabilities),
             "workspace_rw": list(self.workspace_rw),
             "runtime_rw": list(self.runtime_rw),

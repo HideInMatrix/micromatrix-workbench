@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
+from agent_runtime.toolchains.registration import normalize_registrations
+
 from ..network.specs import NETWORK_PROVIDER_CHOICES, network_provider_spec
 
 
@@ -14,6 +16,7 @@ RUNTIME_ENV_PREFIX = "AGENT_RUNTIME_"
 RUNTIME_ENV_RESERVED_KEYS = frozenset(
     {
         "AGENT_RUNTIME_ALLOW_NETWORK",
+        "AGENT_RUNTIME_TOOLCHAINS",
         "AGENT_RUNTIME_AUTH_MODE",
         "AGENT_RUNTIME_AUTH_TOKEN",
         "AGENT_RUNTIME_ENABLE_VIEW_IMAGE",
@@ -141,6 +144,7 @@ class LaunchConfig:
     permission_mode: str = "safe"
     allow_network: bool = False
     enable_view_image: bool = True
+    toolchains: tuple[dict, ...] = ()
     runtime_environment: dict[str, str] = field(default_factory=dict)
 
     def validated(self) -> "LaunchConfig":
@@ -176,6 +180,7 @@ class LaunchConfig:
             permission_mode=permission_mode,
             allow_network=bool(self.allow_network),
             enable_view_image=bool(self.enable_view_image),
+            toolchains=normalize_registrations(self.toolchains),
             runtime_environment=runtime_environment_from_env(self.runtime_environment),
         )
 

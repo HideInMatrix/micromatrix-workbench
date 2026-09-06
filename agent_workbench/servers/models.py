@@ -7,6 +7,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from typing import Any
 
+from agent_runtime.toolchains.registration import normalize_registrations
+
 from ..core.config import (
     DEFAULT_HOST,
     DEFAULT_PORT,
@@ -43,6 +45,7 @@ class MCPServerProfile:
     permission_mode: str = "safe"
     allow_network: bool = False
     enable_view_image: bool = True
+    toolchains: tuple[dict, ...] = ()
     created_at: int = field(default_factory=_timestamp)
     updated_at: int = field(default_factory=_timestamp)
 
@@ -60,6 +63,7 @@ class MCPServerProfile:
         permission_mode: str = "safe",
         allow_network: bool = False,
         enable_view_image: bool = True,
+        toolchains: tuple[dict, ...] = (),
     ) -> "MCPServerProfile":
         resolved_network = (network or NetworkConfig()).validated()
         now = _timestamp()
@@ -75,6 +79,7 @@ class MCPServerProfile:
             permission_mode=permission_mode,
             allow_network=allow_network,
             enable_view_image=enable_view_image,
+            toolchains=toolchains,
             created_at=now,
             updated_at=now,
         ).validated()
@@ -115,6 +120,7 @@ class MCPServerProfile:
             permission_mode=permission_mode,
             allow_network=bool(self.allow_network),
             enable_view_image=bool(self.enable_view_image),
+            toolchains=normalize_registrations(self.toolchains),
             created_at=int(self.created_at),
             updated_at=int(self.updated_at),
         )
@@ -131,6 +137,7 @@ class MCPServerProfile:
             permission_mode=self.permission_mode,
             allow_network=self.allow_network,
             enable_view_image=self.enable_view_image,
+            toolchains=self.toolchains,
         ).validated()
 
     def to_dict(self) -> dict[str, Any]:
@@ -146,6 +153,7 @@ class MCPServerProfile:
             "permission_mode": profile.permission_mode,
             "allow_network": profile.allow_network,
             "enable_view_image": profile.enable_view_image,
+            "toolchains": list(profile.toolchains),
             "created_at": profile.created_at,
             "updated_at": profile.updated_at,
             "network": {
@@ -175,6 +183,7 @@ class MCPServerProfile:
                 permission_mode=str(raw.get("permission_mode", "safe")),
                 allow_network=bool(raw.get("allow_network", False)),
                 enable_view_image=bool(raw.get("enable_view_image", True)),
+                toolchains=normalize_registrations(raw.get("toolchains", [])),
                 created_at=int(raw.get("created_at", _timestamp())),
                 updated_at=int(raw.get("updated_at", _timestamp())),
                 network=NetworkConfig(

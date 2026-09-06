@@ -335,6 +335,22 @@ async function initializeServiceManager(context: ServiceContext) {
   context.pollTimer.value = window.setInterval(() => pollServices(context), 1000)
 }
 
+async function syncRegisteredToolchains(context: ServiceContext, serverId: string) {
+  try { await refreshServices(context, true) }
+  catch (error) {
+    context.errorMessage.value = error instanceof Error ? error.message : String(error)
+    return
+  }
+  const selected = context.selected.value
+  if (!selected || context.isNew.value) return
+  const members = selected.kind === 'direct' ? [selected.server] : selected.gateway.members
+  for (const draft of context.draft.value.members) {
+    if (draft.server_id !== serverId) continue
+    const saved = members.find(member => member.server_id === draft.server_id)
+    if (saved) draft.toolchains = (saved.toolchains || []).map(item => ({ ...item, read_roots: [...item.read_roots] }))
+  }
+}
+
 export function useServiceManager() {
   const context = createServiceContext(createServiceState())
   const selectedRunning = computed(() => context.selected.value ? serviceRunning(context.selected.value) : false)
@@ -351,8 +367,15 @@ export function useServiceManager() {
     running: context.services.value.filter(serviceRunning).length,
     workspaces: context.servers.value.length + context.gateways.value.reduce((sum, item) => sum + item.members.length, 0),
   }))
-  onMounted(() => initializeServiceManager(context))
-  onBeforeUnmount(() => window.clearInterval(context.pollTimer.value))
+  const syncRegisteredToolchain = (event: Event) => syncRegisteredToolchains(context, (event as CustomEvent<string>).detail)
+  onMounted(() => {
+    void initializeServiceManager(context)
+    window.addEventListener('toolchain-registered', syncRegisteredToolchain)
+  })
+  onBeforeUnmount(() => {
+    window.clearInterval(context.pollTimer.value)
+    window.removeEventListener('toolchain-registered', syncRegisteredToolchain)
+  })
   return {
     ...context, selectedRunning, selectedIsStarting, failedDiagnosticProfiles, showDiagnostic, stats,
     serviceName, servicePort, serviceRunning, serviceProfileCount, serviceMode, normalizePath,

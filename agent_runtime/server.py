@@ -28,6 +28,7 @@ from .http_mcp import MCPHTTPController
 from .http_oauth import OAuthHTTPController
 from .core.constants import ENDPOINT_PATH
 from .permissions.capabilities import PERMISSION_MODES
+from .errors import ToolError
 from .runtime import Runtime
 from .route_probe import (
     ROUTE_PROBE_HEADER,
@@ -502,6 +503,7 @@ def build_runtime(args: argparse.Namespace, *, http: bool) -> Runtime:
     fake_readonly = bool(args.dangerously_fake_readonly_annotations or _truthy(os.environ.get(f"{ENV_PREFIX}_DANGEROUSLY_FAKE_READONLY_ANNOTATIONS")))
     return Runtime(
         Path(args.workspace),
+        toolchains=json.loads(os.environ.get("AGENT_RUNTIME_TOOLCHAINS", "[]")),
         permission_mode=permission_mode,
         allow_network=bool(args.allow_network or _truthy(os.environ.get(f"{ENV_PREFIX}_ALLOW_NETWORK"))),
         auth_token=auth_token,
@@ -516,7 +518,7 @@ def run_http(args: argparse.Namespace) -> int:
         return run_gateway_http(args)
     try:
         runtime = build_runtime(args, http=True)
-    except (ValueError, OSError) as exc:
+    except (ValueError, OSError, RuntimeError, ToolError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     auth_mode = os.environ.get(f"{ENV_PREFIX}_AUTH_MODE", "").strip().lower()
@@ -548,7 +550,7 @@ def run_gateway_http(args: argparse.Namespace) -> int:
         # Instantiate every profile before binding so invalid Workspace/OAuth
         # state fails startup atomically rather than on the first request.
         runtimes = [pool.get(profile.profile_id) for profile in registry.profiles()]
-    except (ValueError, OSError, RuntimeError) as exc:
+    except (ValueError, OSError, RuntimeError, ToolError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
@@ -594,7 +596,7 @@ def run_stdio(args: argparse.Namespace) -> int:
         return 2
     try:
         runtime = build_runtime(args, http=False)
-    except (ValueError, OSError) as exc:
+    except (ValueError, OSError, RuntimeError, ToolError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     try:

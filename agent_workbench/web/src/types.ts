@@ -1,3 +1,15 @@
+export interface ToolchainRegistration {
+  program: string
+  executable: string
+  read_roots: string[]
+  version: string
+  fingerprint: string
+  runtime_target?: string
+  runtime_fingerprint?: string
+}
+
+export type ToolchainProposal = Pick<ToolchainRegistration, 'program' | 'executable' | 'read_roots'>
+
 export interface NetworkConfigDto {
   provider: string
   public_url: string
@@ -31,6 +43,7 @@ export interface ServerDto {
   permission_mode: 'safe' | 'trusted' | 'dangerous'
   allow_network: boolean
   enable_view_image: boolean
+  toolchains?: ToolchainRegistration[]
   created_at: number
   updated_at: number
   network: NetworkConfigDto
@@ -51,6 +64,7 @@ export interface ServerDraft {
   permission_mode: 'safe' | 'trusted' | 'dangerous'
   allow_network: boolean
   enable_view_image: boolean
+  toolchains?: ToolchainRegistration[]
   network: NetworkConfigDto
 }
 
@@ -66,6 +80,7 @@ export interface GatewayMemberDto {
   lifecycle: 'persistent' | 'ephemeral'
   allow_network: boolean
   enable_view_image: boolean
+  toolchains?: ToolchainRegistration[]
   public_mcp_url: string
   local_mcp_url: string
   oauth_issuer: string
@@ -82,6 +97,7 @@ export interface GatewayMemberDraft {
   permission_mode: 'safe' | 'trusted' | 'dangerous'
   allow_network: boolean
   enable_view_image: boolean
+  toolchains?: ToolchainRegistration[]
 }
 
 export interface GatewayDto {
@@ -460,6 +476,8 @@ export interface WorkflowApprovalDto {
 }
 
 export interface DesktopBridge {
+  inspect_toolchain(program: string, executable: string, roots: string[]): Promise<ToolchainProposal>
+  register_toolchain(program: string, executable: string, roots: string[]): Promise<ToolchainRegistration>
   get_app_version(): Promise<string>
   get_selected_server_id(): Promise<string>
   get_update_download_proxy(): Promise<string>
@@ -488,7 +506,7 @@ export interface DesktopBridge {
   revoke_gateway_oauth_client(gatewayId: string, serverId: string, clientId: string): Promise<boolean>
   revoke_all_gateway_oauth_clients(gatewayId: string, serverId: string): Promise<number>
   list_permission_requests(): Promise<PermissionRequestDto[]>
-  respond_permission_request(requestId: string, decision: 'deny' | 'once' | 'session'): Promise<boolean>
+  respond_permission_request(requestId: string, decision: 'deny' | 'once' | 'session' | 'remember'): Promise<boolean>
   list_workflow_approvals(): Promise<WorkflowApprovalDto[]>
   respond_workflow_approval(requestId: string, approved: boolean): Promise<boolean>
   list_workbench_targets(): Promise<WorkbenchTargetDto[]>

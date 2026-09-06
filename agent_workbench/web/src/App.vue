@@ -15,6 +15,7 @@ const permissionMenuOpen = ref(false)
 let pollTimer = 0
 
 const activePermissionRequest = computed(() => permissionRequests.value[0] || null)
+const isToolchainRegistration = computed(() => activePermissionRequest.value?.permission === 'toolchain_registration')
 const permissionArguments = computed(() => {
   const request = activePermissionRequest.value
   if (!request) return ''
@@ -46,11 +47,12 @@ function permissionLabel(permission: string) {
     shell_expansion: '使用 Shell 展开',
     inline_script: '执行内联脚本',
     privileged_executable: '查询并运行用户工具',
+    toolchain_registration: '自动发现工具 · 确认并记住',
     write_generated_or_ignored: '写入生成或忽略文件',
   } as Record<string, string>)[permission] || permission
 }
 
-async function respondPermission(decision: 'deny' | 'once' | 'session') {
+async function respondPermission(decision: 'deny' | 'once' | 'session' | 'remember') {
   const request = activePermissionRequest.value
   if (!request || permissionResponding.value) return
 
@@ -59,6 +61,7 @@ async function respondPermission(decision: 'deny' | 'once' | 'session') {
   try {
     const accepted = await desktopApi.respondPermissionRequest(request.request_id, decision)
     if (!accepted) errorMessage.value = '授权请求已过期或不再有效。'
+    else if (decision === 'remember') window.dispatchEvent(new CustomEvent('toolchain-registered', { detail: request.server_id }))
     await refreshPermissionRequests(false)
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error)
@@ -135,11 +138,13 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
         <pre class="mt-1.5 mb-0 max-h-[220px] overflow-auto whitespace-pre-wrap rounded-[7px] border border-border bg-secondary p-2.5 text-[10px] leading-4 text-foreground [overflow-wrap:anywhere]">{{ permissionArguments }}</pre>
       </div>
 
-      <p class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">“仅允许本次”只作用于当前调用；“本次服务会话全部允许”在当前 MCP Server 停止或重启前，对同一已认证客户端自动放行可临时授权的权限。Workspace 边界和不可临时提升的系统限制仍然生效。</p>
+      <p v-if="isToolchainRegistration" class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">此授权会保存到当前 Profile，供后续调用及重启后使用。工具链只读范围见上方；不会更改当前安全模式，危险模式仍无任务隔离。路径或版本变化需重新验证。可在服务设置中移除注册。</p>
+      <p v-else class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">“仅允许本次”只作用于当前调用；“本次服务会话全部允许”在当前 MCP Server 停止或重启前，对同一已认证客户端自动放行可临时授权的权限。Workspace 边界和不可临时提升的系统限制仍然生效。</p>
 
       <footer class="mt-4 flex justify-end gap-2">
         <Button variant="outline" size="sm" class="min-w-[88px]" :disabled="permissionResponding" @click="respondPermission('deny')">拒绝</Button>
-        <div class="relative inline-flex">
+        <Button v-if="isToolchainRegistration" size="sm" :disabled="permissionResponding" @click="respondPermission('remember')">允许并记住此 Profile</Button>
+        <div v-else class="relative inline-flex">
           <Button class="min-w-[104px] !rounded-r-none !rounded-l-[7px]" size="sm" :disabled="permissionResponding" @click="respondPermission('once')">仅允许本次</Button>
           <Button
             class="w-[34px] min-w-0 !rounded-l-none !rounded-r-[7px] border-l border-l-white/20 px-0"

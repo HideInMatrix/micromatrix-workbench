@@ -7,6 +7,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from typing import Any, Mapping
 
+from agent_runtime.toolchains.registration import normalize_registrations
+
 from agent_runtime.gateway import normalize_instance_path, normalize_public_url
 
 from ..core.config import (
@@ -43,6 +45,7 @@ class GatewayChildProfile:
     lifecycle: str = "persistent"
     allow_network: bool = False
     enable_view_image: bool = True
+    toolchains: tuple[dict, ...] = ()
 
     def validated(self) -> "GatewayChildProfile":
         server_id = self.server_id.strip()
@@ -74,6 +77,7 @@ class GatewayChildProfile:
             lifecycle=lifecycle,
             allow_network=bool(self.allow_network),
             enable_view_image=bool(self.enable_view_image),
+            toolchains=normalize_registrations(self.toolchains),
         )
 
 
@@ -245,6 +249,7 @@ class MCPGatewayMember:
     lifecycle: str = "persistent"
     allow_network: bool = False
     enable_view_image: bool = True
+    toolchains: tuple[dict, ...] = ()
 
     @classmethod
     def create(
@@ -259,6 +264,7 @@ class MCPGatewayMember:
         lifecycle: str = "persistent",
         allow_network: bool = False,
         enable_view_image: bool = True,
+        toolchains: tuple[dict, ...] = (),
     ) -> "MCPGatewayMember":
         return cls(
             server_id=uuid.uuid4().hex,
@@ -271,6 +277,7 @@ class MCPGatewayMember:
             lifecycle=lifecycle,
             allow_network=allow_network,
             enable_view_image=enable_view_image,
+            toolchains=toolchains,
         ).validated()
 
     def validated(self) -> "MCPGatewayMember":
@@ -299,6 +306,7 @@ class MCPGatewayMember:
             lifecycle=lifecycle,
             allow_network=bool(self.allow_network),
             enable_view_image=bool(self.enable_view_image),
+            toolchains=normalize_registrations(self.toolchains),
         )
 
     def to_child_profile(self) -> GatewayChildProfile:
@@ -314,6 +322,7 @@ class MCPGatewayMember:
             lifecycle=value.lifecycle,
             allow_network=value.allow_network,
             enable_view_image=value.enable_view_image,
+            toolchains=value.toolchains,
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -329,6 +338,7 @@ class MCPGatewayMember:
             "lifecycle": value.lifecycle,
             "allow_network": value.allow_network,
             "enable_view_image": value.enable_view_image,
+            "toolchains": list(value.toolchains),
         }
 
     @classmethod
@@ -344,6 +354,7 @@ class MCPGatewayMember:
             lifecycle=str(value.get("lifecycle") or "persistent"),
             allow_network=bool(value.get("allow_network", False)),
             enable_view_image=bool(value.get("enable_view_image", True)),
+            toolchains=normalize_registrations(value.get("toolchains", [])),
         ).validated()
 
 
@@ -491,6 +502,7 @@ class MCPGatewayProfile:
                 lifecycle=member.lifecycle,
                 allow_network=member.allow_network,
                 enable_view_image=member.enable_view_image,
+                toolchains=member.toolchains,
             )
             for member in value.runtime_members
         )

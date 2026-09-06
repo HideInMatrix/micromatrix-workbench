@@ -113,6 +113,7 @@ class GatewayProfileConfig:
             permission_mode=profile.permission_mode,
             allow_network=profile.allow_network,
             enable_view_image=profile.enable_view_image,
+            toolchains=profile.toolchains,
         )
         broker = self.permission_broker
         if broker is not None:
@@ -151,6 +152,7 @@ def _profile_config_from_dict(value: dict[str, Any]) -> GatewayProfileConfig:
         permission_mode=str(value.get("permission_mode") or "safe"),
         allow_network=bool(value.get("allow_network", False)),
         enable_view_image=bool(value.get("enable_view_image", True)),
+        toolchains=tuple(value.get("toolchains", [])),
     )
     oauth = GatewayOAuthSettings(
         password=str(oauth_raw.get("password") or ""),
@@ -221,6 +223,7 @@ def build_gateway_runtime_pool(
                 ),
             ),
             enable_view_image=profile.enable_view_image,
+            toolchains=profile.toolchains,
             permission_broker=broker.client() if broker is not None else None,
             permission_broker_from_env=False,
         )

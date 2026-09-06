@@ -120,14 +120,14 @@ class DesktopPermissionBroker:
             )
         return result
 
-    def respond(self, request_id: str, decision: str | bool) -> bool:
+    def respond(self, request_id: str, decision: str | bool, *, registration: dict | None = None) -> bool:
         if not request_id or any(character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for character in request_id):
             return False
         if isinstance(decision, bool):
             normalized_decision = "once" if decision else "deny"
         else:
             normalized_decision = str(decision or "").strip().lower()
-        if normalized_decision not in {"deny", "once", "session"}:
+        if normalized_decision not in {"deny", "once", "session", "remember"}:
             return False
         request_path = self.directory / f"{request_id}.request.json"
         response_path = self.directory / f"{request_id}.response.json"
@@ -139,11 +139,23 @@ class DesktopPermissionBroker:
             return False
         if int(raw.get("expires_at", 0)) <= int(time.time()):
             return False
+        is_registration = raw.get("permission") == "toolchain_registration"
+        if is_registration:
+            if normalized_decision not in {"deny", "remember"}:
+                return False
+            if normalized_decision == "remember" and not registration:
+                return False
+        elif normalized_decision == "remember" or registration is not None:
+            return False
         payload: dict[str, Any] = {
             "version": BROKER_VERSION,
             "request_id": request_id,
+            "server_id": raw.get("server_id"),
+            "arguments_hash": raw.get("arguments_hash"),
+            "permission": raw.get("permission"),
+            "registration": registration,
             "approved": normalized_decision != "deny",
-            "scope": "session" if normalized_decision == "session" else "once",
+            "scope": normalized_decision if normalized_decision in {"session", "remember"} else "once",
             "responded_at": int(time.time()),
         }
         payload["signature"] = sign_payload(self.secret, payload)

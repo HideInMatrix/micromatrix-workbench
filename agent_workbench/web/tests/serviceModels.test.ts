@@ -6,6 +6,7 @@ import {
   emptyMember,
   isDirectServiceDraft,
   visibleProfiles,
+  serverDraft,
 } from '../src/components/services/serviceModels.ts'
 
 test('single workspace only displays the first profile without deleting saved profiles', () => {
@@ -40,4 +41,17 @@ test('multi workspace with a child profile requires gateway persistence', () => 
   draft.members.push(emptyMember(1))
 
   assert.equal(isDirectServiceDraft(draft), false)
+})
+
+test('toolchain registrations survive conversion to a direct service without sharing mutable roots', () => {
+  const draft = emptyDraft(8234)
+  draft.members[0].toolchains = [{
+    program: 'node', executable: '/tools/bin/node', read_roots: ['/tools'],
+    version: 'v25.0.0', fingerprint: 'a'.repeat(64),
+    runtime_target: '/tools/bin/node', runtime_fingerprint: 'b'.repeat(64),
+  }]
+  const direct = serverDraft(draft)
+  assert.deepEqual(direct.toolchains, draft.members[0].toolchains)
+  direct.toolchains![0].read_roots.push('/another')
+  assert.deepEqual(draft.members[0].toolchains[0].read_roots, ['/tools'])
 })

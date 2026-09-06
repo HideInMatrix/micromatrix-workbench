@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import ssl
@@ -264,6 +265,8 @@ class MCPLauncher:
                         ),
                         "AGENT_RUNTIME_ALLOW_NETWORK": "1" if config.allow_network else "0",
                         "AGENT_RUNTIME_ENABLE_VIEW_IMAGE": "1" if config.enable_view_image else "0",
+                        "AGENT_RUNTIME_TOOLCHAINS": json.dumps(config.toolchains),
+                        "AGENT_RUNTIME_OS_SANDBOX": "require",
                     }
                 )
                 if route_probe_token:

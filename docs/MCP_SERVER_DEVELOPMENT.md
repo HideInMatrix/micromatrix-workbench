@@ -549,6 +549,8 @@ timeout
 
 超出缓存的数据会通过 `evicted_gap_bytes` 告知客户端。
 
+注册工具链的桌面入口、只读目录、变更重验以及新的 fail-closed 启动行为见 [工具链注册与执行隔离](TOOLCHAIN_REGISTRATION.md)。下文两阶段查询是未注册工具的兼容路径；注册工具不需要逐次批准登录环境查询。
+
 ## 11. Permission Mode 与沙箱
 
 当前支持：
@@ -575,7 +577,7 @@ safe
 
 配置会持久化到 Server Profile，并在启动 MCP Server 时显式传递 `--permission-mode`。旧版 `servers.json` 没有该字段时按 `safe` 读取，不需要迁移整个 Profile schema。
 
-safe 会拦截明显的：
+safe 的命令审批策略会拦截以下模式（其中 inline script 在完整 OS 文件/网络隔离生效时允许，不再单独要求批准）：
 
 ```text
 网络命令

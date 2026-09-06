@@ -6,6 +6,8 @@ import logging
 import os
 import subprocess
 import sys
+import tempfile
+from threading import RLock
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Mapping
@@ -38,6 +40,8 @@ from .tools.system.handlers import SystemHandlers
 from .tools.toolchains.handlers import ToolchainHandlers
 from .tools.workbench.handlers import WorkbenchHandlers
 from .toolchains import ToolchainResolver
+from .toolchains.registration import (normalize_registrations, fingerprint, probe_version,
+                                      require_confinement, system_read_roots, probe_runtime_target, write_launchers)
 from .workspace import Workspace
 from .workbench.capability_assets import CapabilityAssetService
 from .workbench.engine import WorkflowEngine
@@ -72,11 +76,14 @@ class Runtime(
         permission_broker: Any | None = None,
         permission_broker_from_env: bool = True,
         global_asset_root: Path | None = None,
+        toolchains: Sequence[dict[str, Any]] = (),
     ) -> None:
         if permission_mode not in PERMISSION_MODES:
             raise ValueError(f"unknown permission mode: {permission_mode}")
         if fake_readonly_annotations and permission_mode != "dangerous":
             raise ValueError("fake_readonly_annotations requires dangerous permission mode")
+        self.toolchain_registrations = normalize_registrations(toolchains)
+        self._verify_toolchain_files()
         self.workspace = Workspace(workspace)
         self.tool_registry = build_tool_registry()
         self.mcp_connections = MCPConnectionService(global_root=global_asset_root)
@@ -101,11 +108,26 @@ class Runtime(
             broker_client=permission_broker,
             load_broker_from_env=permission_broker_from_env,
         )
+        self._toolchain_registration_lock = RLock()
+        self._toolchain_consent_denied: set[str] = set()
+        self._toolchain_state_dir = self.commands.runtime_dir / "toolchain-state"
+        self._toolchain_state_dir.mkdir(mode=0o700)
         self._privileged_program_misses: set[str] = set()
         self._privileged_toolchain_misses: set[str] = set()
         self.safe_exec_path = ToolchainResolver.default_search_path(self.workspace.root)
-        self.toolchain_read_roots: list[Path] = []
-        sandbox_readable_roots = self._platform_read_roots()
+        registered_roots = list(dict.fromkeys(
+            Path(root) for item in self.toolchain_registrations for root in item["read_roots"]
+        ))
+        self.registered_bin_dir = write_launchers(self.toolchain_registrations, self.commands.runtime_dir)
+        self.safe_exec_path = list(dict.fromkeys([
+            *([str(self.registered_bin_dir)] if self.registered_bin_dir else []),
+            *(str(Path(item["executable"]).parent) for item in self.toolchain_registrations),
+            *self.safe_exec_path,
+        ]))
+        self.toolchain_read_roots: list[Path] = registered_roots
+        if permission_mode != "dangerous":
+            self.workspace.readonly_roots = tuple(registered_roots)
+        sandbox_readable_roots = [*registered_roots, *self._platform_read_roots()]
         sandbox_writable_roots = [
             self.commands.runtime_dir,
             self.commands.home_dir,
@@ -117,29 +139,53 @@ class Runtime(
             for path in (self.workspace.root / ".git",)
             if path.exists()
         ]
+        sandbox_protected_paths.append(self._toolchain_state_dir)
+        sandbox_protected_paths.extend(registered_roots)
+        if self.registered_bin_dir:
+            sandbox_protected_paths.append(self.registered_bin_dir)
         # Build the baseline sandbox before discovery. Tool lookup and version
         # probes must observe the same filesystem/PATH restrictions as commands.
         self.process_sandbox = create_process_sandbox(
             mode=self.permission_mode,
             workspace=self.workspace.root,
-            runtime_dir=self.commands.runtime_dir,
+            runtime_dir=Path(tempfile.mkdtemp(prefix="initial-", dir=self._toolchain_state_dir)),
             readable_roots=sandbox_readable_roots,
             writable_roots=sandbox_writable_roots,
             protected_paths=sandbox_protected_paths,
             network=self.allow_network,
         )
+        self._registration_verifier = self.process_sandbox
+        if self.toolchain_registrations:
+            if self.permission_mode == "dangerous":
+                self._registration_verifier = create_process_sandbox(
+                    mode="safe", workspace=self.workspace.root,
+                    runtime_dir=Path(tempfile.mkdtemp(prefix="verifier-", dir=self._toolchain_state_dir)),
+                    readable_roots=sandbox_readable_roots,
+                    writable_roots=sandbox_writable_roots,
+                    protected_paths=sandbox_protected_paths, network=False,
+                )
+            try:
+                self._verify_registered_toolchains()
+            except Exception:
+                self.commands.close()
+                raise
         self.toolchains = ToolchainResolver(
             self.workspace.root,
             safe_path=self.safe_exec_path,
             probe_runner=self._run_toolchain_probe,
+            registered_programs={item["program"]: item["executable"]
+                                 for item in self.toolchain_registrations},
         )
         self._toolchain_snapshot = self.toolchains.discover(
             privileged=self.permission_mode == "dangerous"
         )
-        self.safe_exec_path = [
-            str(item) for item in self._toolchain_snapshot.get("safe_path", [])
-        ]
-        self.toolchain_read_roots = self._selected_toolchain_roots()
+        self.safe_exec_path = list(dict.fromkeys([
+            *([str(self.registered_bin_dir)] if self.registered_bin_dir else []),
+            *(str(item) for item in self._toolchain_snapshot.get("safe_path", [])),
+        ]))
+        self.toolchain_read_roots = list(dict.fromkeys([
+            *registered_roots, *self._selected_toolchain_roots(),
+        ]))
         sandbox_readable_roots = [
             *self.toolchain_read_roots,
             *self._platform_read_roots(),
@@ -149,7 +195,7 @@ class Runtime(
         self.process_sandbox = create_process_sandbox(
             mode=self.permission_mode,
             workspace=self.workspace.root,
-            runtime_dir=self.commands.runtime_dir,
+            runtime_dir=Path(tempfile.mkdtemp(prefix="initial-", dir=self._toolchain_state_dir)),
             readable_roots=sandbox_readable_roots,
             writable_roots=sandbox_writable_roots,
             protected_paths=sandbox_protected_paths,
@@ -164,6 +210,11 @@ class Runtime(
             network=self.allow_network,
             backend=self.process_sandbox.state,
         )
+        if self.sandbox_profile.to_dict()["isolation_level"] != "full":
+            LOGGER.warning("执行隔离状态=%s: %s (%s)",
+                           self.sandbox_profile.to_dict()["isolation_level"],
+                           self.sandbox_profile.to_dict()["security_warning"],
+                           self.sandbox_profile.backend_reason)
         enabled_features = frozenset({"view_image"}) if enable_view_image else frozenset()
         self.tool_dispatcher = ToolDispatcher(
             self.tool_registry,
@@ -178,6 +229,63 @@ class Runtime(
             registry=self.workflow_registry,
             approval_broker=LocalWorkflowApprovalBrokerClient.from_env(),
         )
+
+    def _install_registered_toolchain(self, record: dict[str, Any]) -> None:
+        """Hot-add approved roots; old commands keep their immutable policy generation."""
+        records = normalize_registrations(tuple(
+            r for r in self.toolchain_registrations if r["program"] != record["program"]
+        ) + (record,))
+        roots = list(dict.fromkeys(Path(p) for r in records for p in r["read_roots"]))
+        generation = Path(tempfile.mkdtemp(prefix="generation-", dir=self._toolchain_state_dir))
+        bin_dir = write_launchers(records, generation)
+        writable = [self.commands.runtime_dir, self.commands.home_dir,
+                    self.commands.tmp_dir, self.commands.cache_dir]
+        protected = [self.workspace.root / ".git", self._toolchain_state_dir, *roots]
+        if self.registered_bin_dir:
+            protected.append(self.registered_bin_dir)
+        readable = list(dict.fromkeys([*roots, *self.toolchain_read_roots, *self._platform_read_roots()]))
+        verifier = create_process_sandbox(
+            mode="safe", workspace=self.workspace.root, runtime_dir=generation,
+            readable_roots=readable, writable_roots=writable,
+            protected_paths=protected, network=False,
+        )
+        require_confinement(verifier)
+        from .toolchains.registration import toolchain_environment
+        safe_path = [str(bin_dir), *[p for p in self.safe_exec_path if p != str(self.registered_bin_dir)]]
+        env = toolchain_environment(safe_path, Path.home(), self.commands.cache_dir, self.commands.tmp_dir)
+        for r in records:
+            if (fingerprint(r["executable"], r["read_roots"]) != r["fingerprint"]
+                or (r["runtime_target"] and fingerprint(r["runtime_target"], r["read_roots"]) != r["runtime_fingerprint"])):
+                raise ToolError("TOOLCHAIN_REGISTRATION_STALE", "工具链验证后已变化，请重新注册。", "process", False)
+            if (probe_version(r["executable"], verifier, self.workspace.root, env) != r["version"]
+                or probe_runtime_target(r["program"], r["executable"], verifier, self.workspace.root, env) != r["runtime_target"]):
+                raise ToolError("TOOLCHAIN_REGISTRATION_STALE", "工具链版本或路径已变化，请重新注册。", "process", False)
+        # Separate directories prevent a task's network policy overwriting the verifier policy.
+        task_generation = Path(tempfile.mkdtemp(prefix="task-", dir=self._toolchain_state_dir))
+        backend = create_process_sandbox(
+            mode=self.permission_mode, workspace=self.workspace.root, runtime_dir=task_generation,
+            readable_roots=readable, writable_roots=writable,
+            protected_paths=protected, network=self.allow_network,
+        )
+        if self.permission_mode != "dangerous":
+            require_confinement(backend)
+            self.workspace.readonly_roots = tuple(roots)
+        self.process_sandbox = backend
+        self._registration_verifier = verifier
+        self.safe_exec_path = safe_path
+        self.registered_bin_dir = bin_dir
+        self.toolchain_read_roots = list(dict.fromkeys([*roots, *self.toolchain_read_roots]))
+        self.toolchain_registrations = records
+        self.toolchains = ToolchainResolver(
+            self.workspace.root, safe_path=safe_path, probe_runner=self._run_toolchain_probe,
+            registered_programs={r["program"]: r["executable"] for r in records},
+        )
+        self.sandbox_profile = build_sandbox_profile(
+            mode=self.permission_mode, workspace=self.workspace.root, runtime_paths=writable,
+            toolchain_paths=[str(p) for p in self.toolchain_read_roots],
+            protected_paths=protected, network=self.allow_network, backend=backend.state,
+        )
+        self._privileged_program_misses.discard(record["program"])
 
     @property
     def local_permission_broker(self) -> Any | None:
@@ -222,22 +330,44 @@ class Runtime(
             roots.append(root)
         return roots
 
+    def _verify_toolchain_files(self) -> None:
+        for item in self.toolchain_registrations:
+            try:
+                actual = fingerprint(item["executable"], item["read_roots"])
+                if actual != item["fingerprint"]:
+                    raise ValueError("executable or target changed")
+                if item["runtime_target"] and fingerprint(item["runtime_target"], item["read_roots"]) != item["runtime_fingerprint"]:
+                    raise ValueError("runtime executable changed")
+            except (OSError, ValueError) as exc:
+                raise ToolError("TOOLCHAIN_REGISTRATION_STALE",
+                                f"工具链 {item['program']} 路径或文件发生变化，请在桌面重新验证并注册。",
+                                "process", False) from exc
+
+    def _verify_registered_toolchains(self) -> None:
+        self._verify_toolchain_files()
+        if not self.toolchain_registrations:
+            return
+        backend = self._registration_verifier
+        require_confinement(backend)
+        from .toolchains.registration import toolchain_environment
+        env = toolchain_environment(self.safe_exec_path, Path.home(),
+                                    self.commands.cache_dir, self.commands.tmp_dir)
+        for item in self.toolchain_registrations:
+            version = probe_version(item["executable"], backend, self.workspace.root, env)
+            target = probe_runtime_target(item["program"], item["executable"], backend,
+                                          self.workspace.root, env)
+            if target != item["runtime_target"]:
+                raise ToolError("TOOLCHAIN_REGISTRATION_STALE",
+                                f"工具链 {item['program']} 实际解释器路径发生变化，请重新注册。",
+                                "process", False)
+            if version != item["version"]:
+                raise ToolError("TOOLCHAIN_REGISTRATION_STALE",
+                                f"工具链 {item['program']} 版本发生变化，请在桌面重新验证并注册。",
+                                "process", False)
+
     @staticmethod
     def _platform_read_roots() -> list[Path]:
-        if sys.platform == "darwin":
-            return [
-                Path("/System"),
-                Path("/Library"),
-                Path("/usr"),
-                Path("/bin"),
-                Path("/sbin"),
-                Path("/private/etc"),
-                Path("/private/var/db"),
-                Path("/private/var/select"),
-                Path("/opt/homebrew"),
-                Path("/usr/local"),
-            ]
-        return []
+        return system_read_roots()
 
     def _run_toolchain_probe(
         self,
@@ -250,6 +380,10 @@ class Runtime(
         permissions = (
             frozenset({"privileged_executable"}) if privileged else frozenset()
         )
+        if self.toolchain_registrations and not privileged:
+            registered_env = self._command_env({})
+            env = {**registered_env, **dict(env)}
+            env["HOME"] = str(Path.home())
         command = self.process_sandbox.wrap(
             argv,
             cwd=self.workspace.root,

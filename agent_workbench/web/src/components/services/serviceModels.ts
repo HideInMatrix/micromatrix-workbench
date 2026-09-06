@@ -21,6 +21,7 @@ export function emptyMember(index: number): GatewayMemberDraft {
     permission_mode: 'safe',
     allow_network: false,
     enable_view_image: true,
+    toolchains: [],
   }
 }
 
@@ -55,6 +56,7 @@ export function directDraft(server: ServerDto): GatewayDraft {
       permission_mode: server.permission_mode,
       allow_network: server.allow_network,
       enable_view_image: server.enable_view_image,
+      toolchains: (server.toolchains || []).map(item => ({ ...item, read_roots: [...item.read_roots] })),
     }],
   }
 }
@@ -78,6 +80,7 @@ export function gatewayDraft(gateway: GatewayDto): GatewayDraft {
       permission_mode: member.permission_mode,
       allow_network: member.allow_network,
       enable_view_image: member.enable_view_image,
+      toolchains: (member.toolchains || []).map(item => ({ ...item, read_roots: [...item.read_roots] })),
     })),
   }
 }
@@ -133,6 +136,7 @@ export function serverDraft(value: GatewayDraft): ServerDraft {
     permission_mode: root.permission_mode,
     allow_network: root.allow_network,
     enable_view_image: root.enable_view_image,
+      toolchains: (root.toolchains || []).map(item => ({ ...item, read_roots: [...item.read_roots] })),
     network: cloneNetwork(value.network),
   }
 }

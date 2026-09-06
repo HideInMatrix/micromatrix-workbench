@@ -9,6 +9,7 @@ from typing import Any
 
 from ...errors import ToolError
 from ...local_permission_broker import (
+    LocalPermissionBrokerClient,
     BROKER_DIR_ENV,
     BROKER_SECRET_ENV,
     BROKER_SERVER_ID_ENV,
@@ -79,7 +80,15 @@ class ProcessHandlers:
                     }
                 )
         env.update(overrides)
+        if self.permission_mode == "dangerous" and self.registered_bin_dir:
+            env["PATH"] = os.pathsep.join([str(self.registered_bin_dir), env.get("PATH", "")])
+        if self.toolchain_registrations and self.permission_mode != "dangerous":
+            from ...toolchains.registration import toolchain_environment
+            env.update(toolchain_environment(
+                self.safe_exec_path, Path.home(), self.commands.cache_dir, self.commands.tmp_dir,
+            ))
         for internal_name in (
+            "AGENT_RUNTIME_TOOLCHAINS",
             BROKER_DIR_ENV,
             BROKER_SECRET_ENV,
             BROKER_SERVER_ID_ENV,
@@ -109,12 +118,22 @@ class ProcessHandlers:
         env: dict[str, str],
         timeout_ms: int,
     ) -> None:
+        self._verify_registered_toolchains()
         ProcessCommandPolicy(
             permission_mode=self.permission_mode,
             allow_network=self.allow_network,
+            kernel_confined=(self.process_sandbox.state.enabled
+                             and self.process_sandbox.state.filesystem_isolation
+                             and self.process_sandbox.state.network_isolation),
             permission_granted=self._permission_granted,
-            validate_writable_path=self.workspace.writable,
+            validate_writable_path=self._validate_command_path,
         ).validate(cmd, env, timeout_ms)
+
+    def _validate_command_path(self, raw: str) -> object:
+        # Registered entrypoints are outside the workspace but read-only in the kernel.
+        if any(raw == item["executable"] for item in self.toolchain_registrations):
+            return None
+        return self.workspace.writable(raw)
 
     def _privileged_execution(self) -> bool:
         return self.permission_mode == "dangerous" or self._permission_granted(
@@ -146,7 +165,13 @@ class ProcessHandlers:
                 details,
             )
 
-        resolved = self.toolchains.resolve_program(program, privileged=privileged)
+        resolved = self.toolchains.resolve_program(program, privileged=False)
+        if resolved is None and isinstance(self.local_permission_broker, LocalPermissionBrokerClient):
+            from ...toolchains.registration import PROGRAMS
+            if program in PROGRAMS:
+                return self._register_missing_toolchain(program)
+        if resolved is None and privileged:
+            resolved = self.toolchains.resolve_program(program, privileged=True)
         if resolved is None and not privileged:
             raise ToolError(
                 "PERMISSION_REQUIRED",
@@ -174,6 +199,35 @@ class ProcessHandlers:
         if privileged:
             self._privileged_program_misses.discard(program_key)
         return resolved
+
+    def _register_missing_toolchain(self, program: str) -> str:
+        from ...toolchains.discovery import discover_toolchain
+        with self._toolchain_registration_lock:
+            existing = next((r for r in self.toolchain_registrations if r["program"] == program), None)
+            if existing:
+                return existing["executable"]
+            if program in self._toolchain_consent_denied:
+                raise ToolError("TOOLCHAIN_APPROVAL_DENIED", "本次服务会话已拒绝工具链注册；可在桌面手动注册后重启。", "permission", False)
+            proposal = discover_toolchain(program, self.workspace.root)
+            if proposal is None:
+                raise ToolError("EXECUTABLE_NOT_FOUND", f"未能自动定位 {program}，请在服务设置中手动选择路径。未读取登录脚本。", "process", False)
+            isolation_note = ("当前为危险模式，原命令及子进程没有任务隔离，仅注册验证在沙箱内进行。"
+                              if self.permission_mode == "dangerous" else
+                              "仅增加所列只读目录，子进程仍受沙箱限制。")
+            decision = self.local_permission_broker.request(
+                tool_name="register_toolchain", arguments={**proposal, "workspace": str(self.workspace.root)}, permission="toolchain_registration",
+                reason=f"AI 首次使用 {program}，已自动找到以下路径。允许后验证并记住当前 Profile 的工具链，继续原命令。{isolation_note}",
+                principal="toolchain-registration",
+            )
+            if not decision.approved or not decision.registration:
+                if decision.denied:
+                    self._toolchain_consent_denied.add(program)
+                raise ToolError("TOOLCHAIN_APPROVAL_REQUIRED", "工具链尚未获得桌面确认，未执行命令。", "permission", False)
+            record = decision.registration
+            if any(record.get(k) != proposal[k] for k in ("program", "executable", "read_roots")):
+                raise ToolError("TOOLCHAIN_APPROVAL_INVALID", "工具链批准范围与请求不一致。", "permission", False)
+            self._install_registered_toolchain(record)
+            return record["executable"]
 
     def _validate_process(
         self,

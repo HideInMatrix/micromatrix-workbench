@@ -66,6 +66,7 @@ class ServerProfileStore:
         permission_mode: str = "safe",
         allow_network: bool = False,
         enable_view_image: bool = True,
+        toolchains: tuple[dict, ...] = (),
     ) -> MCPServerProfile:
         selected_port = self.next_default_port() if port is None else int(port)
         profile = MCPServerProfile.create(
@@ -79,6 +80,7 @@ class ServerProfileStore:
             permission_mode=permission_mode,
             allow_network=allow_network,
             enable_view_image=enable_view_image,
+            toolchains=toolchains,
         )
         profiles = self.list()
         profiles.append(profile)
@@ -100,6 +102,7 @@ class ServerProfileStore:
             permission_mode=validated.permission_mode,
             allow_network=validated.allow_network,
             enable_view_image=validated.enable_view_image,
+            toolchains=validated.toolchains,
             created_at=validated.created_at,
             updated_at=_timestamp(),
         )

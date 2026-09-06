@@ -90,6 +90,7 @@ def redact_for_display(value: Any, *, key: str = "") -> Any:
 class LocalPermissionDecision:
     status: str
     scope: str = "once"
+    registration: dict[str, Any] | None = None
 
     @property
     def approved(self) -> bool:
@@ -197,11 +198,24 @@ class LocalPermissionBrokerClient:
                     return LocalPermissionDecision("unavailable")
                 if raw.get("request_id") != request_id:
                     return LocalPermissionDecision("unavailable")
+                if permission == "toolchain_registration" and (
+                    raw.get("server_id") != self.server_id
+                    or raw.get("arguments_hash") != payload["arguments_hash"]
+                    or raw.get("permission") != permission
+                ):
+                    return LocalPermissionDecision("unavailable")
                 approved = raw.get("approved") is True
                 scope = "session" if raw.get("scope") == "session" else "once"
+                if permission == "toolchain_registration" and raw.get("scope") == "remember":
+                    scope = "remember"
+                    if approved and not isinstance(raw.get("registration"), dict):
+                        return LocalPermissionDecision("unavailable")
                 return LocalPermissionDecision(
                     "approved" if approved else "denied",
                     scope=scope if approved else "once",
+                    registration=(raw.get("registration") if approved
+                                  and permission == "toolchain_registration"
+                                  and raw.get("scope") == "remember" else None),
                 )
             return LocalPermissionDecision("timeout")
         finally:
