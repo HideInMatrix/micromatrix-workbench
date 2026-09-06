@@ -115,6 +115,12 @@ export function visibleProfiles(value: GatewayDraft): GatewayMemberDraft[] {
   return value.mode === 'single' ? value.members.slice(0, 1) : value.members
 }
 
+export function isDirectServiceDraft(value: GatewayDraft): boolean {
+  return value.mode === 'single'
+    && value.members.length > 0
+    && normalizePath(value.members[0].instance_path) === ''
+}
+
 export function serverDraft(value: GatewayDraft): ServerDraft {
   const root = value.members[0]
   return {

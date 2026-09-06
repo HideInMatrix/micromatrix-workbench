@@ -5,6 +5,7 @@ import {
   emptyDraft,
   emptyMember,
   gatewayDraft,
+  isDirectServiceDraft,
   normalizePath,
   normalizedGatewayDraft,
   serverDraft,
@@ -198,7 +199,7 @@ async function persistDraft(context: ServiceContext): Promise<string> {
   if (!value.members.length) throw new Error('服务至少需要一个 Workspace。')
   const current = context.selected.value
   if (context.isNew.value) {
-    if (value.mode === 'single' && value.members.length === 1 && value.members[0].instance_path === '') {
+    if (isDirectServiceDraft(value)) {
       const created = await desktopApi.createServer(serverDraft(value))
       return `direct:${created.server_id}`
     }
@@ -212,7 +213,7 @@ async function persistDraft(context: ServiceContext): Promise<string> {
 }
 
 async function persistDirectService(serverId: string, value: GatewayDraft): Promise<string> {
-  if (value.mode === 'single' && value.members.length === 1 && value.members[0].instance_path === '') {
+  if (isDirectServiceDraft(value)) {
     const updated = await desktopApi.updateServer(serverId, serverDraft(value))
     return `direct:${updated.server_id}`
   }
