@@ -135,14 +135,22 @@ class GatewayLaunchConfig:
         port = int(self.port)
         if not 1 <= port <= 65535:
             raise ValueError(f"无效 Gateway 端口: {port}")
-        profiles = tuple(profile.validated() for profile in self.profiles)
-        if not profiles:
-            raise ValueError("Local MCP Gateway 至少需要一个 Profile。")
         mode = self.mode.strip().lower() or "multi"
         if mode not in SERVICE_MODES:
             raise ValueError(f"不支持的 Service mode: {mode}")
-        if mode == "single" and not any(profile.instance_path == "" for profile in profiles):
-            raise ValueError("单 Workspace 模式必须包含一个根 Workspace Profile。")
+        # Select the execution scope before checking runtime prerequisites.
+        # Saved inactive profiles need neither credentials nor an existing workspace.
+        active = self.profiles
+        if mode == "single":
+            active = tuple(
+                profile for profile in active
+                if not profile.instance_path.strip().strip("/")
+            )
+            if not active:
+                raise ValueError("单 Workspace 模式必须包含一个根 Workspace Profile。")
+        profiles = tuple(profile.validated() for profile in active)
+        if not profiles:
+            raise ValueError("Local MCP Gateway 至少需要一个 Profile。")
         ids: set[str] = set()
         paths: set[str] = set()
         hostnames: set[str] = set()
@@ -433,11 +441,21 @@ class MCPGatewayProfile:
             updated_at=int(self.updated_at),
         )
 
+    @property
+    def runtime_members(self) -> tuple[MCPGatewayMember, ...]:
+        """Active members only; keep all saved members for future mode switches."""
+        if self.mode.strip().lower() == "single":
+            return tuple(
+                member for member in self.members
+                if not member.instance_path.strip().strip("/")
+            )
+        return self.members
+
     def to_launch_config(self) -> GatewayLaunchConfig:
         value = self.validated()
         return GatewayLaunchConfig(
             network=value.network,
-            profiles=tuple(member.to_child_profile() for member in value.members),
+            profiles=tuple(member.to_child_profile() for member in value.runtime_members),
             mode=value.mode,
             host=value.host,
             port=value.port,
@@ -474,7 +492,7 @@ class MCPGatewayProfile:
                 allow_network=member.allow_network,
                 enable_view_image=member.enable_view_image,
             )
-            for member in value.members
+            for member in value.runtime_members
         )
         return GatewayLaunchConfig(
             network=runtime_network,

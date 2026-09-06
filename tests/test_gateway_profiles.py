@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -154,7 +155,32 @@ class GatewayProfileStoreTests(unittest.TestCase):
             )
             launch = reloaded.to_launch_config()
             self.assertEqual(launch.mode, "single")
-            self.assertEqual(len(launch.profiles), 2)
+            self.assertEqual([profile.server_id for profile in launch.profiles], ["root-id"])
+
+    def test_single_mode_ignores_inactive_runtime_requirements(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            primary = self._member(root, server_id="root", name="Root", path="")
+            child = self._member(root, server_id="child", name="Child", path="/child")
+            for inactive in (
+                replace(child, oauth_password=""),
+                replace(child, workspace=root / "missing-workspace"),
+            ):
+                with self.subTest(inactive=inactive):
+                    gateway = MCPGatewayProfile.create(
+                        name="Service", network=NetworkConfig(provider="cloudflare"),
+                        members=(primary, inactive), mode="single",
+                    )
+                    for config in (
+                        gateway.to_launch_config(),
+                        gateway.runtime_launch_config(oauth_passwords={"root": "override"}),
+                    ):
+                        self.assertEqual([p.server_id for p in config.profiles], ["root"])
+                    self.assertEqual(gateway.members, (primary, inactive))
+                    with self.assertRaises(ValueError):
+                        replace(gateway, mode="multi").to_launch_config()
+                    with self.assertRaisesRegex(ValueError, "OAuth"):
+                        replace(gateway, members=(replace(primary, oauth_password=""), inactive)).to_launch_config()
 
     def test_saved_member_may_omit_password_but_launch_requires_it(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -248,6 +274,34 @@ class GatewayProfileStoreTests(unittest.TestCase):
 
 
 class GatewayManagerTests(unittest.TestCase):
+    def test_single_mode_manager_checks_only_active_runtime_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = GatewayProfileStore(root / "gateways.json")
+            primary = MCPGatewayMember(
+                server_id="root", name="Root", workspace=root,
+                oauth_password="password", instance_path="",
+            )
+            child = replace(primary, server_id="child", instance_path="/child",
+                            workspace=root / "missing", oauth_password="")
+            gateway = store.create(
+                name="Service", network=NetworkConfig(provider="cloudflare"),
+                members=(primary, child), mode="single",
+            )
+            manager = MCPGatewayManager(store=store)
+            with patch("agent_workbench.gateways.manager.MCPGatewayLauncher.start") as start:
+                manager.start(gateway.gateway_id)
+                config = gateway.runtime_launch_config(oauth_passwords={"root": "override"})
+                manager.start_config(gateway.gateway_id, config)
+                self.assertEqual(start.call_count, 2)
+                for call in start.call_args_list:
+                    self.assertEqual([p.server_id for p in call.args[0].profiles], ["root"])
+                wrong = replace(config, profiles=(replace(config.profiles[0], server_id="other"),))
+                with self.assertRaisesRegex(ValueError, "身份"):
+                    manager.start_config(gateway.gateway_id, wrong)
+                self.assertEqual(start.call_count, 2)
+            self.assertEqual(len(store.get(gateway.gateway_id).members), 2)
+
     def test_manager_owns_one_launcher_per_gateway(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

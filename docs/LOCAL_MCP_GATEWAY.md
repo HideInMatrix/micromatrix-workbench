@@ -64,6 +64,8 @@ Service
 
 Service 持久化一个显式运行模式：`single` 或 `multi`。Profile 数量本身不决定运行模式。用户可以提前配置多个子 Profile，再切回 `single`；这些配置继续保留，但本次只启动根 Workspace。只有显式选择 `multi` 时，启动层才使用 Local Gateway / RuntimePool。
 
+启动配置必须先按运行模式筛选 Profile，再验证运行条件和身份。`single` 只验证根 Workspace 的目录和 OAuth 密码；未启用的子 Profile 即使没有密码或目录暂时不存在，也不能阻止主 Workspace 启动。配置持久化仍保留全部 Profile，切回 `multi` 后才要求所有参与运行的 Profile 满足启动条件。
+
 ### Local Gateway 内部实现
 
 适合同一台电脑：
@@ -375,4 +377,3 @@ Gateway 解决的是**单机多 Profile 本地分流**，不是跨电脑路由�
 Cloudflare 会把同 Tunnel UUID 的多个 connector 当作 replicas，而不是根据 URL Path 选择电脑。
 
 不同电脑仍应使用不同 hostname/Tunnel；或者另行部署真正的云端 Edge Router。
-

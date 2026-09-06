@@ -618,6 +618,33 @@ class DesktopAPITests(unittest.TestCase):
             ["runtime-company", "runtime-home"],
         )
 
+    def test_start_single_gateway_needs_only_root_runtime_secret(self) -> None:
+        payload = self.gateway_payload()
+        payload["mode"] = "single"
+        payload["remember_secrets"] = False
+        payload["members"][0]["instance_path"] = ""
+        payload["members"][1]["workspace"] = str(self.base / "missing-child")
+        payload["members"][1]["oauth_password"] = ""
+        created = self.api.create_gateway(payload)
+        root_id = created["members"][0]["server_id"]
+        runtime_payload = {
+            "network": payload["network"],
+            "members": [{"server_id": root_id, "oauth_password": "runtime-root"}],
+        }
+
+        # Keep the actual API -> model -> manager validation chain intact.
+        with patch("agent_workbench.gateways.manager.MCPGatewayLauncher.start") as start:
+            self.api.start_gateway(str(created["gateway_id"]), runtime_payload)
+
+        start.assert_called_once()
+        config = start.call_args.args[0]
+        self.assertEqual(config.mode, "single")
+        self.assertEqual([p.server_id for p in config.profiles], [root_id])
+        self.assertEqual(config.profiles[0].oauth_password, "runtime-root")
+        saved = self.api.gateway_store.get(str(created["gateway_id"]))
+        self.assertEqual(len(saved.members), 2)
+        self.assertTrue(all(not member.oauth_password for member in saved.members))
+
     def test_update_gateway_cleans_removed_member_runtime_identity(self) -> None:
         created = self.api.create_gateway(self.gateway_payload())
         removed = created["members"][1]

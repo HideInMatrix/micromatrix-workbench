@@ -669,7 +669,6 @@ class GatewayLauncherTests(unittest.TestCase):
             root_workspace = root / "root"
             child_workspace = root / "child"
             root_workspace.mkdir()
-            child_workspace.mkdir()
             launcher = MCPGatewayLauncher()
             config = GatewayLaunchConfig(
                 network=NetworkConfig(
@@ -691,7 +690,7 @@ class GatewayLauncherTests(unittest.TestCase):
                         server_id="child",
                         name="Child",
                         workspace=child_workspace,
-                        oauth_password="child-password",
+                        oauth_password="",
                         instance_path="/child",
                     ),
                 ),

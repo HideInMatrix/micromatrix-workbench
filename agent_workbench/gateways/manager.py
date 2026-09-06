@@ -86,7 +86,7 @@ class MCPGatewayManager:
             if launcher.is_running:
                 raise RuntimeError(f"Local MCP Gateway 已经在运行: {gateway.name}")
             validated = config.validated()
-            saved_ids = [member.server_id for member in gateway.members]
+            saved_ids = [member.server_id for member in gateway.runtime_members]
             runtime_ids = [profile.server_id for profile in validated.profiles]
             if runtime_ids != saved_ids:
                 raise ValueError("Gateway runtime Profile 身份与已保存配置不一致。")
