@@ -9,7 +9,7 @@ TOOLCHAIN_TOOLS = (
     ToolDefinition(
         "discover_toolchains",
         "Discover toolchains",
-        "Discover validated Node.js, Python, and Go toolchains in the sandbox first; if absent, request permission before querying the user environment.",
+        "Discover configured Node.js, Python, and Go toolchains. Missing supported programs use the same desktop-confirmed registration as execution; no login shell or temporary Home access. Reports missing programs and registration errors explicitly.",
         obj(
             {
                 "kinds": {
@@ -21,6 +21,6 @@ TOOLCHAIN_TOOLS = (
         ),
         "discover_toolchains",
         frozenset({Capability.TOOLCHAIN_DISCOVER}),
-        ToolAnnotations(read_only=True, idempotent=True),
+        ToolAnnotations(read_only=False, idempotent=True),
     ),
 )

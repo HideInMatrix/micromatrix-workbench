@@ -160,7 +160,7 @@ class PermissionSession:
             "sensitive_env": "该操作需要向子进程传入敏感环境变量。",
             "shell_expansion": "该操作需要启用受限制的 Shell 展开能力。",
             "inline_script": "该操作需要执行内联脚本。",
-            "privileged_executable": "沙箱 PATH 中未找到所需工具，需要读取用户工具环境并扩大只读执行范围后重试。",
+            "privileged_executable": "启动用户配置的外部 stdio MCP 进程；此授权不改变任务工具链的 PATH 或沙箱读取范围。",
         }
         try:
             rendered = json.dumps(

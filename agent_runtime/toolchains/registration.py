@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ..sandbox.backend import create_process_sandbox
+from .paths import system_read_roots
 
 PROGRAMS = {"node", "npm", "npx", "pnpm", "yarn", "python", "python3", "pip", "pip3"}
 
@@ -205,15 +206,6 @@ def register_toolchain(program: str, executable: str, read_roots: list[str], *,
     return {"program": program, "executable": str(path), "read_roots": roots,
             "version": version, "fingerprint": before,
             "runtime_target": runtime_target, "runtime_fingerprint": runtime_fingerprint}
-
-
-def system_read_roots() -> list[Path]:
-    import sys
-    if sys.platform != "darwin":
-        return []
-    return [Path(value) for value in ("/System", "/Library", "/usr", "/bin", "/sbin",
-                                      "/private/etc", "/private/var/db", "/private/var/select",
-                                      "/opt/homebrew", "/usr/local")]
 
 
 def write_launchers(registrations: tuple[dict[str, Any], ...], runtime_dir: Path) -> Path | None:

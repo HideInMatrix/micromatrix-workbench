@@ -111,8 +111,8 @@ class AutoToolchainIntegrationTests(unittest.TestCase):
             raise unittest.SkipTest(str(exc))
 
     def test_first_use_persists_retries_and_keeps_child_confinement(self):
-        for mode in ['safe', 'trusted']:
-            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+        for mode, entry in [('safe', 'exec'), ('trusted', 'exec'), ('safe', 'discover')]:
+            with self.subTest(mode=mode, entry=entry), tempfile.TemporaryDirectory() as temporary:
                 base = Path(temporary).resolve()
                 workspace = base / 'workspace'
                 workspace.mkdir()
@@ -132,10 +132,17 @@ class AutoToolchainIntegrationTests(unittest.TestCase):
 
                 def execute():
                     try:
+                        if entry == 'discover':
+                            report = runtime.discover_toolchains({'kinds': ['python']})
+                            self.assertEqual(report['registration_errors'], {})
+                            self.assertEqual(report['missing'], [])
+                            self.assertFalse(report['shell_startup_files_evaluated'])
                         result.update(runtime.exec_command({'cmd': 'python -c "print(42)"'}))
                     except BaseException as exc:
                         errors.append(exc)
 
+                if entry == 'discover':
+                    runtime.toolchains._cache['python'] = {'hint': '', 'selected': None, 'candidates': []}
                 try:
                     with patch.object(runtime.toolchains, 'resolve_program', return_value=None), \
                          patch('agent_runtime.toolchains.discovery.discover_toolchain', return_value=proposal):

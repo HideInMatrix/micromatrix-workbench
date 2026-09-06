@@ -112,8 +112,6 @@ class Runtime(
         self._toolchain_consent_denied: set[str] = set()
         self._toolchain_state_dir = self.commands.runtime_dir / "toolchain-state"
         self._toolchain_state_dir.mkdir(mode=0o700)
-        self._privileged_program_misses: set[str] = set()
-        self._privileged_toolchain_misses: set[str] = set()
         self.safe_exec_path = ToolchainResolver.default_search_path(self.workspace.root)
         registered_roots = list(dict.fromkeys(
             Path(root) for item in self.toolchain_registrations for root in item["read_roots"]
@@ -173,34 +171,17 @@ class Runtime(
             self.workspace.root,
             safe_path=self.safe_exec_path,
             probe_runner=self._run_toolchain_probe,
+            unrestricted=self.permission_mode == "dangerous",
             registered_programs={item["program"]: item["executable"]
                                  for item in self.toolchain_registrations},
         )
-        self._toolchain_snapshot = self.toolchains.discover(
-            privileged=self.permission_mode == "dangerous"
-        )
+        self._toolchain_snapshot = self.toolchains.discover()
         self.safe_exec_path = list(dict.fromkeys([
             *([str(self.registered_bin_dir)] if self.registered_bin_dir else []),
             *(str(item) for item in self._toolchain_snapshot.get("safe_path", [])),
         ]))
-        self.toolchain_read_roots = list(dict.fromkeys([
-            *registered_roots, *self._selected_toolchain_roots(),
-        ]))
-        sandbox_readable_roots = [
-            *self.toolchain_read_roots,
-            *self._platform_read_roots(),
-        ]
-        # Rebuild once with the roots actually proven executable by the
-        # sandboxed probes. No guessed NVM/FNM/Mise directories are admitted.
-        self.process_sandbox = create_process_sandbox(
-            mode=self.permission_mode,
-            workspace=self.workspace.root,
-            runtime_dir=Path(tempfile.mkdtemp(prefix="initial-", dir=self._toolchain_state_dir)),
-            readable_roots=sandbox_readable_roots,
-            writable_roots=sandbox_writable_roots,
-            protected_paths=sandbox_protected_paths,
-            network=self.allow_network,
-        )
+        # Successful version probes are evidence, not authorization. Inferred
+        # installation parents must never widen the already-approved read roots.
         self.sandbox_profile = build_sandbox_profile(
             mode=self.permission_mode,
             workspace=self.workspace.root,
@@ -278,14 +259,15 @@ class Runtime(
         self.toolchain_registrations = records
         self.toolchains = ToolchainResolver(
             self.workspace.root, safe_path=safe_path, probe_runner=self._run_toolchain_probe,
+            unrestricted=self.permission_mode == "dangerous",
             registered_programs={r["program"]: r["executable"] for r in records},
         )
+        self._toolchain_snapshot = self.toolchains.discover()
         self.sandbox_profile = build_sandbox_profile(
             mode=self.permission_mode, workspace=self.workspace.root, runtime_paths=writable,
             toolchain_paths=[str(p) for p in self.toolchain_read_roots],
             protected_paths=protected, network=self.allow_network, backend=backend.state,
         )
-        self._privileged_program_misses.discard(record["program"])
 
     @property
     def local_permission_broker(self) -> Any | None:
@@ -303,32 +285,6 @@ class Runtime(
 
     def close(self) -> None:
         self.commands.close()
-
-    def _selected_toolchain_roots(self) -> list[Path]:
-        roots: list[Path] = []
-        toolchains = self._toolchain_snapshot.get("toolchains")
-        if not isinstance(toolchains, dict):
-            return roots
-        seen: set[str] = set()
-        for value in toolchains.values():
-            if not isinstance(value, dict):
-                continue
-            selected = value.get("selected")
-            if not isinstance(selected, dict):
-                continue
-            raw = str(selected.get("root") or "").strip()
-            if not raw:
-                continue
-            try:
-                root = Path(raw).resolve()
-            except OSError:
-                continue
-            key = os.path.normcase(str(root))
-            if key in seen or not root.exists():
-                continue
-            seen.add(key)
-            roots.append(root)
-        return roots
 
     def _verify_toolchain_files(self) -> None:
         for item in self.toolchain_registrations:
@@ -374,22 +330,13 @@ class Runtime(
         argv: list[str],
         env: Mapping[str, str],
         timeout: float,
-        privileged: bool,
-        readable_roots: Sequence[Path],
     ) -> subprocess.CompletedProcess[str]:
-        permissions = (
-            frozenset({"privileged_executable"}) if privileged else frozenset()
-        )
-        if self.toolchain_registrations and not privileged:
+        if self.toolchain_registrations:
             registered_env = self._command_env({})
             env = {**registered_env, **dict(env)}
             env["HOME"] = str(Path.home())
-        command = self.process_sandbox.wrap(
-            argv,
-            cwd=self.workspace.root,
-            permissions=permissions,
-            readable_roots=tuple(readable_roots),
-        )
+        # Discovery observes the already-approved boundary. No per-probe Home/root grants.
+        command = self.process_sandbox.wrap(argv, cwd=self.workspace.root)
         return subprocess.run(
             command,
             cwd=str(self.workspace.root),

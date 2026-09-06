@@ -51,11 +51,7 @@ class ProcessHandlers:
                 for key, value in os.environ.items()
                 if key.upper() in allowed and not SENSITIVE_ENV_RE.search(key)
             }
-            env["PATH"] = (
-                os.environ.get("PATH", "")
-                if self._permission_granted("privileged_executable")
-                else os.pathsep.join(self.safe_exec_path)
-            )
+            env["PATH"] = os.pathsep.join(self.safe_exec_path)
             env.update(
                 {
                     "HOME": str(self.commands.home_dir),
@@ -135,70 +131,19 @@ class ProcessHandlers:
             return None
         return self.workspace.writable(raw)
 
-    def _privileged_execution(self) -> bool:
-        return self.permission_mode == "dangerous" or self._permission_granted(
-            "privileged_executable"
+    def _resolve_program(self, program: str) -> str:
+        resolved = self.toolchains.resolve_program(program)
+        if resolved is not None:
+            return resolved
+        from ...toolchains.registration import PROGRAMS
+        if program in PROGRAMS:
+            return self._register_missing_toolchain(program)
+        raise ToolError(
+            "EXECUTABLE_NOT_FOUND",
+            f"已配置的工具路径中未找到 {program}；不会读取登录环境或临时开放 Home。"
+            "此程序未接入工具链注册，可使用工作区内程序的明确路径。",
+            "process", False, {"program": program, "safe_path": list(self.safe_exec_path)},
         )
-
-    def _resolve_program(
-        self,
-        program: str,
-        *,
-        privileged: bool,
-        include_safe_path: bool,
-    ) -> str:
-        program_key = os.path.normcase(program.strip())
-        if not privileged and program_key in self._privileged_program_misses:
-            details: dict[str, Any] = {
-                "program": program,
-                "elevated_lookup": True,
-                "cached_miss": True,
-                "hint": "安装或调整工具环境后，请重启当前 MCP Server 再重新检测。",
-            }
-            if include_safe_path:
-                details["safe_path"] = list(self.safe_exec_path)
-            raise ToolError(
-                "EXECUTABLE_NOT_FOUND",
-                f"宿主机用户环境已查询过，仍未找到 {program}；本次 MCP Server 会话不再重复请求环境权限。",
-                "process",
-                False,
-                details,
-            )
-
-        resolved = self.toolchains.resolve_program(program, privileged=False)
-        if resolved is None and isinstance(self.local_permission_broker, LocalPermissionBrokerClient):
-            from ...toolchains.registration import PROGRAMS
-            if program in PROGRAMS:
-                return self._register_missing_toolchain(program)
-        if resolved is None and privileged:
-            resolved = self.toolchains.resolve_program(program, privileged=True)
-        if resolved is None and not privileged:
-            raise ToolError(
-                "PERMISSION_REQUIRED",
-                f"沙箱执行 PATH 中未找到 {program}；需要读取用户工具环境后重试。",
-                "permission",
-                False,
-                {
-                    "permission": "privileged_executable",
-                    "program": program,
-                    "sandbox_path": list(self.safe_exec_path),
-                },
-            )
-        if resolved is None:
-            self._privileged_program_misses.add(program_key)
-            details = {"program": program, "elevated_lookup": True}
-            if include_safe_path:
-                details["safe_path"] = list(self.safe_exec_path)
-            raise ToolError(
-                "EXECUTABLE_NOT_FOUND",
-                f"program is not available in either the sandbox or elevated user environment: {program}",
-                "process",
-                False,
-                details,
-            )
-        if privileged:
-            self._privileged_program_misses.discard(program_key)
-        return resolved
 
     def _register_missing_toolchain(self, program: str) -> str:
         from ...toolchains.discovery import discover_toolchain
@@ -211,6 +156,12 @@ class ProcessHandlers:
             proposal = discover_toolchain(program, self.workspace.root)
             if proposal is None:
                 raise ToolError("EXECUTABLE_NOT_FOUND", f"未能自动定位 {program}，请在服务设置中手动选择路径。未读取登录脚本。", "process", False)
+            if not isinstance(self.local_permission_broker, LocalPermissionBrokerClient):
+                raise ToolError(
+                    "TOOLCHAIN_REGISTRATION_REQUIRED",
+                    "已发现工具，但当前连接没有桌面注册确认通道；请在桌面注册并加载配置后重试。",
+                    "permission", False, {"proposal": proposal},
+                )
             isolation_note = ("当前为危险模式，原命令及子进程没有任务隔离，仅注册验证在沙箱内进行。"
                               if self.permission_mode == "dangerous" else
                               "仅增加所列只读目录，子进程仍受沙箱限制。")
@@ -238,11 +189,7 @@ class ProcessHandlers:
     ) -> str:
         display = subprocess.list2cmdline([program, *argv])
         self._validate_command(display, env, timeout_ms)
-        return self._resolve_program(
-            program,
-            privileged=self._privileged_execution(),
-            include_safe_path=True,
-        )
+        return self._resolve_program(program)
 
     def _command_workdir(self, args: dict[str, Any], *, label: str) -> Path:
         cwd = self.workspace.existing(
@@ -275,18 +222,6 @@ class ProcessHandlers:
         command_line = f'{quoted_program}{(" " + quoted_args) if quoted_args else ""}'
         return [comspec, "/d", "/v:off", "/s", "/c", command_line]
 
-    def _apply_privileged_environment(
-        self,
-        env: dict[str, str],
-        bin_dirs: list[Path],
-    ) -> None:
-        if not bin_dirs:
-            return
-        env["HOME"] = str(self.toolchains.home)
-        env["PATH"] = os.pathsep.join(
-            [*(str(path) for path in bin_dirs), env.get("PATH", "")]
-        )
-
     def exec_process(self, args: dict[str, Any]) -> dict[str, Any]:
         program = str(args["program"])
         argv = [str(item) for item in list(args.get("args") or [])]
@@ -297,31 +232,14 @@ class ProcessHandlers:
         resolved_program = self._validate_process(
             program, argv, env_overrides, timeout_ms
         )
-        privileged_execution = self._privileged_execution()
         cwd = self._command_workdir(args, label="process")
         command = self._process_launch_command(resolved_program, argv)
         command = self.process_sandbox.wrap(
             command,
             cwd=cwd,
             permissions=ACTIVE_PERMISSIONS.get(),
-            readable_roots=(
-                (
-                    self.toolchains.readable_root_for_program(
-                        program,
-                        resolved_program,
-                        privileged=True,
-                    ),
-                )
-                if privileged_execution
-                else ()
-            ),
         )
         process_env = self._command_env(env_overrides)
-        if privileged_execution:
-            self._apply_privileged_environment(
-                process_env,
-                [Path(resolved_program).parent.resolve()],
-            )
         managed = self.commands.start(
             command,
             cwd=cwd,
@@ -385,40 +303,15 @@ class ProcessHandlers:
                 names.append(name)
         return names
 
-    def _shell_executable_paths(
-        self,
-        cmd: str,
-        *,
-        privileged: bool,
-    ) -> tuple[list[Path], list[Path]]:
-        roots: list[Path] = []
-        bin_dirs: list[Path] = []
+    def _ensure_shell_programs(self, cmd: str) -> None:
         for program in self._shell_program_names(cmd):
-            resolved = self._resolve_program(
-                program,
-                privileged=privileged,
-                include_safe_path=False,
-            )
-            if not privileged:
-                continue
-            root = self.toolchains.readable_root_for_program(
-                program,
-                resolved,
-                privileged=True,
-            )
-            if root not in roots:
-                roots.append(root)
-            bin_dir = Path(resolved).parent.resolve()
-            if bin_dir not in bin_dirs:
-                bin_dirs.append(bin_dir)
-        return roots, bin_dirs
+            self._resolve_program(program)
 
     def _shell_launch_command(
         self,
         cmd: str,
         *,
         cwd: Path,
-        readable_roots: list[Path],
     ) -> tuple[str | list[str], bool]:
         if self.permission_mode == "dangerous":
             return cmd, True
@@ -432,7 +325,6 @@ class ProcessHandlers:
                 command,
                 cwd=cwd,
                 permissions=ACTIVE_PERMISSIONS.get(),
-                readable_roots=tuple(readable_roots),
             ),
             False,
         )
@@ -445,19 +337,9 @@ class ProcessHandlers:
         }
         self._validate_command(cmd, env_overrides, timeout_ms)
         cwd = self._command_workdir(args, label="command")
-        privileged = self._privileged_execution()
-        command_roots, command_bins = self._shell_executable_paths(
-            cmd,
-            privileged=privileged,
-        )
-        launch_command, launch_shell = self._shell_launch_command(
-            cmd,
-            cwd=cwd,
-            readable_roots=command_roots,
-        )
+        self._ensure_shell_programs(cmd)
+        launch_command, launch_shell = self._shell_launch_command(cmd, cwd=cwd)
         command_env = self._command_env(env_overrides)
-        if privileged and command_bins:
-            self._apply_privileged_environment(command_env, command_bins)
         managed = self.commands.start(
             launch_command,
             cwd=cwd,

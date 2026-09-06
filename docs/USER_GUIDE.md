@@ -93,15 +93,15 @@ Password
 完全访问权限（Dangerous）
 ```
 
-普通开发建议保持 `Safe`。它会启用 Workspace 边界、净化后的环境变量和当前平台可用的 OS 沙箱；低风险操作直接执行，访问网络、用户工具环境、Git 元数据等越界能力时再请求批准。
+普通开发建议保持 `Safe`。它会启用 Workspace 边界、净化后的环境变量和当前平台可用的 OS 沙箱；低风险操作直接执行，访问网络、Git 元数据等能力时再请求批准；缺失工具需单独确认注册。
 
-`Trusted` 适合明确需要网络、较长任务和常用开发脚本的项目，这些能力会减少询问，但仍保留 Workspace 与 OS 沙箱边界；破坏性命令、Git 元数据写入和宿主机用户工具环境等能力仍按需批准。
+`Trusted` 适合明确需要网络、较长任务和常用开发脚本的项目，这些能力会减少询问，但仍保留 Workspace 与 OS 沙箱边界；破坏性命令、Git 元数据写入等能力仍按需批准，缺失工具使用独立的注册确认。
 
 `Dangerous` 会关闭 OS 进程沙箱并继承完整用户环境，只应在你明确需要普通终端级权限时使用。
 
 如果 AI 在 `Safe` 模式请求执行 `git add`、`git commit`、联网命令等受限操作，优先使用 MCP 客户端自己的授权交互。批准后只对对应的工具调用临时放行，不需要把整个 Server 切换成 `Dangerous`。
 
-如果当前客户端不支持 MCP elicitation，桌面版会自动显示 MicroMatrix Workbench 自己的本地授权框。选择“仅允许本次”后，授权会在同一次逻辑工具调用中持续累积，避免一个命令先申请 `long_timeout`、随后申请 `privileged_executable` 时来回重复弹窗。
+如果当前客户端不支持 MCP elicitation，桌面版会自动显示 MicroMatrix Workbench 自己的本地授权框。选择“仅允许本次”后，授权会在同一次逻辑工具调用中持续累积，避免一个命令先申请 `long_timeout`、随后申请 `network` 时来回重复弹窗。
 
 “仅允许本次”右侧的下拉菜单还提供“本次服务会话全部允许”：它会对同一个已认证 MCP Client，在当前 MCP Server 进程停止或重启前自动放行所有可临时授权的权限。它不会关闭 Workspace 边界，也不会提升 `sandbox_env_override` 等不可临时授权的系统限制；真正的普通终端级完全访问仍然必须显式选择 `Dangerous`。
 
@@ -525,3 +525,5 @@ X-MicroMatrix-Origin: agent-runtime
 基础运行逻辑示意图：
 
 ![MicroMatrix Workbench 基础运行逻辑](assets/micromatrix-workbench-basic-flow.svg)
+
+工具首次使用的自动检测、授权与手动备用入口见 [工具链注册](TOOLCHAIN_REGISTRATION.md)。注册不执行登录脚本、不开放整个 Home，也不会因“服务会话全部允许”跳过确认。

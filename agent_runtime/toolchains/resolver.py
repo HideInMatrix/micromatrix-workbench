@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import platform
 import re
 import stat
 import subprocess
@@ -10,13 +9,11 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from .models import ToolchainCandidate
+from .paths import system_path_entries
 
 
 _VERSION_RE = re.compile(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?")
 _PROGRAM_RE = re.compile(r"^[A-Za-z0-9_.+@-]+$")
-_SENSITIVE_ENV_RE = re.compile(
-    r"(token|secret|credential|api[_-]?key|password|passwd|private)", re.I
-)
 _PROGRAM_KINDS = {
     "node": "node", "npm": "node", "npx": "node", "corepack": "node",
     "pnpm": "node", "yarn": "node", "python": "python",
@@ -25,7 +22,7 @@ _PROGRAM_KINDS = {
 }
 
 ProbeRunner = Callable[
-    [list[str], Mapping[str, str], float, bool, Sequence[Path]],
+    [list[str], Mapping[str, str], float],
     subprocess.CompletedProcess[str],
 ]
 
@@ -60,44 +57,42 @@ def _normalize_version(value: str) -> str:
 
 
 class ToolchainResolver:
-    """Resolve tools by querying an execution environment instead of scanning Home.
+    """Resolve only configured/registered paths; discovery never grants read access.
 
-    Runtime injects a probe runner which applies the active OS sandbox. Normal
-    discovery therefore sees exactly the PATH/filesystem available to sandboxed
-    commands. A privileged retry is explicit and is only used after the caller
-    has obtained the ``privileged_executable`` permission.
+    Unrestricted lookup is reserved for Dangerous mode and only uses the inherited
+    PATH. Neither mode sources shell startup files or scans the user's Home.
     """
 
     def __init__(
         self,
         workspace: Path,
         *,
-        home: Path | None = None,
+        unrestricted: bool = False,
         safe_path: Sequence[str] | None = None,
         probe_runner: ProbeRunner | None = None,
         registered_programs: Mapping[str, str] | None = None,
     ) -> None:
         self.registered_programs = dict(registered_programs or {})
         self.workspace = workspace.resolve()
-        self.home = (home or Path.home()).expanduser().resolve()
+        self.unrestricted = unrestricted
         self._safe_path = self._normalize_path_entries(
             safe_path if safe_path is not None else self.default_search_path(self.workspace)
         )
+        if unrestricted:
+            self._safe_path = self._normalize_path_entries([
+                *[p for p in os.environ.get("PATH", "").split(os.pathsep) if Path(p).is_absolute()],
+                *self._safe_path,
+            ])
         self._probe_runner = probe_runner or self._run_probe_direct
-        self._cache: dict[tuple[str, bool], dict[str, object]] = {}
-        self._program_cache: dict[tuple[str, bool], Path | None] = {}
+        self._cache: dict[str, dict[str, object]] = {}
+        self._program_cache: dict[str, Path | None] = {}
 
     @classmethod
     def default_search_path(cls, workspace: Path) -> list[str]:
         """Return platform-controlled PATH entries safe to present to a sandbox."""
 
         root = workspace.resolve()
-        raw_entries = (
-            os.environ.get("PATH", "").split(os.pathsep)
-            if os.name == "nt"
-            else []
-        )
-        raw_entries.extend(cls.system_path_entries())
+        raw_entries = cls.system_path_entries()
         result: list[str] = []
         seen: set[str] = set()
         for raw in raw_entries:
@@ -117,41 +112,26 @@ class ToolchainResolver:
             result.append(str(path))
         return result
 
-    @staticmethod
-    def system_path_entries() -> list[str]:
-        if os.name == "nt":
-            root = Path(os.environ.get("SYSTEMROOT", "C:/Windows"))
-            return [str(root / "System32"), str(root)]
-        if platform.system().lower() == "darwin":
-            return [
-                "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin",
-                "/usr/sbin", "/sbin",
-            ]
-        return [
-            "/usr/local/bin", "/usr/bin", "/bin", "/usr/local/sbin",
-            "/usr/sbin", "/sbin",
-        ]
+    system_path_entries = staticmethod(system_path_entries)
 
     def discover(
         self,
         kinds: list[str] | None = None,
-        *,
-        privileged: bool = False,
     ) -> dict[str, object]:
         requested = kinds or ["node", "python", "go"]
         result: dict[str, object] = {}
         for raw_kind in requested:
             kind = raw_kind.strip().lower()
             if kind in {"node", "python", "go"}:
-                result[kind] = self._discover_kind(kind, privileged=privileged)
+                result[kind] = self._discover_kind(kind)
         return {
             "toolchains": result,
             "safe_path": self.safe_path_entries(result),
-            "privileged_lookup": privileged,
+            "lookup_scope": "unrestricted" if self.unrestricted else "sandbox",
         }
 
-    def selected(self, kind: str, *, privileged: bool = False) -> ToolchainCandidate | None:
-        payload = self._discover_kind(kind, privileged=privileged)
+    def selected(self, kind: str) -> ToolchainCandidate | None:
+        payload = self._discover_kind(kind)
         selected = payload.get("selected")
         if not isinstance(selected, dict):
             return None
@@ -167,7 +147,7 @@ class ToolchainResolver:
 
     def safe_path_entries(self, discovered: dict[str, object] | None = None) -> list[str]:
         payload = discovered or {
-            kind: self._discover_kind(kind, privileged=False)
+            kind: self._discover_kind(kind)
             for kind in ("node", "python", "go")
         }
         entries: list[str] = []
@@ -180,7 +160,7 @@ class ToolchainResolver:
         entries.extend(self._safe_path)
         return self._normalize_path_entries(entries)
 
-    def resolve_program(self, name: str, *, privileged: bool = False) -> str | None:
+    def resolve_program(self, name: str) -> str | None:
         raw = name.strip()
         if not raw:
             return None
@@ -195,7 +175,7 @@ class ToolchainResolver:
                 return None
             safe_dirs = {os.path.normcase(item) for item in self.safe_path_entries()}
             if (
-                privileged
+                self.unrestricted
                 or _within(resolved, self.workspace)
                 or os.path.normcase(str(path.parent.resolve())) in safe_dirs
             ):
@@ -204,7 +184,7 @@ class ToolchainResolver:
 
         kind = _PROGRAM_KINDS.get(raw)
         if kind is not None:
-            payload = self._discover_kind(kind, privileged=privileged)
+            payload = self._discover_kind(kind)
             selected = payload.get("selected")
             if isinstance(selected, dict):
                 executables = selected.get("executables")
@@ -213,64 +193,37 @@ class ToolchainResolver:
                     if isinstance(candidate, str) and self._validated_executable(Path(candidate)):
                         return candidate
 
-        safe = self._query_program(raw, privileged=False)
-        if safe is not None or not privileged:
-            return str(safe) if safe is not None else None
-        elevated = self._query_program(raw, privileged=True)
-        return str(elevated) if elevated is not None else None
+        found = self._query_program(raw)
+        return str(found) if found is not None else None
 
-    def readable_root_for_program(
-        self,
-        name: str,
-        resolved: str,
-        *,
-        privileged: bool,
-    ) -> Path:
-        """Return the narrow read-only root required to execute a resolved tool."""
-
-        kind = _PROGRAM_KINDS.get(name.strip())
-        if kind is not None:
-            payload = self._discover_kind(kind, privileged=privileged)
-            selected = payload.get("selected")
-            if isinstance(selected, dict):
-                executables = selected.get("executables")
-                if isinstance(executables, dict) and resolved in executables.values():
-                    return Path(str(selected["root"])).resolve()
-        return Path(resolved).resolve().parent
-
-    def _discover_kind(self, kind: str, *, privileged: bool) -> dict[str, object]:
-        safe = self._discover_scope(kind, privileged=False)
-        if safe.get("selected") is not None or not privileged:
-            return safe
-        return self._discover_scope(kind, privileged=True)
-
-    def _discover_scope(self, kind: str, *, privileged: bool) -> dict[str, object]:
-        cache_key = (kind, privileged)
+    def _discover_kind(self, kind: str) -> dict[str, object]:
+        cache_key = kind
         cached = self._cache.get(cache_key)
         if cached is not None:
             return cached
         hint = self._workspace_hint(kind)
-        candidates = self._candidates(kind, privileged=privileged)
-        selected: ToolchainCandidate | None = None
-        if hint:
+        candidates = self._candidates(kind)
+        selected = next((self._selected_candidate(c, "explicit desktop registration")
+                         for c in candidates if c.source == "registered"), None)
+        if selected is None and hint:
             normalized_hint = _normalize_version(hint)
             matches = [item for item in candidates if item.version.startswith(normalized_hint)]
             if matches:
                 chosen = max(matches, key=lambda item: _version_key(item.version))
                 selected = self._selected_candidate(
                     chosen,
-                    f"workspace hint {hint} ({'elevated' if privileged else 'sandbox'} PATH)",
+                    f"workspace hint {hint} (configured PATH)",
                 )
         if selected is None and candidates:
             selected = self._selected_candidate(
                 candidates[0],
-                "elevated user environment" if privileged else "sandbox PATH",
+                "configured PATH",
             )
         payload = {
             "hint": hint,
             "selected": selected.to_dict() if selected else None,
             "candidates": [item.to_dict() for item in candidates],
-            "lookup_scope": "elevated" if privileged else "sandbox",
+            "lookup_scope": "unrestricted" if self.unrestricted else "sandbox",
         }
         self._cache[cache_key] = payload
         return payload
@@ -323,7 +276,7 @@ class ToolchainResolver:
         except (OSError, IndexError):
             return ""
 
-    def _candidates(self, kind: str, *, privileged: bool) -> list[ToolchainCandidate]:
+    def _candidates(self, kind: str) -> list[ToolchainCandidate]:
         primary_names = {
             "node": ["node"], "python": ["python3", "python"], "go": ["go"],
         }[kind]
@@ -334,15 +287,15 @@ class ToolchainResolver:
         }[kind]
         paths: list[tuple[Path, str, Path]] = []
         for name in primary_names:
-            executable = self._query_program(name, privileged=privileged)
+            executable = self._query_program(name)
             if executable is not None:
                 paths.append((
                     executable,
-                    "elevated_path" if privileged else "sandbox_path",
+                    "registered" if name in self.registered_programs else "configured_path",
                     executable.parent.parent,
                 ))
         return self._build_candidates(
-            kind, paths, executable_names, privileged=privileged,
+            kind, paths, executable_names,
         )
 
     def _build_candidates(
@@ -350,8 +303,6 @@ class ToolchainResolver:
         kind: str,
         paths: list[tuple[Path, str, Path]],
         executable_names: list[str],
-        *,
-        privileged: bool,
     ) -> list[ToolchainCandidate]:
         seen: set[str] = set()
         result: list[ToolchainCandidate] = []
@@ -370,7 +321,7 @@ class ToolchainResolver:
                 continue
             seen.add(key)
             version = self._read_version(
-                kind, resolved, bin_dir, root=resolved_root, privileged=privileged,
+                kind, resolved, bin_dir,
             )
             if not version:
                 continue
@@ -391,54 +342,21 @@ class ToolchainResolver:
             ))
         return result
 
-    def _query_program(self, name: str, *, privileged: bool) -> Path | None:
+    def _query_program(self, name: str) -> Path | None:
         if not _PROGRAM_RE.fullmatch(name):
             return None
-        cache_key = (name, privileged)
-        if cache_key in self._program_cache:
-            return self._program_cache[cache_key]
         if name in self.registered_programs:
             return self._validated_executable(Path(self.registered_programs[name]))
-        env = self._probe_env(privileged=privileged)
-        if os.name == "nt":
-            system_root = Path(os.environ.get("SYSTEMROOT", "C:/Windows"))
-            argv = [str(system_root / "System32" / "where.exe"), name]
-        elif privileged:
-            shell = self._login_shell()
-            if shell.name.lower() in {"fish", "fish.exe"}:
-                argv = [str(shell), "-ilc", 'command -v "$argv[1]"', name]
-            else:
-                argv = [
-                    str(shell), "-ilc",
-                    'candidate=$(command -v "$1") && case "$candidate" in /*) printf "%s\\n" "$candidate";; *) exit 1;; esac',
-                    "agent-runtime", name,
-                ]
-        else:
-            argv = [
-                "/bin/sh", "-c",
-                'candidate=$(command -v "$1") && case "$candidate" in /*) printf "%s\\n" "$candidate";; *) exit 1;; esac',
-                "agent-runtime", name,
-            ]
-        try:
-            completed = self._probe_runner(
-                argv, env, 5.0, privileged, [self.home] if privileged else [],
-            )
-        except (OSError, subprocess.SubprocessError):
-            self._program_cache[cache_key] = None
-            return None
-        if completed.returncode != 0:
-            self._program_cache[cache_key] = None
-            return None
-        for raw_line in reversed(completed.stdout.splitlines()):
-            raw = raw_line.strip().strip('"')
-            if raw:
-                path = Path(raw).expanduser()
-                if path.is_absolute():
-                    validated = self._validated_executable(path)
-                    if validated is not None:
-                        self._program_cache[cache_key] = validated
-                        return validated
-        self._program_cache[cache_key] = None
+        if name in self._program_cache:
+            return self._program_cache[name]
+        # Metadata-only PATH lookup, no command -v, where.exe or login shell.
+        for directory in self._safe_path:
+            for filename in self._executable_filenames(name):
+                candidate = self._validated_executable(Path(directory) / filename)
+                if candidate is not None:
+                    self._program_cache[name] = candidate
+                    return candidate
+        self._program_cache[name] = None
         return None
 
     def _read_version(
@@ -446,59 +364,33 @@ class ToolchainResolver:
         kind: str,
         executable: Path,
         bin_dir: Path,
-        *,
-        root: Path,
-        privileged: bool,
     ) -> str:
         args = [str(executable), "--version"] if kind != "go" else [str(executable), "version"]
-        env = self._probe_env(privileged=privileged)
+        env = self._probe_env()
         env["PATH"] = os.pathsep.join([str(bin_dir), env.get("PATH", "")])
         try:
-            completed = self._probe_runner(args, env, 3.0, privileged, [root])
+            completed = self._probe_runner(args, env, 3.0)
         except (OSError, subprocess.SubprocessError):
             return ""
         if completed.returncode != 0:
             return ""
         return _normalize_version(completed.stdout)
 
-    def _probe_env(self, *, privileged: bool) -> dict[str, str]:
-        if privileged:
-            env = {
-                key: value
-                for key, value in os.environ.items()
-                if not key.startswith("AGENT_RUNTIME_")
-                and not _SENSITIVE_ENV_RE.search(key)
-            }
-            env["HOME"] = str(self.home)
-        else:
-            env = {
-                key: value for key, value in os.environ.items()
-                if key.upper() in {
-                    "LANG", "LC_ALL", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC",
-                }
-            }
-            env["HOME"] = str(self.workspace)
-            env["PATH"] = os.pathsep.join(self._safe_path)
+    def _probe_env(self) -> dict[str, str]:
+        env = {
+            key: value for key, value in os.environ.items()
+            if key.upper() in {"LANG", "LC_ALL", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC"}
+        }
+        env["HOME"] = str(self.workspace)
+        env["PATH"] = os.pathsep.join(self._safe_path)
         env.setdefault("LANG", "C.UTF-8")
         return env
-
-    def _login_shell(self) -> Path:
-        raw = os.environ.get("SHELL", "").strip()
-        candidates = [Path(raw)] if raw else []
-        candidates.extend([Path("/bin/zsh"), Path("/bin/bash"), Path("/bin/sh")])
-        for candidate in candidates:
-            validated = self._validated_executable(candidate)
-            if validated is not None:
-                return validated
-        return Path("/bin/sh")
 
     @staticmethod
     def _run_probe_direct(
         argv: list[str],
         env: Mapping[str, str],
         timeout: float,
-        _privileged: bool,
-        _readable_roots: Sequence[Path],
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             argv,

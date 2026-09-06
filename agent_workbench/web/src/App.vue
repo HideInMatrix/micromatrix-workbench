@@ -46,7 +46,7 @@ function permissionLabel(permission: string) {
     sandbox_env_override: '覆盖沙箱环境变量',
     shell_expansion: '使用 Shell 展开',
     inline_script: '执行内联脚本',
-    privileged_executable: '查询并运行用户工具',
+    privileged_executable: '启动外部 stdio MCP',
     toolchain_registration: '自动发现工具 · 确认并记住',
     write_generated_or_ignored: '写入生成或忽略文件',
   } as Record<string, string>)[permission] || permission

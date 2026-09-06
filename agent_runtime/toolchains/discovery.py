@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from itertools import islice
 from pathlib import Path
 
 from .registration import PROGRAMS, prepare_toolchain
@@ -21,7 +22,7 @@ def discover_toolchain(program: str, workspace: Path) -> dict | None:
     )]
     # Do not guess between multiple installed versions. Manual selection is the fallback.
     pattern = '.nvm/versions/node/*/bin' if program in {'node', 'npm', 'npx', 'pnpm', 'yarn'} else '.pyenv/versions/*/bin'
-    versions = list(home.glob(pattern))[:2]
+    versions = list(islice(home.glob(pattern), 2))
     if len(versions) == 1:
         directories += versions
     for directory in dict.fromkeys(directories):

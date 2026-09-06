@@ -125,6 +125,8 @@ privileged_executable
 write_generated_or_ignored
 ```
 
+`privileged_executable` 仅用于外部 stdio MCP 启动；任务工具链采用独立的持久化注册确认，不通过该权限读取登录环境。
+
 例如 `exec_command` 的 Tool Capability 是 `process.execute`，但只有当具体命令需要联网、修改 `.git` 或执行内联脚本时，才额外触发对应 OperationPermission。
 
 ## 5. PermissionProfile

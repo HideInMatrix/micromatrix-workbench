@@ -474,7 +474,7 @@ agent_runtime/patching.py
 
 ## 10. 受控进程执行与工具链发现
 
-`discover_toolchains` 统一通过执行环境查询 Node.js、Python 和 Go，不再扫描或猜测版本管理器目录。
+`discover_toolchains` 与命令执行共用工具注册入口。已注册路径优先，系统 PATH 作为兜底；Node/Python 系列缺失时，仅通过项目虚拟环境、继承 PATH 和有限管理器候选目录定位待确认路径。Go 等未接入注册的程序只使用已配置路径，不再回退到登录 Shell。
 
 当前会读取 Workspace 内的版本提示：
 
@@ -487,17 +487,17 @@ package.json engines.node（仅精确版本）
 go.mod 的 go 版本
 ```
 
-查询分两阶段：
+统一查询链路：
 
 ```text
-受控 PATH + OS sandbox 查询
-  -> 找到：短时版本探测并加入当前 Safe PATH
-  -> 未找到：请求 privileged_executable 一次性权限
-       -> 用户批准后读取登录环境并重查
-       -> 用户拒绝或无授权通道时保持找不到
+已注册路径 / 系统 PATH 元数据查找 + 原沙箱内版本验证
+  -> 找到：使用已批准范围，不从成功探测推导新权限
+  -> 未找到：有限候选路径检查（不执行）
+       -> 桌面“允许并记住此 Profile” → 沙箱验证 → 持久化 → 原调用继续
+       -> 无桌面通道、拒绝或检测失败：明确报告，不读取登录环境
 ```
 
-默认阶段不会执行：
+任何工具发现阶段都不会自动执行：
 
 ```text
 ~/.zshrc
@@ -507,7 +507,7 @@ go.mod 的 go 版本
 eval "$(...)"
 ```
 
-授权后的查询可能执行用户登录 shell 启动文件，但只发生在精确绑定的当前工具调用中；不会递归扫描 Home，也不会把整个 Server 切换成 Dangerous。Node、Python、Go 以及 `exec_process` 的其他程序名使用同一套查询逻辑。
+`discover_toolchains` 返回 `missing` 和 `registration_errors`，不会假装缺失工具可用。旧 `privileged_executable` 登录环境探测、负结果扩权缓存以及推测安装父目录的临时可读授权已移除。Dangerous 可以查询继承的 PATH，但发现过程仍不执行登录脚本。
 
 `exec_process` 接收结构化 `program + args`，最终使用 `shell=False` 启动。对于不需要 shell 管道、重定向或条件表达式的构建命令，应优先使用它：
 
@@ -641,7 +641,7 @@ tools/call
 
 服务器本身不能强制远端 MCP 客户端显示协议级弹窗。桌面版因此提供本地 Permission Broker fallback：客户端未声明 elicitation capability 时，MCP Server 会把签名授权请求投递给 MicroMatrix Workbench 桌面主进程，由桌面 UI 显示“拒绝 / 仅允许本次”，并在“仅允许本次”右侧提供“本次服务会话全部允许”。
 
-“仅允许本次”不是提前写入并立刻消费的单权限 grant，而是沿着同一次逻辑工具调用的重试链累积 permission。例如一次 `pnpm build` 先触发 `long_timeout`、后触发 `privileged_executable` 时，第二轮重试会同时携带前两项批准，不会在两个弹窗之间循环。
+“仅允许本次”不是提前写入并立刻消费的单权限 grant，而是沿着同一次逻辑工具调用的重试链累积 permission。例如一次命令先触发 `long_timeout`、后触发 `network` 时，第二轮重试会同时携带前两项批准，不会在两个弹窗之间循环。
 
 “本次服务会话全部允许”以当前 Runtime + OAuth principal 为边界，将 `ELICITABLE_PERMISSIONS` 在该 Runtime 生命周期内视为已批准；Server 停止/重启即清空。由于当前 Streamable HTTP 实现不创建 `Mcp-Session-Id`，这个范围不能宣称为“单个 ChatGPT 对话”，同一 OAuth principal 在该 Server 运行期间会共享该授权。
 
@@ -695,11 +695,11 @@ network
 
 `request_permissions` 也可以主动请求一次或 Session TTL 内授权；协议侧 grant 仍绑定目标 tool + 完整 arguments + principal。本地桌面 Broker 的“本次服务会话全部允许”是单独的 Runtime 级便利策略，但仍不会放开不可 elicitation 的沙箱根边界。
 
-工具环境解析遵循两阶段策略：先仅查询 Safe 沙箱 PATH；若缺失，则在用户批准 `privileged_executable` 后查询一次用户登录环境。最高权限查询仍未找到时，会在当前 Runtime 缓存该 program/toolchain 的负结果，后续相同查询直接返回不可用，不再重复要求用户批准。用户安装工具或修改 shell 环境后，应重启对应 MCP Server 以刷新环境快照。
+工具环境解析使用上述统一注册流程。持久化注册必须单独确认，“本次服务会话全部允许”或旧 `privileged_executable` grant 均不能替代注册，也不会改变任务 PATH、HOME 或文件读取范围。未接入注册的程序只能使用已经可用的系统路径或工作区路径；无桌面 Broker 时，缺失的受支持工具返回 `TOOLCHAIN_REGISTRATION_REQUIRED`（附候选），而不是回退到环境扩权。
 
 工具管理器的 shim/symlink 必须保留调用路径。实现会对真实 target 做 executable/权限校验，但运行时使用原始 `node`、`pnpm`、`npm` 等 shim 路径，不能将 `/path/bin/pnpm -> manager` 解引用后再以 `manager build` 执行；这一规则对 nvmd、Corepack、asdf、mise 等多调用入口统一适用，不依赖管理器名称硬编码。
 
-批准 `privileged_executable` 后，子进程允许保留真实 `HOME` 值，使用户工具管理器能够读取自身的版本选择配置；这不代表整个 Home 被加入可读范围。OS sandbox 仍只把经过验证的 toolchain root 作为额外只读目录传给该次命令，Workspace 与其他 Home 内容继续受原沙箱规则约束。
+已注册工具使用真实 HOME 值定位管理器配置，但只有用户批准的只读目录可访问；版本探测本身不会追加 Home 或推测安装根目录。`privileged_executable` 名称仅保留用于启动用户配置的外部 stdio MCP 进程，与任务工具链注册分离。
 
 `dangerous` 模式属于显式逃生口：继承完整用户环境并绕过 OS process sandbox，不应作为“让 npm 可见”的常规解决方案。
 

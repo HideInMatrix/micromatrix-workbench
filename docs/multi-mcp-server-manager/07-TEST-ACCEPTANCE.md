@@ -57,7 +57,7 @@
 - `requestState` 必须绑定 tool、完整 arguments、Workspace、认证 principal、permission、过期时间，并防止重复消费。
 - 用户拒绝/取消后原工具不得执行。
 - `scope=once` grant 只允许下一次完全相同的目标调用；不同参数不得复用。
-- 同一次逻辑工具调用连续触发多个 permission 时，已经批准的 permission 必须沿重试链累积，不能出现 `long_timeout` 与 `privileged_executable` 交替重复询问。
+- 同一次逻辑工具调用连续触发多个 permission 时，已经批准的 permission 必须沿重试链累积，不能出现 `long_timeout` 与 `network` 交替重复询问。
 - 本地 Broker 的“本次服务会话全部允许”只在当前 Runtime + OAuth principal 生命周期有效，Server 重启后必须恢复默认权限策略。
 - 客户端不支持 elicitation 且桌面 Broker 可用时，可由桌面签名 Broker fallback 授权；headless/CLI 无 Broker 时必须 fail-closed。
 - Broker 请求/响应必须 HMAC 校验；敏感参数只允许脱敏后进入桌面展示。
@@ -65,7 +65,7 @@
 - macOS `git_metadata_write` 临时授权只移除本次 Seatbelt `.git` write deny，不得顺带开放网络。
 - macOS `network` 临时授权只开放本次网络，不得移除 `.git` write deny。
 - Linux 对应行为分别是不再 `ro-bind` `.git`、或本次不使用 `--unshare-net`，其余 sandbox 规则保持不变。
-- 沙箱 PATH 未找到程序后，只允许进行一次已批准的宿主机用户环境查询；宿主机仍未找到时必须缓存负结果，同一 Runtime 内不得反复申请相同 `privileged_executable` 权限。
+- 沙箱 PATH 未找到受支持程序后，必须走桌面确认注册；拒绝、无桌面通道或注册失败时不得执行。禁止登录 Shell 探测、临时开放 Home、从成功版本探测推导新的读取权限；旧 `privileged_executable` grant 不能改变这一点。
 - 工具 manager 的 shim/symlink 必须保留原调用 basename；安全检查可以解析真实 target，但 `pnpm` 不得因为链接到 manager binary 而实际变成 `manager <args>`。
 
 ## 8. 回归

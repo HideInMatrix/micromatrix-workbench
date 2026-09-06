@@ -605,58 +605,31 @@ class CustomMCPServerContractTests(unittest.TestCase):
 
 class RuntimeSafetyTests(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "POSIX fixture uses executable shell scripts")
-    def test_toolchain_discovery_queries_sandbox_before_privileged_environment(self) -> None:
+    def test_toolchain_discovery_uses_only_configured_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             workspace = base / "workspace"
-            home = base / "home"
             workspace.mkdir()
-            home.mkdir()
-            (workspace / ".nvmrc").write_text("25.7.0\n", encoding="utf-8")
-            bin_dir = home / ".nvm" / "versions" / "node" / "v25.7.0" / "bin"
+            bin_dir = base / "home" / "tools" / "bin"
             bin_dir.mkdir(parents=True)
             node = bin_dir / "node"
-            npm = bin_dir / "npm"
-            node.write_text("#!/bin/sh\necho v25.7.0\n", encoding="utf-8")
-            npm.write_text("#!/bin/sh\necho 11.5.0\n", encoding="utf-8")
+            node.write_text("#!/bin/sh\necho v25.7.0\n")
             node.chmod(0o755)
-            npm.chmod(0o755)
+            calls = []
 
-            calls: list[tuple[bool, tuple[Path, ...]]] = []
+            def probe(argv, env, timeout):
+                calls.append(argv)
+                return subprocess.CompletedProcess(argv, 0, "v25.7.0\n", "")
 
-            def probe(
-                argv: list[str],
-                _env: object,
-                _timeout: float,
-                privileged: bool,
-                readable_roots: object,
-            ) -> subprocess.CompletedProcess[str]:
-                roots = tuple(readable_roots)  # type: ignore[arg-type]
-                calls.append((privileged, roots))
-                if argv[0] == str(node.resolve()):
-                    return subprocess.CompletedProcess(argv, 0, "v25.7.0\n", "")
-                if privileged and argv[-1] == "node":
-                    return subprocess.CompletedProcess(argv, 0, f"{node.resolve()}\n", "")
-                return subprocess.CompletedProcess(argv, 1, "", "")
-
-            resolver = ToolchainResolver(
-                workspace,
-                home=home,
-                safe_path=[str(base)],
-                probe_runner=probe,  # type: ignore[arg-type]
-            )
-            sandbox_result = resolver.discover(["node"])
-            result = resolver.discover(["node"], privileged=True)
-
-        self.assertIsNone(sandbox_result["toolchains"]["node"]["selected"])
-        selected = result["toolchains"]["node"]["selected"]
-        self.assertEqual(selected["version"], "25.7.0")
-        self.assertEqual(selected["source"], "elevated_path")
-        self.assertEqual(selected["executables"]["npm"], str(npm.resolve()))
-        self.assertTrue(any(not privileged for privileged, _roots in calls))
-        self.assertTrue(
-            any(privileged and resolver.home in roots for privileged, roots in calls)
-        )
+            with patch.dict(os.environ, {"PATH": str(bin_dir), "SHELL": "/never/run/login-shell"}):
+                resolver = ToolchainResolver(workspace, safe_path=[str(base)], probe_runner=probe)
+                self.assertIsNone(resolver.discover(["node"])["toolchains"]["node"]["selected"])
+                self.assertEqual(calls, [])
+                registered = ToolchainResolver(workspace, safe_path=[str(bin_dir)], probe_runner=probe,
+                                               registered_programs={"node": str(node)})
+                selected = registered.discover(["node"])["toolchains"]["node"]["selected"]
+            self.assertEqual(selected["version"], "25.7.0")
+            self.assertEqual(calls, [[str(node), "--version"]])
 
     @unittest.skipIf(os.name == "nt", "POSIX fixture uses symlinks")
     def test_toolchain_shims_preserve_invocation_name_instead_of_resolving_manager_target(self) -> None:
@@ -697,11 +670,7 @@ class RuntimeSafetyTests(unittest.TestCase):
                 argv: list[str],
                 env: object,
                 timeout: float,
-                privileged: bool,
-                readable_roots: object,
             ) -> subprocess.CompletedProcess[str]:
-                if privileged and argv[-1] == "node":
-                    return subprocess.CompletedProcess(argv, 0, f"{node}\n", "")
                 return subprocess.run(
                     argv,
                     stdin=subprocess.DEVNULL,
@@ -715,13 +684,12 @@ class RuntimeSafetyTests(unittest.TestCase):
 
             resolver = ToolchainResolver(
                 workspace,
-                home=home,
-                safe_path=["/usr/bin", "/bin"],
+                safe_path=[str(bin_dir), "/usr/bin", "/bin"],
                 probe_runner=probe,  # type: ignore[arg-type]
             )
-            discovered = resolver.discover(["node"], privileged=True)
+            discovered = resolver.discover(["node"])
             selected = discovered["toolchains"]["node"]["selected"]
-            resolved_pnpm = resolver.resolve_program("pnpm", privileged=True)
+            resolved_pnpm = resolver.resolve_program("pnpm")
 
         self.assertEqual(selected["version"], "25.7.0")
         selected_node = Path(selected["executables"]["node"])
@@ -743,7 +711,7 @@ class RuntimeSafetyTests(unittest.TestCase):
         self.assertNotIn(str(local_bin.resolve()), safe_path)
 
     @unittest.skipIf(os.name == "nt", "POSIX fixture uses executable shell scripts")
-    def test_exec_process_requests_privileged_lookup_after_sandbox_miss(self) -> None:
+    def test_exec_process_cannot_replace_registration_with_once_permission(self) -> None:
         class ApproveOnceBroker:
             calls: list[dict[str, object]] = []
 
@@ -812,19 +780,13 @@ class RuntimeSafetyTests(unittest.TestCase):
 
         assert result is not None
         payload = result["result"]["structuredContent"]
-        self.assertFalse(result["result"]["isError"])
-        self.assertEqual(payload["exit_code"], 0)
-        self.assertIn("npm-ok run build", payload["stdout"])
-        self.assertFalse(payload["shell"])
+        self.assertTrue(result["result"]["isError"])
+        self.assertEqual(payload["error"]["code"], "TOOLCHAIN_REGISTRATION_REQUIRED")
         self.assertNotIn(str(bin_dir.resolve()), environment["effective_path"])
-        self.assertIn("process.execute", environment["sandbox"]["capabilities"])
-        self.assertEqual(
-            [call["permission"] for call in ApproveOnceBroker.calls],
-            ["long_timeout", "privileged_executable"],
-        )
+        self.assertEqual([call["permission"] for call in ApproveOnceBroker.calls], ["long_timeout"])
 
     @unittest.skipIf(os.name == "nt", "POSIX fixture uses tool-manager symlinks")
-    def test_privileged_tool_manager_execution_keeps_real_home_for_manager_config(self) -> None:
+    def test_unknown_manager_does_not_trigger_login_shell_fallback(self) -> None:
         class ApproveOnceBroker:
             calls = 0
 
@@ -899,9 +861,9 @@ class RuntimeSafetyTests(unittest.TestCase):
 
         assert response is not None
         result = response["result"]
-        self.assertFalse(result["isError"])
-        self.assertIn("pnpm-ok build", result["structuredContent"]["stdout"])
-        self.assertEqual(ApproveOnceBroker.calls, 1)
+        self.assertTrue(result["isError"])
+        self.assertEqual(result["structuredContent"]["error"]["code"], "EXECUTABLE_NOT_FOUND")
+        self.assertEqual(ApproveOnceBroker.calls, 0)
 
     @unittest.skipIf(os.name == "nt", "POSIX fixture uses /bin/echo")
     def test_local_session_approval_applies_to_later_calls_for_same_principal(self) -> None:
@@ -963,7 +925,7 @@ class RuntimeSafetyTests(unittest.TestCase):
         self.assertFalse(second["result"]["isError"])
         self.assertEqual(ApproveSessionBroker.calls, 1)
 
-    def test_privileged_program_miss_is_not_re_requested_in_same_runtime(self) -> None:
+    def test_unsupported_program_miss_never_requests_environment_access(self) -> None:
         class ApproveOnceBroker:
             calls = 0
 
@@ -1010,10 +972,9 @@ class RuntimeSafetyTests(unittest.TestCase):
         second_error = second["result"]["structuredContent"]["error"]
         self.assertEqual(first_error["code"], "EXECUTABLE_NOT_FOUND")
         self.assertEqual(second_error["code"], "EXECUTABLE_NOT_FOUND")
-        self.assertTrue(second_error["details"]["cached_miss"])
-        self.assertEqual(ApproveOnceBroker.calls, 1)
+        self.assertEqual(ApproveOnceBroker.calls, 0)
 
-    def test_missing_toolchain_host_lookup_is_not_re_requested_in_same_runtime(self) -> None:
+    def test_missing_toolchain_returns_registration_error_without_environment_access(self) -> None:
         class ApproveOnceBroker:
             calls = 0
 
@@ -1026,22 +987,23 @@ class RuntimeSafetyTests(unittest.TestCase):
             runtime = Runtime(Path(temporary), permission_mode="safe")
             runtime.local_permission_broker = ApproveOnceBroker()  # type: ignore[assignment]
 
-            def fake_discover(kinds: list[str], *, privileged: bool = False) -> dict[str, object]:
+            def fake_discover(kinds: list[str]) -> dict[str, object]:
                 return {
                     "toolchains": {
                         kind: {
                             "hint": "",
                             "selected": None,
                             "candidates": [],
-                            "lookup_scope": "elevated" if privileged else "sandbox",
+                            "lookup_scope": "sandbox",
                         }
                         for kind in kinds
                     },
                     "safe_path": [],
-                    "privileged_lookup": privileged,
+                    "lookup_scope": "sandbox",
                 }
 
-            with patch.object(runtime.toolchains, "discover", side_effect=fake_discover):
+            with patch.object(runtime.toolchains, "discover", side_effect=fake_discover), \
+                 patch("agent_runtime.toolchains.discovery.discover_toolchain", return_value=None):
                 try:
                     first = dispatch(
                         runtime,
@@ -1071,12 +1033,14 @@ class RuntimeSafetyTests(unittest.TestCase):
         self.assertFalse(second["result"]["isError"])
         first_payload = first["result"]["structuredContent"]
         second_payload = second["result"]["structuredContent"]
-        self.assertEqual(first_payload["host_lookup_exhausted"], ["node"])
-        self.assertEqual(second_payload["host_lookup_exhausted"], ["node"])
-        self.assertEqual(ApproveOnceBroker.calls, 1)
+        self.assertEqual(first_payload["missing"], ["node"])
+        self.assertEqual(second_payload["missing"], ["node"])
+        self.assertEqual(first_payload["registration_errors"]["node"]["code"], "EXECUTABLE_NOT_FOUND")
+        self.assertFalse(first_payload["shell_startup_files_evaluated"])
+        self.assertEqual(ApproveOnceBroker.calls, 0)
 
     @unittest.skipIf(os.name == "nt", "POSIX fixture uses executable shell scripts")
-    def test_exec_command_uses_the_same_privileged_lookup_flow(self) -> None:
+    def test_exec_command_does_not_fall_back_to_login_environment(self) -> None:
         class ApproveOnceBroker:
             calls = 0
 
@@ -1129,12 +1093,9 @@ class RuntimeSafetyTests(unittest.TestCase):
                     runtime.close()
 
         assert response is not None
-        self.assertFalse(response["result"]["isError"])
-        self.assertIn(
-            "custom-ok release",
-            response["result"]["structuredContent"]["stdout"],
-        )
-        self.assertEqual(ApproveOnceBroker.calls, 1)
+        self.assertTrue(response["result"]["isError"])
+        self.assertEqual(response["result"]["structuredContent"]["error"]["code"], "EXECUTABLE_NOT_FOUND")
+        self.assertEqual(ApproveOnceBroker.calls, 0)
 
     def test_exec_process_blocks_known_network_package_commands_in_safe_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
