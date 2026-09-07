@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import os
+import signal
+import subprocess
 import sys
 import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from agent_runtime.errors import ToolError
 from agent_runtime.runtime import Runtime
@@ -14,6 +17,7 @@ from agent_runtime.sandbox.backend import ProcessSandboxBackend, SandboxBackendS
 from agent_runtime.toolchains.registration import (
     fingerprint, normalize_registrations, prepare_toolchain,
     register_toolchain, require_confinement,
+    probe_version, probe_runtime_target, toolchain_environment,
 )
 from agent_runtime.tools.process.policy import ProcessCommandPolicy
 from agent_workbench.core.config import NetworkConfig
@@ -23,6 +27,57 @@ from agent_workbench.servers.store import ServerProfileStore
 
 
 class ToolchainRegistrationTests(unittest.TestCase):
+    def test_probe_checks_installed_version_without_changing_task_environment(self):
+        backend = ProcessSandboxBackend(SandboxBackendState(
+            name='test', available=True, enabled=True, reason='',
+            filesystem_isolation=True, network_isolation=True,
+        ))
+        process = Mock(returncode=0)
+        process.communicate.return_value = ('11.22.0\n', '')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            env = toolchain_environment(['/usr/bin'], root, root / 'cache', root)
+            original = dict(env)
+            with patch('subprocess.Popen') as popen:
+                popen.return_value.__enter__.return_value = process
+                version = probe_version('/nvmd/bin/pnpm', backend, root, env)
+        self.assertEqual(version, '11.22.0')
+        self.assertEqual(popen.call_args.args[0], ['/nvmd/bin/pnpm', '--version'])
+        self.assertEqual(popen.call_args.kwargs['cwd'].parent, root)
+        self.assertNotEqual(popen.call_args.kwargs['cwd'], root)
+        self.assertFalse(popen.call_args.kwargs['cwd'].exists())
+        probe_env = popen.call_args.kwargs['env']
+        self.assertEqual(probe_env['npm_config_manage_package_manager_versions'], 'false')
+        self.assertEqual(probe_env['COREPACK_ENABLE_PROJECT_SPEC'], '0')
+        self.assertEqual(probe_env['COREPACK_ENABLE_NETWORK'], '0')
+        self.assertEqual(env, original)
+        self.assertNotIn('npm_config_manage_package_manager_versions', env)
+
+    def test_probe_timeout_is_actionable_and_cleans_up_process_group(self):
+        backend = ProcessSandboxBackend(SandboxBackendState(
+            name='test', available=True, enabled=True, reason='',
+            filesystem_isolation=True, network_isolation=True,
+        ))
+        for program in ['pnpm', 'python']:
+            with self.subTest(program=program):
+                process = Mock(pid=12345)
+                process.communicate.side_effect = subprocess.TimeoutExpired(program, 8)
+                with tempfile.TemporaryDirectory() as temporary, \
+                     patch('subprocess.Popen') as popen, \
+                     patch('os.killpg', create=True) as killpg:
+                    popen.return_value.__enter__.return_value = process
+                    with self.assertRaisesRegex(ValueError, '沙箱验证超时.*重新验证并注册'):
+                        if program == 'pnpm':
+                            probe_version('/tools/pnpm', backend, Path('/test'), {'TMPDIR': temporary})
+                        else:
+                            probe_runtime_target(program, '/tools/python', backend, Path('/test'), {})
+                if os.name != 'nt':
+                    killpg.assert_called_once_with(process.pid, signal.SIGKILL)
+                    self.assertTrue(popen.call_args.kwargs['start_new_session'])
+                else:
+                    process.kill.assert_called_once_with()
+                process.wait.assert_called_once_with()
+
     def test_inspection_never_executes_program_or_login_shell(self):
         with patch('subprocess.run') as run:
             proposal = prepare_toolchain('python', sys.executable, [])
@@ -143,6 +198,39 @@ class ToolchainConfinementTests(unittest.TestCase):
                     self.assertEqual(shell['stdout'], '43\n')
                 finally:
                     runtime.close()
+
+    def test_package_manager_registration_survives_mode_switch_and_hot_install(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary).resolve()
+            workspace = base / 'workspace'
+            workspace.mkdir()
+            binary = base / 'tools' / 'pnpm'
+            binary.parent.mkdir()
+            # Model a manager shim that provisions a project's requested pnpm
+            # before delegating to pnpm (and ignores pnpm's environment flags).
+            binary.write_text(
+                '#!/bin/sh\n'
+                'if [ -f package.json ]; then\n'
+                ' echo "project version switch attempted" >&2; exit 42\n'
+                'fi\n'
+                'echo 11.22.0\n'
+            )
+            binary.chmod(0o700)
+            (workspace / 'package.json').write_text('{"packageManager":"pnpm@11.25.0"}')
+            record = register_toolchain('pnpm', str(binary), [])
+            for mode in ['dangerous', 'safe', 'trusted']:
+                with self.subTest(mode=mode):
+                    runtime = Runtime(workspace, permission_mode=mode, toolchains=[record],
+                                      permission_broker_from_env=False)
+                    try:
+                        runtime._verify_registered_toolchains()
+                        runtime._install_registered_toolchain(record)
+                        self.assertEqual(runtime.toolchain_registrations[0]['version'], '11.22.0')
+                        result = runtime.exec_process({'program': 'pnpm', 'args': ['--version']})
+                        self.assertEqual(result['exit_code'], 42, result)
+                        self.assertIn('project version switch attempted', result['stderr'])
+                    finally:
+                        runtime.close()
 
     def test_child_process_cannot_read_external_secret_or_write_outside(self):
         with tempfile.TemporaryDirectory() as temporary:

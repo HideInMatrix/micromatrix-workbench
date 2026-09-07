@@ -5,6 +5,7 @@ import hashlib
 import os
 import re
 import shlex
+import signal
 import subprocess
 import tempfile
 from pathlib import Path
@@ -115,12 +116,59 @@ def toolchain_environment(path: list[str], home: Path, cache: Path, tmp: Path) -
     return env
 
 
+def _probe_environment(env: dict[str, str]) -> dict[str, str]:
+    # Query the installed tool, not the packageManager requested by the project.
+    # pnpm switches/downloads versions even for --version. Keep these overrides
+    # probe-only: real commands must still honor the project's configuration.
+    return {**env,
+            "npm_config_manage_package_manager_versions": "false",
+            "npm_config_package_manager_strict": "false",
+            "npm_config_package_manager_strict_version": "false",
+            "COREPACK_ENABLE_PROJECT_SPEC": "0",
+            "COREPACK_DEFAULT_TO_LATEST": "0",
+            "COREPACK_ENABLE_NETWORK": "0",
+            "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
+            "YARN_IGNORE_PATH": "1",
+            "YARN_ENABLE_NETWORK": "0"}
+
+
+def _run_registration_probe(argv: list[str], backend: Any, cwd: Path,
+                            env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    require_confinement(backend)
+    command = backend.wrap(argv, cwd=cwd)
+    with subprocess.Popen(command, cwd=cwd, env=_probe_environment(env),
+                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, text=True, shell=False,
+                          start_new_session=os.name != "nt") as process:
+        try:
+            stdout, stderr = process.communicate(timeout=8)
+        except subprocess.TimeoutExpired as exc:
+            # Version-manager shims spawn children. Killing just the shim leaves
+            # downloads/retries running after the Profile has failed to start.
+            try:
+                if os.name != "nt":
+                    os.killpg(process.pid, signal.SIGKILL)
+                else:
+                    process.kill()
+            except ProcessLookupError:
+                pass
+            process.wait()
+            raise ValueError(
+                f"工具链沙箱验证超时（8 秒）: {shlex.join(argv)}。"
+                "请检查版本管理器及只读依赖目录，或选择已安装的工具入口重新验证并注册。"
+            ) from exc
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
 def probe_version(executable: str, backend: Any, cwd: Path, env: dict[str, str]) -> str:
     require_confinement(backend)
-    command = backend.wrap([executable, "--version"], cwd=cwd)
-    completed = subprocess.run(command, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               text=True, timeout=8, shell=False)
+    # Managers such as nvmd inspect package.json before handing off to pnpm,
+    # so pnpm's own environment switches alone do not prevent provisioning.
+    # Use the already-authorized runtime temp root, as desktop registration
+    # does, without changing the real task cwd or granting new read roots.
+    with tempfile.TemporaryDirectory(prefix="toolchain-probe-", dir=env["TMPDIR"]) as temporary:
+        completed = _run_registration_probe([executable, "--version"], backend,
+                                            Path(temporary).resolve(), env)
     if completed.returncode:
         raise ValueError("工具链沙箱验证失败；请补充必要的只读依赖目录，不能关闭沙箱。 "
                          + completed.stderr[-1200:])
@@ -134,13 +182,9 @@ def probe_runtime_target(program: str, executable: str, backend: Any,
                          cwd: Path, env: dict[str, str]) -> str:
     if program not in {"node", "python", "python3"}:
         return ""
-    require_confinement(backend)
     args = (["-p", "process.execPath"] if program == "node" else
             ["-I", "-c", "import sys; print(sys._base_executable)"])
-    completed = subprocess.run(backend.wrap([executable, *args], cwd=cwd),
-                               cwd=cwd, env=env, stdin=subprocess.DEVNULL,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               text=True, timeout=8, shell=False)
+    completed = _run_registration_probe([executable, *args], backend, cwd, env)
     target = completed.stdout.strip()
     if completed.returncode or not target or not Path(target).is_absolute():
         raise ValueError("无法在沙箱中确定实际解释器路径: " + completed.stderr[-1200:])
