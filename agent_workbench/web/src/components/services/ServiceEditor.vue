@@ -189,7 +189,7 @@ function updateProfilePublicUrl(member: GatewayMemberDraft, index: number, event
           </FormField>
           <FormField label="权限模式"><select v-model="member.permission_mode" :disabled="locked"><option value="safe">安全</option><option value="trusted">受信任</option><option value="dangerous">危险</option></select></FormField>
           <CheckField><input v-model="member.allow_network" :disabled="locked" type="checkbox" /><span>允许网络</span></CheckField>
-          <FormField label="工具链与隔离" span="2"><ToolchainEditor v-model="member.toolchains" :locked="locked" :mode="member.permission_mode" /></FormField>
+          <div class="col-span-2 min-w-0"><ToolchainEditor v-model="member.toolchains" :locked="locked" :mode="member.permission_mode" /></div>
           <CheckField><input v-model="member.enable_view_image" :disabled="locked" type="checkbox" /><span>启用图片工具</span></CheckField>
         </FormGrid>
 
