@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 from ..core.settings import load_settings, save_settings
+from ..updates.cache import CHECK_INTERVAL_SECONDS
 from ..updates.release import (
     DEFAULT_GITHUB_DOWNLOAD_PROXY,
     fetch_latest_release,
@@ -46,22 +47,36 @@ class UpdateAPI:
 
     def save_update_download_proxy(self, prefix: str) -> str:
         normalized = normalize_download_proxy_prefix(prefix)
-        settings = load_settings()
-        settings[UPDATE_DOWNLOAD_PROXY_SETTING] = normalized
-        save_settings(settings)
-        self._latest_release = None
+        with self._update_check_lock:
+            settings = load_settings()
+            settings[UPDATE_DOWNLOAD_PROXY_SETTING] = normalized
+            save_settings(settings)
+            self._latest_release = None
         return normalized
 
     def get_update_download_proxy(self) -> str:
         return self._update_download_proxy_prefix()
 
-    def check_update(self) -> dict[str, object]:
-        info = fetch_latest_release(
-            self._app_version,
-            download_proxy_prefix=self._update_download_proxy_prefix(),
-        )
-        self._latest_release = info
-        return self._release_payload(info)
+    def get_update_check_state(self) -> dict[str, object]:
+        with self._update_check_lock:
+            info, checked = self._update_check_cache.read(
+                self._app_version, self._update_download_proxy_prefix(), time.time(),
+            )
+            return {"release": self._release_payload(info) if info else None,
+                    "last_checked_at": checked}
+
+    def check_update(self, force: bool = True) -> dict[str, object]:
+        with self._update_check_lock:
+            proxy = self._update_download_proxy_prefix()
+            info, checked = self._update_check_cache.read(self._app_version, proxy, time.time())
+            if force or info is None or time.time() - checked >= CHECK_INTERVAL_SECONDS:
+                info = fetch_latest_release(self._app_version, download_proxy_prefix=proxy)
+                try:
+                    self._update_check_cache.write(info, proxy, time.time())
+                except OSError as exc:
+                    self._append_log(f"更新检查成功，但缓存写入失败: {exc}")
+            self._latest_release = info
+            return self._release_payload(info)
 
     def start_update(self) -> dict[str, object]:
         info = self._latest_release
@@ -76,7 +91,23 @@ class UpdateAPI:
     def update_status(self) -> dict[str, object]:
         return self.update_manager.status().to_dict()
 
-    def install_update(self) -> dict[str, object]:
+    def get_update_install_impact(self) -> dict[str, object]:
+        services = [
+            {"id": f"{kind}:{item_id}", "name": item.name}
+            for kind, statuses, id_field in (
+                ("direct", self.manager.statuses(), "server_id"),
+                ("gateway", self.gateway_manager.statuses(), "gateway_id"),
+            )
+            for item in statuses if item.running
+            for item_id in (getattr(item, id_field),)
+        ]
+        return {"version": self.update_manager.status().version, "services": services}
+
+    def install_update(self, confirmed_services: list[str] | None = None) -> dict[str, object]:
+        impact = self.get_update_install_impact()
+        active = {item["id"] for item in impact["services"]}
+        if active != set(confirmed_services or []):
+            raise RuntimeError("运行中的服务已变化，请重新确认将停止的服务后安装。")
         status = self.update_manager.install_and_restart()
         threading.Thread(
             target=self._close_window_for_update,

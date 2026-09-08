@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from webview import Window
 
 from .core.resources import web_ui_entrypoint
 from .core.version import current_version
@@ -9,6 +13,14 @@ from agent_runtime.sandbox.windows_launcher import (
     INTERNAL_WINDOWS_SANDBOX_FLAG,
     run_internal_windows_sandbox_process,
 )
+
+
+def configure_titlebar(window: Window) -> None:
+    """Keep the macOS title centered instead of the unified leading layout."""
+    if sys.platform == "darwin":
+        from AppKit import NSWindowToolbarStyleExpanded
+
+        window.native.setToolbarStyle_(NSWindowToolbarStyleExpanded)
 
 
 def main() -> int:
@@ -38,7 +50,7 @@ def main() -> int:
     app_version = current_version()
     api = DesktopAPI(app_version=app_version)
     window = webview.create_window(
-        f"MicroMatrix Workbench {app_version}",
+        "MicroMatrix Workbench",
         str(entrypoint),
         js_api=api,
         width=1180,
@@ -47,6 +59,7 @@ def main() -> int:
         background_color="#fdfdfd",
     )
     api._bind_window(window)
+    window.events.before_show += configure_titlebar
     window.events.closing += api._close
     webview.start(http_server=True, debug=False)
     return 0

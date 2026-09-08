@@ -133,7 +133,7 @@ class UpdateManager:
             self._set_status(
                 state="ready",
                 progress=100,
-                message="下载完成，准备安装并重启…",
+                message="下载并校验完成，等待确认安装。",
             )
             self._log(f"更新 {release.latest_version} 下载并校验完成。")
         except Exception as exc:

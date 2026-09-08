@@ -23,6 +23,8 @@ import type {
   WorkflowValidationDto,
   ReleaseDto,
   UpdateStatusDto,
+  UpdateCheckStateDto,
+  UpdateInstallImpactDto,
   ServerDraft,
   ServerDto,
 } from '../types'
@@ -226,8 +228,14 @@ export const desktopApi = {
   async detectExecutable(product: string, configured = '') {
     return (await bridge()).detect_executable(product, configured)
   },
-  async checkUpdate(): Promise<ReleaseDto> {
-    return (await bridge()).check_update()
+  async updateCheckState(): Promise<UpdateCheckStateDto> {
+    return (await bridge()).get_update_check_state()
+  },
+  async updateInstallImpact(): Promise<UpdateInstallImpactDto> {
+    return (await bridge()).get_update_install_impact()
+  },
+  async checkUpdate(force = true): Promise<ReleaseDto> {
+    return (await bridge()).check_update(force)
   },
   async startUpdate(): Promise<UpdateStatusDto> {
     return (await bridge()).start_update()
@@ -235,8 +243,8 @@ export const desktopApi = {
   async updateStatus(): Promise<UpdateStatusDto> {
     return (await bridge()).update_status()
   },
-  async installUpdate(): Promise<UpdateStatusDto> {
-    return (await bridge()).install_update()
+  async installUpdate(confirmedServices: string[]): Promise<UpdateStatusDto> {
+    return (await bridge()).install_update(confirmedServices)
   },
   async openExternal(url: string): Promise<boolean> {
     return (await bridge()).open_external(url)

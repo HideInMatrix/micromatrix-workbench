@@ -10,14 +10,17 @@ const props = defineProps<{
   updateStatus: UpdateStatusDto
   updateProxyPrefix: string
   savingProxy: boolean
+  operationBusy: boolean
+  lastCheckedAt: number
 }>()
-const emit = defineEmits<{ check: []; update: []; open: [url: string]; saveProxy: [prefix: string] }>()
+const emit = defineEmits<{ check: []; update: []; install: []; open: [url: string]; saveProxy: [prefix: string] }>()
 const proxyDraft = ref(props.updateProxyPrefix)
 
 watch(() => props.updateProxyPrefix, value => { proxyDraft.value = value })
 
-const updating = computed(() => ['downloading', 'verifying', 'ready', 'installing'].includes(props.updateStatus.state))
+const updating = computed(() => props.operationBusy || ['downloading', 'verifying', 'installing'].includes(props.updateStatus.state))
 const canAutoUpdate = computed(() => Boolean(props.release?.update_download_url && props.release?.checksum_url))
+const lastCheckedLabel = computed(() => props.lastCheckedAt ? new Date(props.lastCheckedAt).toLocaleString() : '尚未检查')
 
 function formatBytes(value: number): string {
   if (!value) return '0 B'
@@ -36,15 +39,12 @@ function formatBytes(value: number): string {
   <section class="w-full max-w-[700px]">
     <div>
       <h1 class="m-0 text-xl leading-7 font-medium tracking-[-0.02em]">关于</h1>
-      <p class="mt-[3px] mb-0 text-xs leading-[18px] text-muted-foreground">MicroMatrix Workbench 版本与更新信息</p>
+      <p class="mt-[3px] mb-0 text-xs leading-[18px] text-muted-foreground">版本与更新信息</p>
     </div>
     <div class="mt-5 max-w-[430px] overflow-hidden rounded-lg border border-border bg-popover p-5 shadow-sm">
-      <div class="mb-3.5 grid size-10 place-items-center rounded-lg border border-border bg-background">
-        <img src="/workbench-mark.svg" alt="WorkBench" class="size-7 dark:invert" />
-      </div>
-      <h2 class="mt-0 mb-2.5 text-sm font-medium">MicroMatrix Workbench</h2>
       <div class="flex justify-between gap-4 border-b border-border py-2.5 text-[11px]"><span>当前版本</span><strong>{{ version || '—' }}</strong></div>
       <div class="flex justify-between gap-4 border-b border-border py-2.5 text-[11px]"><span>GitHub 最新版本</span><strong>{{ release?.latest_version || '未检查' }}</strong></div>
+      <p class="mt-2 mb-0 text-[10px] leading-4 text-muted-foreground">上次检查：{{ lastCheckedLabel }}。后台每 24 小时检查一次。</p>
       <div class="pt-3 pb-0.5">
         <label class="mb-[7px] block text-[11px] font-medium" for="update-proxy-prefix">GitHub 下载加速前缀</label>
         <div class="flex gap-[7px]">
@@ -61,7 +61,7 @@ function formatBytes(value: number): string {
             variant="outline"
             size="sm"
             class="whitespace-nowrap px-[11px]"
-            :disabled="savingProxy || proxyDraft === updateProxyPrefix"
+            :disabled="savingProxy || checking || proxyDraft === updateProxyPrefix"
             @click="emit('saveProxy', proxyDraft)"
           >{{ savingProxy ? '保存中…' : '保存' }}</Button>
         </div>
@@ -70,7 +70,7 @@ function formatBytes(value: number): string {
       <p v-if="release?.update_available" class="mt-3 mb-0 rounded-md bg-secondary px-2.5 py-2 text-[11px] text-foreground">发现新版本 {{ release.latest_version }}。</p>
       <p v-else-if="release" class="text-muted-foreground">当前已经是最新版本。</p>
 
-      <div v-if="updating || updateStatus.state === 'error'" class="mt-3 rounded-[7px] border border-border bg-secondary p-2.5">
+      <div v-if="updating || ['ready', 'error'].includes(updateStatus.state)" class="mt-3 rounded-[7px] border border-border bg-secondary p-2.5">
         <div class="flex items-center justify-between gap-3 text-[11px]">
           <span>{{ updateStatus.message || '正在处理更新…' }}</span>
           <strong v-if="updateStatus.state === 'downloading'" class="font-semibold tabular-nums">{{ updateStatus.progress }}%</strong>
@@ -85,7 +85,13 @@ function formatBytes(value: number): string {
       </div>
 
       <Button
-        v-if="release?.update_available && canAutoUpdate"
+        v-if="updateStatus.state === 'ready'"
+        class="mt-2.5 w-full"
+        :disabled="operationBusy"
+        @click="emit('install')"
+      >安装并重启</Button>
+      <Button
+        v-else-if="release?.update_available && canAutoUpdate"
         class="mt-2.5 w-full"
         :disabled="updating"
         @click="emit('update')"
@@ -100,7 +106,7 @@ function formatBytes(value: number): string {
       >
         打开下载页面
       </Button>
-      <Button v-else variant="outline" class="mt-2.5 w-full" :disabled="checking" @click="emit('check')">{{ checking ? '正在检查…' : '检查版本' }}</Button>
+      <Button variant="outline" class="mt-2.5 w-full" :disabled="checking || savingProxy" @click="emit('check')">{{ checking ? '正在检查…' : '检查版本' }}</Button>
       <p v-if="release?.update_available && !canAutoUpdate" class="mt-[9px] text-[10px] leading-[15px] text-muted-foreground">当前 Release 缺少自动更新包或 SHA-256 校验文件，请使用手动下载。</p>
       <small class="mt-4 block text-[10px] text-muted-foreground">Copyright © micromatrix.org</small>
     </div>

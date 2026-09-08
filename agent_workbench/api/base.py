@@ -17,6 +17,7 @@ from ..runtime.permission_broker import DesktopPermissionBroker
 from ..servers.manager import MCPServerManager
 from ..servers.store import ServerProfileStore
 from ..updates.manager import UpdateManager
+from ..updates.cache import UpdateCheckCache
 from .workbench_manager import DesktopWorkbenchManager
 
 
@@ -62,6 +63,8 @@ class DesktopBaseAPI:
             global_root=settings_dir() / "workbench",
         )
         self.update_manager = UpdateManager(log=self._append_log)
+        self._update_check_lock = threading.RLock()
+        self._update_check_cache = UpdateCheckCache(settings_dir() / "update-check.json")
         self._latest_release = None
         self._window: Any | None = None
         self._permission_attention_id = ""

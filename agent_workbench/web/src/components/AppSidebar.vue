@@ -14,7 +14,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import type { AppRouteName } from '../router'
 
-defineProps<{ version: string }>()
+defineProps<{ updateAvailable: boolean }>()
 
 const route = useRoute()
 const router = useRouter()
@@ -67,30 +67,34 @@ function subNavClass(name: AppRouteName): string[] {
       collapsed ? 'w-16 px-2' : 'w-60 px-3',
     ]"
   >
-    <div :class="['flex min-h-8 items-start gap-2', collapsed ? 'justify-center' : 'justify-between px-1.5']">
+    <div :class="['flex min-h-8 items-center gap-2', collapsed ? 'justify-center' : 'justify-between px-1.5']">
       <div v-if="!collapsed" class="flex min-w-0 items-center gap-2.5">
         <div class="grid size-9 flex-none place-items-center rounded-md border border-sidebar-border bg-background/40">
           <img src="/workbench-mark.svg" alt="" class="size-6 dark:invert" />
         </div>
-        <div class="grid min-w-0 gap-0.5">
-          <strong class="text-[15px] leading-5 font-semibold tracking-[-0.015em]">MicroMatrix Workbench</strong>
-        </div>
       </div>
       <div v-if="!collapsed" class="flex items-center gap-1">
-        <small class="flex-none font-mono text-[10px] leading-4 font-normal text-muted-foreground">v{{ version || '—' }}</small>
         <Button variant="ghost" size="icon" class="h-7 w-7" title="收起侧边栏" @click="toggleCollapsed">
           <PanelLeftClose :size="15" />
         </Button>
       </div>
-      <div v-else class="grid gap-2">
-        <img src="/workbench-mark.svg" alt="WorkBench" class="mx-auto size-7 dark:invert" />
-        <Button variant="ghost" size="icon" class="h-8 w-8" title="展开侧边栏" @click="toggleCollapsed">
+      <div v-else class="flex items-center justify-center">
+        <Button
+          variant="ghost"
+          size="icon"
+          class="h-8 w-8"
+          title="展开侧边栏"
+          aria-label="展开侧边栏"
+          aria-controls="app-sidebar-navigation"
+          :aria-expanded="!collapsed"
+          @click="toggleCollapsed"
+        >
           <PanelLeftOpen :size="16" />
         </Button>
       </div>
     </div>
 
-    <nav :class="['grid gap-1', collapsed ? 'mt-5' : 'mt-7']" aria-label="主导航">
+    <nav id="app-sidebar-navigation" class="mt-5 grid gap-1" aria-label="主导航">
       <Button
         variant="ghost"
         size="sm"
@@ -166,12 +170,18 @@ function subNavClass(name: AppRouteName): string[] {
       <Button
         variant="ghost"
         size="sm"
-        :class="navClass('about')"
-        :title="collapsed ? '关于' : undefined"
+        :class="[...navClass('about'), 'relative']"
+        :title="updateAvailable ? '关于 · 有新版本' : collapsed ? '关于' : undefined"
+        :aria-label="updateAvailable ? '关于，有新版本' : '关于'"
         @click="router.push({ name: 'about' })"
       >
         <Info class="flex-none" :size="16" :stroke-width="1.8" />
         <span v-if="!collapsed" class="leading-none">关于</span>
+        <span
+          v-if="updateAvailable"
+          :class="['size-1.5 rounded-full bg-destructive', collapsed ? 'absolute top-1 right-1' : 'ml-auto']"
+          aria-hidden="true"
+        />
       </Button>
     </div>
   </aside>

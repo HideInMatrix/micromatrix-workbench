@@ -5,10 +5,12 @@ import { RouterView } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import { desktopApi } from './api/desktop'
 import AppSidebar from './components/AppSidebar.vue'
+import UpdateInstallDialog from './components/UpdateInstallDialog.vue'
+import { provideAppUpdates } from './composables/useAppUpdates'
 import type { PermissionRequestDto } from './types'
 
-const version = ref('')
 const errorMessage = ref('')
+const { updateAvailable, installImpact, installing, cancelInstall, confirmInstall } = provideAppUpdates()
 const permissionRequests = ref<PermissionRequestDto[]>([])
 const permissionResponding = ref(false)
 const permissionMenuOpen = ref(false)
@@ -71,12 +73,7 @@ async function respondPermission(decision: 'deny' | 'once' | 'session' | 'rememb
 }
 
 onMounted(async () => {
-  const versionRequest = desktopApi.appVersion()
-    .then(value => { if (value) version.value = value })
-    .catch(() => undefined)
-
   await refreshPermissionRequests(true)
-  await versionRequest
   pollTimer = window.setInterval(() => void refreshPermissionRequests(false), 900)
 })
 
@@ -85,7 +82,7 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
 
 <template>
   <div class="flex h-screen bg-background">
-    <AppSidebar :version="version" />
+    <AppSidebar :update-available="updateAvailable" />
 
     <main class="min-w-0 flex-1 overflow-auto">
       <div class="mx-auto flex min-h-full w-full max-w-none flex-col px-3 py-4 max-[1050px]:px-2.5 max-[1050px]:py-3">
@@ -101,6 +98,8 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
       </div>
     </main>
   </div>
+
+  <UpdateInstallDialog :impact="installImpact" :busy="installing" @cancel="cancelInstall" @confirm="confirmInstall" />
 
   <div
     v-if="activePermissionRequest"

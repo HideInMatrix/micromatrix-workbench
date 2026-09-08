@@ -187,6 +187,16 @@ export interface UpdateStatusDto {
   message: string
 }
 
+export interface UpdateCheckStateDto {
+  release: ReleaseDto | null
+  last_checked_at: number
+}
+
+export interface UpdateInstallImpactDto {
+  version: string
+  services: { id: string; name: string }[]
+}
+
 export interface LogEntryDto {
   id: number
   time: number
@@ -532,9 +542,11 @@ export interface DesktopBridge {
   detect_executable(product: string, configured?: string): Promise<{ path: string; source: string; version: string }>
   choose_workspace(initial?: string): Promise<string>
   choose_file(initial?: string): Promise<string>
-  check_update(): Promise<ReleaseDto>
+  get_update_check_state(): Promise<UpdateCheckStateDto>
+  get_update_install_impact(): Promise<UpdateInstallImpactDto>
+  check_update(force?: boolean): Promise<ReleaseDto>
   start_update(): Promise<UpdateStatusDto>
   update_status(): Promise<UpdateStatusDto>
-  install_update(): Promise<UpdateStatusDto>
+  install_update(confirmedServices: string[]): Promise<UpdateStatusDto>
   open_external(url: string): Promise<boolean>
 }
