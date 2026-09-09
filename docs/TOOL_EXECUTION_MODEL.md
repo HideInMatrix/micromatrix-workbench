@@ -150,13 +150,13 @@ C:\Program Files\Google\Chrome\...
 /usr/bin/google-chrome
 ```
 
-Browser Provider 通过当前用户操作系统配置查询默认 HTTPS Handler：
+Browser Provider 通过当前用户操作系统注册信息查询 HTTPS Handler；默认 Chromium Handler 优先，否则从当前用户已注册 Handler 中选择可用 Chromium/CDP Provider：
 
 - macOS：LaunchServices
 - Windows：URL Association
 - Linux：XDG default-web-browser / Desktop Entry
 
-解析出的应用身份属于 Host 内部信息。首版 Browser Provider 是 Chromium/CDP Provider；如果默认 Handler 不是已支持的 Chromium family，会在启动前明确返回 unsupported，不用 Chromium 参数误启动 Safari/Firefox。
+解析出的应用身份属于 Host 内部信息。首版 Browser Provider 是 Chromium/CDP Provider；如果系统没有注册可用 Chromium family，会在启动前明确返回 unsupported，不用 Chromium 参数误启动 Safari/Firefox，也不扫描固定安装目录。
 
 ## 8. 权限边界
 
@@ -206,4 +206,33 @@ Host Capability
 8. `browser_close` 删除临时 Profile。
 9. MCP Server stop/delete 后 Browser Session 自动回收。
 10. 非 Chromium 默认浏览器必须安全失败，不能退回普通 `exec_process`。
+
+## 10. Host Credential Broker
+
+Credential Broker 不是第三类 Tool。它是 Desktop Host 提供给 Runtime Tool 的受控宿主服务，用于解决“CLI 必须在 Runtime Sandbox 中执行，但认证凭据只存在于宿主 Credential Store”这一边界。
+
+```text
+Runtime Tool: git push
+  -> 解析目标 HTTPS remote
+  -> 请求 credential_use（仅当前调用）
+  -> signed Host Credential IPC
+  -> Desktop Host 调用真实用户 Git Credential Helper / Keychain
+  -> Desktop Host 创建短生命周期 AskPass Session
+  -> Runtime 只获得 session_id + askpass_path + 单一只读根
+  -> 本次 Git 子进程通过 AskPass 直接取凭据
+  -> 命令结束 / timeout / Server stop 后销毁 Session
+```
+
+安全约束：
+
+- username/password/token 不进入 Tool 参数、Tool Result、命令行或 Runtime 日志。
+- `credential_use` 不提供“本次服务会话全部允许”；Desktop UI 只允许拒绝或仅允许本次。
+- 首版只对结构化 `exec_process(program="git", args=["push", ...])` 启用，不给任意 `exec_command` Shell 链注入凭据。
+- Git remote 必须是 HTTPS；SSH Agent Broker 属于后续 Provider，不复用 HTTPS Credential Session。
+- AskPass Session 与目标 host 绑定，`github.com.evil.example` 不能复用 `github.com` Session。
+- Credential Session 目录仅作为该 Git 子进程的临时只读 Sandbox root；其他 Runtime 命令不会获得这一可读范围。
+- Brokered push 强制禁用 Git hooks、清空仓库 credential helper、禁止调用方覆盖 Git/GCM/SSH/Proxy/TLS 环境，并强制 TLS verification。
+- Desktop Host 使用当前用户真实 Git Credential Helper，而不是读取或复制 `~/.gitconfig`、Keychain 文件、Token 文件到 Runtime。
+
+首版 Provider：`git_https:push`。后续 npm/docker/registry 登录沿用同一 Host Credential Manager，但必须各自定义最小协议和目标绑定，不把“读取任意宿主 secret”暴露成通用 Tool。
 

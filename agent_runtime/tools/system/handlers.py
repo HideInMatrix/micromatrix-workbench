@@ -62,6 +62,15 @@ class SystemHandlers:
                     "model": "desktop_host_session",
                     "runtime_process_launch": False,
                 },
+                "host_credentials": {
+                    "configured": callable(
+                        getattr(self.local_permission_broker, "prepare_host_credential", None)
+                    ),
+                    "model": "desktop_host_credential_broker",
+                    "credential_exposed_to_ai": False,
+                    "credential_exposed_to_tool_result": False,
+                    "supported_operations": ["git_https:push"],
+                },
             },
             "auth_enabled": self.auth_enabled(),
             "supported_protocol_versions": list(KNOWN_PROTOCOL_VERSIONS),

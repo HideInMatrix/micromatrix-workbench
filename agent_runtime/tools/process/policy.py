@@ -31,7 +31,19 @@ SANDBOX_PROTECTED_ENV = {
     "YARN_ENABLE_NETWORK",
     "CARGO_NET_OFFLINE",
     "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
     "GIT_TERMINAL_PROMPT",
+    "GIT_ASKPASS",
+    "SSH_ASKPASS",
+    "GCM_INTERACTIVE",
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_EXEC_PATH",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_PARAMETERS",
 }
 
 NETWORK_RE = re.compile(
@@ -97,7 +109,12 @@ class ProcessCommandPolicy:
 
     def _validate_environment(self, env: dict[str, str]) -> None:
         protected_names = {name.upper() for name in SANDBOX_PROTECTED_ENV}
-        protected = [name for name in env if name.upper() in protected_names]
+        protected = [
+            name
+            for name in env
+            if name.upper() in protected_names
+            or re.fullmatch(r"GIT_CONFIG_(?:KEY|VALUE)_[0-9]+", name.upper())
+        ]
         if protected and not self.permission_granted("sandbox_env_override"):
             raise ToolError(
                 "PERMISSION_REQUIRED",

@@ -162,6 +162,7 @@ class PermissionSession:
             "inline_script": "该操作需要执行内联脚本。",
             "privileged_executable": "启动用户配置的外部 stdio MCP 进程；此授权不改变任务工具链的 PATH 或沙箱读取范围。",
             "browser_control": "启动并控制由 Workbench Desktop Host 托管的隔离浏览器会话；不会复用用户日常浏览器 Profile。",
+            "credential_use": "允许当前调用通过 Workbench Host Credential Broker 使用宿主凭据；凭据内容不会返回给 AI 或 Runtime Tool 结果。",
         }
         try:
             rendered = json.dumps(

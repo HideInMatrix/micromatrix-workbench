@@ -19,10 +19,12 @@ BROKER_VERSION = 1
 BROKER_REQUEST_TTL_SECONDS = 120
 HOST_TOOL_RESOLUTION_TTL_SECONDS = 15
 HOST_CAPABILITY_TTL_SECONDS = 30
+HOST_CREDENTIAL_TTL_SECONDS = 30
 WORKFLOW_APPROVAL_TTL_SECONDS = 86_400
 WORKFLOW_APPROVAL_KIND = "workflow_approval"
 HOST_TOOL_RESOLUTION_KIND = "host_tool_resolution"
 HOST_CAPABILITY_KIND = "host_capability"
+HOST_CREDENTIAL_KIND = "host_credential"
 _SENSITIVE_KEY_RE = re.compile(
     r"(token|secret|credential|api[_-]?key|password|passwd|private)",
     re.I,
@@ -118,6 +120,17 @@ class LocalHostToolResolution:
 
 @dataclass(frozen=True, slots=True)
 class LocalHostCapabilityResult:
+    status: str
+    result: dict[str, Any] | None = None
+    error: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "ok"
+
+
+@dataclass(frozen=True, slots=True)
+class LocalHostCredentialResult:
     status: str
     result: dict[str, Any] | None = None
     error: str = ""
@@ -309,6 +322,129 @@ class LocalPermissionBrokerClient:
                     error=str(raw.get("error") or "Host Capability 操作失败。"),
                 )
             return LocalHostCapabilityResult("timeout", error="等待 Workbench Host Capability 响应超时。")
+        finally:
+            for path in (request_path, response_path):
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+
+    def prepare_host_credential(
+        self,
+        service: str,
+        operation: str,
+        *,
+        target_url: str,
+        workspace: str | Path,
+        ttl_seconds: int = 120,
+        timeout_seconds: int = HOST_CREDENTIAL_TTL_SECONDS,
+    ) -> LocalHostCredentialResult:
+        return self._host_credential_request(
+            "prepare",
+            service=service,
+            operation=operation,
+            target_url=target_url,
+            workspace=str(Path(workspace).expanduser().resolve()),
+            ttl_seconds=max(15, min(int(ttl_seconds), 660)),
+            timeout_seconds=timeout_seconds,
+        )
+
+    def release_host_credential(
+        self,
+        session_id: str,
+        *,
+        timeout_seconds: int = HOST_CREDENTIAL_TTL_SECONDS,
+    ) -> LocalHostCredentialResult:
+        return self._host_credential_request(
+            "release",
+            session_id=session_id,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def _host_credential_request(
+        self,
+        action: str,
+        *,
+        service: str = "",
+        operation: str = "",
+        target_url: str = "",
+        workspace: str = "",
+        session_id: str = "",
+        ttl_seconds: int = 120,
+        timeout_seconds: int = HOST_CREDENTIAL_TTL_SECONDS,
+    ) -> LocalHostCredentialResult:
+        normalized_action = str(action or "").strip().lower()
+        if normalized_action not in {"prepare", "release"}:
+            return LocalHostCredentialResult("invalid", error="Host Credential action 无效。")
+        if normalized_action == "release" and not re.fullmatch(
+            r"[A-Za-z0-9_-]{8,128}", session_id
+        ):
+            return LocalHostCredentialResult("invalid", error="Host Credential session_id 无效。")
+
+        timeout = max(1, min(int(timeout_seconds), HOST_CREDENTIAL_TTL_SECONDS))
+        now = int(time.time())
+        request_id = secrets.token_urlsafe(24)
+        request_path = self.directory / f"{request_id}.host-credential.request.json"
+        response_path = self.directory / f"{request_id}.host-credential.response.json"
+        payload: dict[str, Any] = {
+            "version": BROKER_VERSION,
+            "kind": HOST_CREDENTIAL_KIND,
+            "request_id": request_id,
+            "server_id": self.server_id,
+            "action": normalized_action,
+            "service": str(service or "").strip().lower(),
+            "operation": str(operation or "").strip().lower(),
+            "target_url": str(target_url or ""),
+            "workspace": workspace,
+            "session_id": session_id,
+            "ttl_seconds": max(15, min(int(ttl_seconds), 660)),
+            "created_at": now,
+            "expires_at": now + timeout,
+            "pid": os.getpid(),
+        }
+        payload["signature"] = sign_payload(self.secret, payload)
+        try:
+            atomic_json_write(request_path, payload)
+        except OSError:
+            return LocalHostCredentialResult(
+                "unavailable", error="无法创建 Host Credential 请求。"
+            )
+
+        deadline = time.monotonic() + timeout
+        try:
+            while time.monotonic() < deadline:
+                try:
+                    raw = json.loads(response_path.read_text(encoding="utf-8"))
+                except FileNotFoundError:
+                    time.sleep(0.05)
+                    continue
+                except (OSError, json.JSONDecodeError):
+                    return LocalHostCredentialResult(
+                        "unavailable", error="Host Credential 响应不可读。"
+                    )
+                if not isinstance(raw, dict) or not verify_payload(self.secret, raw):
+                    return LocalHostCredentialResult(
+                        "unavailable", error="Host Credential 响应签名无效。"
+                    )
+                if (
+                    raw.get("version") != BROKER_VERSION
+                    or raw.get("kind") != HOST_CREDENTIAL_KIND
+                    or raw.get("request_id") != request_id
+                    or raw.get("server_id") != self.server_id
+                    or raw.get("action") != normalized_action
+                ):
+                    return LocalHostCredentialResult(
+                        "unavailable", error="Host Credential 响应与请求不匹配。"
+                    )
+                if raw.get("ok") is True and isinstance(raw.get("result"), dict):
+                    return LocalHostCredentialResult("ok", result=dict(raw["result"]))
+                return LocalHostCredentialResult(
+                    "error",
+                    error=str(raw.get("error") or "Host Credential 操作失败。"),
+                )
+            return LocalHostCredentialResult(
+                "timeout", error="等待 Workbench Host Credential 响应超时。"
+            )
         finally:
             for path in (request_path, response_path):
                 try:

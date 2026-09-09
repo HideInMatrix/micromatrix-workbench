@@ -16,6 +16,7 @@ from agent_runtime.local_permission_broker import (
     BROKER_SERVER_ID_ENV,
     BROKER_VERSION,
     HOST_CAPABILITY_KIND,
+    HOST_CREDENTIAL_KIND,
     HOST_TOOL_RESOLUTION_KIND,
     WORKFLOW_APPROVAL_KIND,
     atomic_json_write,
@@ -24,6 +25,7 @@ from agent_runtime.local_permission_broker import (
 )
 from agent_runtime.toolchains.registration import fingerprint, prepare_toolchain
 from agent_workbench.host_capabilities import HostCapabilityError, HostCapabilityManager
+from agent_workbench.host_credentials import HostCredentialError, HostCredentialManager
 
 from .host_tools import resolve_host_tool
 
@@ -37,6 +39,7 @@ class DesktopPermissionBroker:
             pass
         self.secret = secrets.token_bytes(32)
         self.host_capabilities = HostCapabilityManager()
+        self.host_credentials = HostCredentialManager(self.directory / "host-credentials")
         self._host_tool_stop = threading.Event()
         self._host_tool_worker = threading.Thread(
             target=self._host_tool_loop,
@@ -51,6 +54,75 @@ class DesktopPermissionBroker:
                 self._respond_host_tool_request(path)
             for path in tuple(self.directory.glob("*.host-capability.request.json")):
                 self._respond_host_capability_request(path)
+            for path in tuple(self.directory.glob("*.host-credential.request.json")):
+                self._respond_host_credential_request(path)
+            self.host_credentials.cleanup_expired()
+
+    def _respond_host_credential_request(self, path: Path) -> None:
+        request_id = path.name.removesuffix(".host-credential.request.json")
+        response_path = self.directory / f"{request_id}.host-credential.response.json"
+        if response_path.exists():
+            return
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if (
+            not isinstance(raw, dict)
+            or not verify_payload(self.secret, raw)
+            or raw.get("version") != BROKER_VERSION
+            or raw.get("kind") != HOST_CREDENTIAL_KIND
+            or str(raw.get("request_id") or "") != request_id
+        ):
+            return
+        if int(raw.get("expires_at", 0)) <= int(time.time()):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            return
+        server_id = str(raw.get("server_id") or "")
+        action = str(raw.get("action") or "")
+        try:
+            if action == "prepare":
+                result = self.host_credentials.prepare(
+                    str(raw.get("service") or ""),
+                    str(raw.get("operation") or ""),
+                    server_id=server_id,
+                    target_url=str(raw.get("target_url") or ""),
+                    workspace=str(raw.get("workspace") or ""),
+                    ttl_seconds=int(raw.get("ttl_seconds") or 120),
+                )
+            elif action == "release":
+                released = self.host_credentials.release(
+                    server_id,
+                    str(raw.get("session_id") or ""),
+                )
+                result = {"released": released}
+            else:
+                raise HostCredentialError(f"不支持 Host Credential action: {action}")
+            ok = True
+            error = ""
+        except (HostCredentialError, OSError, RuntimeError, ValueError) as exc:
+            result = None
+            ok = False
+            error = str(exc)
+        payload: dict[str, Any] = {
+            "version": BROKER_VERSION,
+            "kind": HOST_CREDENTIAL_KIND,
+            "request_id": request_id,
+            "server_id": server_id,
+            "action": action,
+            "ok": ok,
+            "result": result,
+            "error": error,
+            "responded_at": int(time.time()),
+        }
+        payload["signature"] = sign_payload(self.secret, payload)
+        try:
+            atomic_json_write(response_path, payload)
+        except OSError:
+            pass
 
     def _respond_host_capability_request(self, path: Path) -> None:
         request_id = path.name.removesuffix(".host-capability.request.json")
@@ -211,6 +283,7 @@ class DesktopPermissionBroker:
                 WORKFLOW_APPROVAL_KIND,
                 HOST_TOOL_RESOLUTION_KIND,
                 HOST_CAPABILITY_KIND,
+                HOST_CREDENTIAL_KIND,
             }:
                 continue
             if raw.get("version") != BROKER_VERSION:
@@ -299,11 +372,14 @@ class DesktopPermissionBroker:
         if int(raw.get("expires_at", 0)) <= int(time.time()):
             return False
         is_registration = raw.get("permission") == "toolchain_registration"
+        is_credential = raw.get("permission") == "credential_use"
         if is_registration:
             if normalized_decision not in {"deny", "remember"}:
                 return False
             if normalized_decision == "remember" and not registration:
                 return False
+        elif is_credential and normalized_decision == "session":
+            return False
         elif normalized_decision == "remember" or registration is not None:
             return False
         payload: dict[str, Any] = {
@@ -372,6 +448,7 @@ class DesktopPermissionBroker:
                 WORKFLOW_APPROVAL_KIND,
                 HOST_TOOL_RESOLUTION_KIND,
                 HOST_CAPABILITY_KIND,
+                HOST_CREDENTIAL_KIND,
             }:
                 continue
             if str(raw.get("server_id") or "") != server_id:
@@ -451,11 +528,34 @@ class DesktopPermissionBroker:
                     target.unlink()
                 except FileNotFoundError:
                     pass
+        credential_suffix = ".host-credential.request.json"
+        for path in self.directory.glob(f"*{credential_suffix}"):
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(raw, dict) or not verify_payload(self.secret, raw):
+                continue
+            if raw.get("kind") != HOST_CREDENTIAL_KIND:
+                continue
+            if str(raw.get("server_id") or "") != server_id:
+                continue
+            request_id = str(raw.get("request_id") or "")
+            for target in (
+                path,
+                self.directory / f"{request_id}.host-credential.response.json",
+            ):
+                try:
+                    target.unlink()
+                except FileNotFoundError:
+                    pass
         self.host_capabilities.close_server(server_id)
+        self.host_credentials.close_server(server_id)
 
     def cleanup(self) -> None:
         self._host_tool_stop.set()
         self._host_tool_worker.join(timeout=1)
         self.host_capabilities.close()
+        self.host_credentials.close()
         shutil.rmtree(self.directory, ignore_errors=True)
 

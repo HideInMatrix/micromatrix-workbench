@@ -4,6 +4,9 @@ import os
 import re
 import shlex
 import subprocess
+import threading
+import urllib.parse
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +27,14 @@ from .policy import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class _HostCredentialLaunch:
+    session_id: str
+    read_root: Path
+    askpass_path: Path
+    target_host: str
+
+
 class ProcessHandlers:
     """Command execution, process lifecycle and retained output handlers."""
 
@@ -34,6 +45,316 @@ class ProcessHandlers:
         if not callable(getattr(broker, "request", None)):
             return None
         return broker
+
+    def _host_credential_broker(self) -> Any | None:
+        broker = self.local_permission_broker
+        if not callable(getattr(broker, "prepare_host_credential", None)):
+            return None
+        if not callable(getattr(broker, "release_host_credential", None)):
+            return None
+        return broker
+
+    @staticmethod
+    def _git_subcommand(argv: list[str]) -> tuple[int, str] | None:
+        options_with_value = {
+            "-C", "-c", "--git-dir", "--work-tree", "--namespace",
+            "--super-prefix", "--config-env", "--exec-path",
+        }
+        index = 0
+        while index < len(argv):
+            token = argv[index]
+            if token == "--":
+                index += 1
+                return (index, argv[index]) if index < len(argv) else None
+            if token in options_with_value:
+                index += 2
+                continue
+            if token.startswith((
+                "--git-dir=", "--work-tree=", "--namespace=", "--super-prefix=",
+                "--config-env=", "--exec-path=",
+            )):
+                index += 1
+                continue
+            if token.startswith("-"):
+                index += 1
+                continue
+            return index, token
+        return None
+
+    def _git_read_value(
+        self,
+        git: str,
+        argv: list[str],
+        cwd: Path,
+    ) -> str:
+        try:
+            completed = subprocess.run(
+                [git, *argv],
+                cwd=str(cwd),
+                env=self._command_env({}),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+        return completed.stdout.strip() if completed.returncode == 0 else ""
+
+    def _git_default_push_remote(self, git: str, cwd: Path) -> str:
+        branch = self._git_read_value(
+            git, ["symbolic-ref", "--quiet", "--short", "HEAD"], cwd
+        )
+        keys = []
+        if branch:
+            keys.extend((f"branch.{branch}.pushRemote", f"branch.{branch}.remote"))
+        keys.insert(1 if keys else 0, "remote.pushDefault")
+        for key in keys:
+            value = self._git_read_value(git, ["config", "--get", key], cwd)
+            if value and value != ".":
+                return value
+        return "origin"
+
+    def _git_push_repository(
+        self,
+        git: str,
+        argv: list[str],
+        command_index: int,
+        cwd: Path,
+    ) -> str:
+        options_with_value = {"--receive-pack", "--exec", "--repo", "--push-option", "-o"}
+        repository = ""
+        index = command_index + 1
+        while index < len(argv):
+            token = argv[index]
+            if token in options_with_value:
+                if index + 1 < len(argv):
+                    if token == "--repo":
+                        repository = argv[index + 1]
+                    index += 2
+                    continue
+                break
+            if token.startswith("--repo="):
+                repository = token.split("=", 1)[1]
+                index += 1
+                continue
+            if token.startswith("-"):
+                index += 1
+                continue
+            if not repository:
+                repository = token
+            break
+        repository = repository or self._git_default_push_remote(git, cwd)
+        remote_url = self._git_read_value(
+            git, ["remote", "get-url", "--push", repository], cwd
+        )
+        return remote_url or repository
+
+    @staticmethod
+    def _https_credential_target(remote_url: str) -> tuple[str, str] | None:
+        parsed = urllib.parse.urlsplit(remote_url)
+        if parsed.scheme.lower() != "https" or not parsed.hostname:
+            return None
+        host = parsed.hostname
+        try:
+            port = parsed.port
+        except ValueError:
+            return None
+        if port:
+            host = f"{host}:{port}"
+        if not re.fullmatch(r"[A-Za-z0-9.-]+(?::[0-9]{1,5})?", host):
+            return None
+        clean_url = urllib.parse.urlunsplit(
+            ("https", host, parsed.path or "/", "", "")
+        )
+        return clean_url, host
+
+    @staticmethod
+    def _reject_brokered_git_config_overrides(argv: list[str]) -> None:
+        unsafe = [
+            item for item in argv
+            if item == "-c" or item == "--config-env" or item.startswith("--config-env=")
+        ]
+        if unsafe:
+            raise ToolError(
+                "CREDENTIAL_BROKER_ARGUMENT_BLOCKED",
+                "Brokered Git HTTPS push 不允许调用方覆盖 Git 配置。",
+                "permission",
+                False,
+                {"arguments": unsafe},
+            )
+
+    @staticmethod
+    def _reject_brokered_git_env_overrides(env: dict[str, str]) -> None:
+        blocked_exact = {
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "SSL_CERT_FILE",
+            "SSL_CERT_DIR",
+            "CURL_CA_BUNDLE",
+        }
+        unsafe = sorted(
+            key
+            for key in env
+            if key.upper().startswith(("GIT_", "GCM_", "SSH_"))
+            or key.upper() in blocked_exact
+        )
+        if unsafe:
+            raise ToolError(
+                "CREDENTIAL_BROKER_ENV_BLOCKED",
+                "Brokered Git HTTPS push 不允许调用方覆盖 Git、Credential、Proxy 或 TLS 环境。",
+                "permission",
+                False,
+                {"variables": unsafe},
+            )
+
+    def _prepare_git_host_credential(
+        self,
+        resolved_program: str,
+        argv: list[str],
+        cwd: Path,
+        timeout_ms: int,
+        env_overrides: dict[str, str],
+    ) -> _HostCredentialLaunch | None:
+        if Path(resolved_program).name.lower() not in {"git", "git.exe"}:
+            return None
+        subcommand = self._git_subcommand(argv)
+        if subcommand is None or subcommand[1] != "push":
+            return None
+        remote_url = self._git_push_repository(
+            resolved_program, argv, subcommand[0], cwd
+        )
+        target = self._https_credential_target(remote_url)
+        if target is None:
+            return None
+        target_url, target_host = target
+        broker = self._host_credential_broker()
+        if broker is None:
+            return None
+        self._reject_brokered_git_config_overrides(argv)
+        self._reject_brokered_git_env_overrides(env_overrides)
+        if not self._permission_granted("credential_use"):
+            raise ToolError(
+                "PERMISSION_REQUIRED",
+                f"Git HTTPS push 需要使用宿主凭据访问 {target_host}。",
+                "permission",
+                False,
+                {
+                    "permission": "credential_use",
+                    "service": "git_https",
+                    "operation": "push",
+                    "host": target_host,
+                    "credential_exposed_to_ai": False,
+                },
+            )
+        response = broker.prepare_host_credential(
+            "git_https",
+            "push",
+            target_url=target_url,
+            workspace=cwd,
+            ttl_seconds=max(60, min(int(timeout_ms / 1000) + 30, 660)),
+        )
+        result = getattr(response, "result", None)
+        if not getattr(response, "ok", False) or not isinstance(result, dict):
+            raise ToolError(
+                "HOST_CREDENTIAL_UNAVAILABLE",
+                str(getattr(response, "error", "") or "Workbench Host 无法提供 Git HTTPS 凭据。"),
+                "permission",
+                True,
+                {"service": "git_https", "host": target_host},
+            )
+        try:
+            session_id = str(result["session_id"])
+            read_root = Path(str(result["read_root"])).resolve()
+            askpass_path = Path(str(result["askpass_path"])).resolve()
+            askpass_path.relative_to(read_root)
+        except (KeyError, OSError, ValueError) as exc:
+            raise ToolError(
+                "HOST_CREDENTIAL_INVALID",
+                "Workbench Host Credential Session 元数据无效。",
+                "permission",
+            ) from exc
+        if not read_root.is_dir() or not askpass_path.is_file():
+            raise ToolError(
+                "HOST_CREDENTIAL_INVALID",
+                "Workbench Host Credential Session 文件不可用。",
+                "permission",
+            )
+        return _HostCredentialLaunch(
+            session_id=session_id,
+            read_root=read_root,
+            askpass_path=askpass_path,
+            target_host=target_host,
+        )
+
+    @staticmethod
+    def _credentialed_git_argv(argv: list[str]) -> list[str]:
+        return [
+            "-c", "core.hooksPath=/dev/null",
+            "-c", "credential.helper=",
+            "-c", "credential.interactive=never",
+            "-c", "http.sslVerify=true",
+            *argv,
+        ]
+
+    def _release_host_credential(self, session_id: str) -> None:
+        broker = self._host_credential_broker()
+        if broker is None or not session_id:
+            return
+        try:
+            broker.release_host_credential(session_id)
+        except Exception:
+            pass
+
+    def _host_credential_lock(self) -> threading.RLock:
+        lock = getattr(self, "_credential_session_lock", None)
+        if lock is None:
+            lock = threading.RLock()
+            setattr(self, "_credential_session_lock", lock)
+        return lock
+
+    def _track_host_credential(self, command: Any, session_id: str) -> None:
+        sessions = getattr(self, "_host_credential_sessions", None)
+        if not isinstance(sessions, dict):
+            sessions = {}
+            setattr(self, "_host_credential_sessions", sessions)
+        with self._host_credential_lock():
+            sessions[command.command_id] = session_id
+
+        def release_when_exited() -> None:
+            try:
+                command.process.wait()
+            finally:
+                self._release_command_credential(command, force=True)
+
+        threading.Thread(
+            target=release_when_exited,
+            name=f"credential-release-{command.command_id[:8]}",
+            daemon=True,
+        ).start()
+
+    def _release_command_credential(self, command: Any, *, force: bool = False) -> None:
+        sessions = getattr(self, "_host_credential_sessions", None)
+        if not isinstance(sessions, dict):
+            return
+        if not force and command.process.poll() is None:
+            return
+        with self._host_credential_lock():
+            session_id = sessions.pop(command.command_id, "")
+        self._release_host_credential(session_id)
+
+    def close_host_credentials(self) -> None:
+        sessions = getattr(self, "_host_credential_sessions", None)
+        if not isinstance(sessions, dict):
+            return
+        with self._host_credential_lock():
+            values = tuple(sessions.values())
+            sessions.clear()
+        for session_id in values:
+            self._release_host_credential(session_id)
 
     def _command_env(self, overrides: dict[str, str]) -> dict[str, str]:
         if self.permission_mode == "dangerous":
@@ -377,23 +698,45 @@ class ProcessHandlers:
         resolved_program = self._validate_process(
             program, argv, env_overrides, timeout_ms, cwd
         )
-        command = self._process_launch_command(resolved_program, argv)
-        command = self.process_sandbox.wrap(
-            command,
-            cwd=cwd,
-            permissions=ACTIVE_PERMISSIONS.get(),
+        credential = self._prepare_git_host_credential(
+            resolved_program, argv, cwd, timeout_ms, env_overrides
         )
-        process_env = self._command_env(env_overrides)
-        managed = self.commands.start(
-            command,
-            cwd=cwd,
-            env=process_env,
-            stdin_text=str(args.get("stdin", "")),
-            timeout_ms=timeout_ms,
-            tty=bool(args.get("tty", False)),
-            shell=False,
-        )
+        launch_argv = self._credentialed_git_argv(argv) if credential else argv
+        try:
+            command = self._process_launch_command(resolved_program, launch_argv)
+            command = self.process_sandbox.wrap(
+                command,
+                cwd=cwd,
+                permissions=ACTIVE_PERMISSIONS.get(),
+                readable_roots=((credential.read_root,) if credential else ()),
+            )
+            process_env = self._command_env(env_overrides)
+            if credential:
+                process_env.update(
+                    {
+                        "GIT_ASKPASS": str(credential.askpass_path),
+                        "GIT_TERMINAL_PROMPT": "0",
+                        "GIT_CONFIG_SYSTEM": os.devnull,
+                        "GCM_INTERACTIVE": "Never",
+                    }
+                )
+            managed = self.commands.start(
+                command,
+                cwd=cwd,
+                env=process_env,
+                stdin_text=str(args.get("stdin", "")),
+                timeout_ms=timeout_ms,
+                tty=bool(args.get("tty", False)),
+                shell=False,
+            )
+        except Exception:
+            if credential:
+                self._release_host_credential(credential.session_id)
+            raise
+        if credential:
+            self._track_host_credential(managed, credential.session_id)
         self.commands.wait(managed, int(args.get("yield_time_ms", 10_000)))
+        self._release_command_credential(managed)
         payload = command_payload(
             managed, int(args.get("max_output_bytes", 65_536))
         )
@@ -504,6 +847,7 @@ class ProcessHandlers:
             str(args["command_id"]), str(args.get("chars", ""))
         )
         self.commands.wait(managed, int(args.get("yield_time_ms", 10_000)))
+        self._release_command_credential(managed)
         return self._format_command_payload(
             command_payload(managed, int(args.get("max_output_bytes", 65_536))),
             args,
@@ -518,6 +862,7 @@ class ProcessHandlers:
             kill_wait_ms=int(args.get("kill_wait_ms", 2_000)),
         )
         managed = self.commands.get(command_id)
+        self._release_command_credential(managed, force=True)
         payload = command_payload(
             managed, int(args.get("max_output_bytes", 65_536))
         )
@@ -591,6 +936,7 @@ class ProcessHandlers:
                 "validation",
             )
         command = self.commands.get(match.group(1))
+        self._release_command_credential(command)
         ref_stream = match.group(2)
         stream = str(args.get("stream") or ref_stream)
         if stream != ref_stream:

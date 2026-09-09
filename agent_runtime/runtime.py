@@ -260,6 +260,7 @@ class Runtime(
 
     def close(self) -> None:
         self.commands.close()
+        self.close_host_credentials()
 
     def _verify_toolchain_files(self) -> None:
         for item in self.toolchain_registrations:
