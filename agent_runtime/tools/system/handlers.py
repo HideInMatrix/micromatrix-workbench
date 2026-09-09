@@ -62,14 +62,15 @@ class SystemHandlers:
                     "model": "desktop_host_session",
                     "runtime_process_launch": False,
                 },
-                "host_credentials": {
+                "host_identity_execution": {
                     "configured": callable(
-                        getattr(self.local_permission_broker, "prepare_host_credential", None)
+                        getattr(self.local_permission_broker, "invoke_host_identity", None)
                     ),
-                    "model": "desktop_host_credential_broker",
-                    "credential_exposed_to_ai": False,
-                    "credential_exposed_to_tool_result": False,
-                    "supported_operations": ["git_https:push"],
+                    "model": "exact_invocation_host_identity",
+                    "tool_specific_adapters": False,
+                    "host_environment_exposed_to_ai": False,
+                    "permission": "host_identity_use",
+                    "public_api": "exec_process(use_host_identity=true)",
                 },
             },
             "auth_enabled": self.auth_enabled(),
@@ -242,6 +243,20 @@ class SystemHandlers:
                     "category": "permission",
                     "retryable": False,
                     "details": {"permission": permission},
+                },
+            }
+        if permission == "host_identity_use" and str(args.get("scope") or "once") != "once":
+            return {
+                "ok": False,
+                "status": "unsupported_scope",
+                "grant_id": None,
+                "expires_at": None,
+                "error": {
+                    "code": "HOST_IDENTITY_SCOPE_INVALID",
+                    "message": "host_identity_use 只能授权当前完全相同的单次调用。",
+                    "category": "permission",
+                    "retryable": False,
+                    "details": {"permission": permission, "allowed_scope": "once"},
                 },
             }
         raise ToolError(

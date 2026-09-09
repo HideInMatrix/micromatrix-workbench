@@ -10,7 +10,7 @@ PROCESS_TOOLS = (
         "exec_process",
         "Execute process",
         "Run a structured process without accepting a user-provided shell command string.",
-        obj({"program": {**S, "minLength": 1}, "args": {"type": "array", "items": S, "default": []}, "workdir": {**S, "default": "."}, "cwd": S, "timeout_ms": {**I, "minimum": 1, "maximum": 600_000, "default": 30_000}, "yield_time_ms": {**I, "minimum": 0, "maximum": 30_000, "default": 10_000}, "stdin": {**S, "default": ""}, "tty": {**B, "default": False}, "env": {"type": "object", "additionalProperties": {"type": "string"}, "default": {}}, **EXEC_COMMON}, ("program",)),
+        obj({"program": {**S, "minLength": 1}, "args": {"type": "array", "items": S, "default": []}, "workdir": {**S, "default": "."}, "cwd": S, "timeout_ms": {**I, "minimum": 1, "maximum": 600_000, "default": 30_000}, "yield_time_ms": {**I, "minimum": 0, "maximum": 30_000, "default": 10_000}, "stdin": {**S, "default": ""}, "tty": {**B, "default": False}, "env": {"type": "object", "additionalProperties": {"type": "string"}, "default": {}}, "use_host_identity": {**B, "default": False}, **EXEC_COMMON}, ("program",)),
         "exec_process",
         frozenset({Capability.PROCESS_EXECUTE}),
         ToolAnnotations(destructive=True, open_world=True),

@@ -37,7 +37,7 @@ class OperationPermission(StrEnum):
     PRIVILEGED_EXECUTABLE = "privileged_executable"
     WRITE_GENERATED_OR_IGNORED = "write_generated_or_ignored"
     BROWSER_CONTROL = "browser_control"
-    CREDENTIAL_USE = "credential_use"
+    HOST_IDENTITY_USE = "host_identity_use"
 
 
 PERMISSION_MODES = ("safe", "trusted", "dangerous")

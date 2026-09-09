@@ -207,32 +207,36 @@ Host Capability
 9. MCP Server stop/delete 后 Browser Session 自动回收。
 10. 非 Chromium 默认浏览器必须安全失败，不能退回普通 `exec_process`。
 
-## 10. Host Credential Broker
+## 10. Host Identity Execution
 
-Credential Broker 不是第三类 Tool。它是 Desktop Host 提供给 Runtime Tool 的受控宿主服务，用于解决“CLI 必须在 Runtime Sandbox 中执行，但认证凭据只存在于宿主 Credential Store”这一边界。
+宿主身份不是第三类 Tool，也不建立 `git/npm/docker/ssh` Auth Adapter Registry。它是 Runtime Tool 的一种显式执行模式：当某一条结构化进程调用确实需要当前桌面用户的登录态、配置或 Credential Store 时，调用方设置 `use_host_identity=true`，并对这一条完全相同的 invocation 请求 `host_identity_use`。
 
 ```text
-Runtime Tool: git push
-  -> 解析目标 HTTPS remote
-  -> 请求 credential_use（仅当前调用）
-  -> signed Host Credential IPC
-  -> Desktop Host 调用真实用户 Git Credential Helper / Keychain
-  -> Desktop Host 创建短生命周期 AskPass Session
-  -> Runtime 只获得 session_id + askpass_path + 单一只读根
-  -> 本次 Git 子进程通过 AskPass 直接取凭据
-  -> 命令结束 / timeout / Server stop 后销毁 Session
+exec_process(program, args, use_host_identity=true)
+  -> Runtime 正常解析真实 executable
+  -> Runtime 正常执行命令/环境/Workspace 安全校验
+  -> 请求 host_identity_use（仅当前 exact invocation）
+  -> signed Host Identity Execution IPC
+  -> Desktop Host 重新校验 executable registration / fingerprint
+  -> Desktop Host 在真实用户身份上下文中启动同一 executable + argv
+  -> Host 侧继续施加 OS Sandbox：Workspace 可写、宿主 Home/真实 PATH/Agent Socket 只读
+  -> stdout/stderr/status 通过 bounded IPC 返回
+  -> 长任务继续使用同一个 process_control API
+  -> Server stop/delete 时 Host 进程自动回收
 ```
 
-安全约束：
+核心原则：
 
-- username/password/token 不进入 Tool 参数、Tool Result、命令行或 Runtime 日志。
-- `credential_use` 不提供“本次服务会话全部允许”；Desktop UI 只允许拒绝或仅允许本次。
-- 首版只对结构化 `exec_process(program="git", args=["push", ...])` 启用，不给任意 `exec_command` Shell 链注入凭据。
-- Git remote 必须是 HTTPS；SSH Agent Broker 属于后续 Provider，不复用 HTTPS Credential Session。
-- AskPass Session 与目标 host 绑定，`github.com.evil.example` 不能复用 `github.com` Session。
-- Credential Session 目录仅作为该 Git 子进程的临时只读 Sandbox root；其他 Runtime 命令不会获得这一可读范围。
-- Brokered push 强制禁用 Git hooks、清空仓库 credential helper、禁止调用方覆盖 Git/GCM/SSH/Proxy/TLS 环境，并强制 TLS verification。
-- Desktop Host 使用当前用户真实 Git Credential Helper，而不是读取或复制 `~/.gitconfig`、Keychain 文件、Token 文件到 Runtime。
+- Runtime 不解析 `push/publish/login` 等工具语义，也不判断程序“是否需要认证”。是否请求宿主身份由当前调用显式声明。
+- 不存在 `auth/adapters/git.py`、`npm.py`、`docker.py` 等随 Tool 数量增长的认证适配层。
+- `host_identity_use` 绑定当前 principal、完整 Tool arguments、已注册 executable、argv、cwd 和 Workspace；Desktop UI 只允许拒绝或“仅允许本次”。
+- Host Identity 只对结构化 `exec_process` 开放；`exec_command` 的任意 Shell 字符串不能切换到宿主身份执行。
+- Desktop Host 不把 HOME、PATH、Token、Password、Credential Helper 输出或其他宿主环境作为 Tool Result 返回给 AI。
+- Host 使用当前真实宿主环境，而不是固定 Homebrew/nvm/docker/git 安装目录表；实际 PATH 根和 Agent/Socket 路径只作为 Host 内部只读执行范围。
+- Host 在执行前重新校验 Runtime 已确认的 executable registration 和文件 fingerprint，路径或文件变化后拒绝启动。
+- Host Identity Execution 仍然需要完整 OS 文件/网络隔离；Sandbox 无法建立时拒绝降级到无约束 Host process。
+- Host 侧写权限仍限制在当前 Workspace 和自己的临时 Runtime；宿主 Home 与工具安装目录保持只读。`.git` 是否可写继续服从 `git_metadata_write`，而不是因为使用宿主身份自动放开。
+- `process_control` 对普通 Runtime command 和 Host Identity command 使用同一公开契约；`command_id` 只决定内部路由，不增加新的 MCP Tool。
 
-首版 Provider：`git_https:push`。后续 npm/docker/registry 登录沿用同一 Host Credential Manager，但必须各自定义最小协议和目标绑定，不把“读取任意宿主 secret”暴露成通用 Tool。
+因此 Tool Catalog 从几十种扩展到数百种时，Host Identity 核心不需要增加对应认证代码。只要该 CLI 在真实桌面用户环境中本来就能通过 HOME、系统 Credential Store、Agent Socket 或其现有 helper 完成认证，经过本次 `host_identity_use` 授权后即可使用同一执行模型。
 
