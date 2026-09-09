@@ -37,6 +37,8 @@ const counts = computed(() => {
   )
 })
 
+const savedMcpConnectionCount = computed(() => catalog.value?.mcp_connections.length ?? 0)
+
 const unresolvedReferenceCount = computed(() => (
   (catalog.value?.capabilities ?? []).reduce((count, item) => (
     count + (item.recommended_capability_status?.unresolved.length ?? 0)
@@ -173,7 +175,7 @@ onMounted(refresh)
           <div class="flex h-full min-w-0 flex-col text-left justify-between">
             <div class="flex items-center justify-start gap-2.5">
               <div class="inline-flex size-[38px] flex-none items-center justify-center rounded-lg border border-teal-500/30 bg-teal-500/15 text-teal-500"><Server :size="18" /></div>
-              <strong class="font-mono text-2xl font-medium">{{ counts.mcp_tool }}</strong>
+              <strong class="font-mono text-2xl font-medium">{{ savedMcpConnectionCount }}</strong>
             </div>
             <div class="mt-3.5 text-sm font-semibold">External MCP</div>
             <p class="mt-2.5 mb-0 text-[11px] leading-[18px] text-muted-foreground">连接外部 MCP Server，把远端 Tool 纳入目录。</p>

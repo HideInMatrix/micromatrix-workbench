@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { CheckCircle2, Plus, RefreshCw, Save, Server, Trash2 } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { FormField } from '@/components/ui/form'
@@ -133,8 +133,10 @@ function newConnection() {
   headersText.value = '{}'
   headerRefsText.value = '{}'
   error.value = ''
-  notice.value = '新 MCP 服务尚未保存。'
+  notice.value = ''
 }
+
+onBeforeUnmount(() => { if (!selectedId.value) newConnection() })
 
 async function validateConnection() {
   busy.value = true
