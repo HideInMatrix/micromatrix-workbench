@@ -80,6 +80,8 @@ class HostIdentityProcessManager:
         if not isinstance(roots, list) or not roots or not expected:
             raise HostIdentityError("Host identity executable registration 不完整。")
         normalized = [str(item) for item in roots]
+        if any(Path(item).expanduser().resolve() == Path("/") for item in normalized):
+            raise HostIdentityError("Host identity executable registration 不能授予 filesystem root。")
         if fingerprint(str(executable), normalized) != expected:
             raise HostIdentityError("Host identity executable 文件身份已变化，请重新注册。")
         return normalized, expected
@@ -153,7 +155,13 @@ class HostIdentityProcessManager:
             if path.is_absolute() and path.is_dir() and path not in roots:
                 roots.append(path)
                 if path.name in {"bin", "sbin", "Scripts"} and path.parent.is_dir():
-                    roots.append(path.parent)
+                    parent = path.parent.resolve()
+                    # Never broaden a PATH entry such as /bin or /sbin to the
+                    # filesystem root. Apart from defeating least-privilege,
+                    # a root-level dynamic read grant produces an invalid
+                    # `path-ancestors "/"` Seatbelt clause on macOS.
+                    if parent != Path("/") and parent not in roots:
+                        roots.append(parent)
         return roots
 
     def _sandboxed_command(
