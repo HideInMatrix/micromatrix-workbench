@@ -1132,6 +1132,46 @@ class RuntimeSafetyTests(unittest.TestCase):
         self.assertEqual(error["details"]["permission"], "sandbox_env_override")
         self.assertEqual(set(error["details"]["variables"]), {"HOME", "PATH"})
 
+    def test_safe_mode_allows_sandbox_environment_override_after_desktop_approval(self) -> None:
+        class ApproveOnceBroker:
+            calls = 0
+
+            @classmethod
+            def request(cls, **_kwargs: object) -> object:
+                cls.calls += 1
+                return type("Decision", (), {"status": "approved"})()
+
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            with patch.dict(
+                os.environ,
+                {"AGENT_RUNTIME_OS_SANDBOX": "off"},
+                clear=False,
+            ):
+                runtime = Runtime(workspace, permission_mode="safe")
+                runtime.local_permission_broker = ApproveOnceBroker()  # type: ignore[assignment]
+                try:
+                    response = dispatch(
+                        runtime,
+                        self._modern_tool_request(
+                            1,
+                            "exec_command",
+                            {
+                                "cmd": "printf hello",
+                                "env": {"HOME": str(workspace)},
+                            },
+                            elicitation=False,
+                        ),
+                        principal="principal-env-override",
+                    )
+                finally:
+                    runtime.close()
+
+        assert response is not None
+        self.assertFalse(response["result"]["isError"])
+        self.assertEqual(response["result"]["structuredContent"]["stdout"], "hello")
+        self.assertEqual(ApproveOnceBroker.calls, 1)
+
     def test_internal_permission_broker_environment_is_never_forwarded_to_commands(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             with patch.dict(
@@ -1555,6 +1595,84 @@ class RuntimeSafetyTests(unittest.TestCase):
             "desktop_permission_broker",
         )
         self.assertEqual(ApproveOnceBroker.calls, 1)
+
+    def test_explicit_request_permissions_reuses_existing_session_grant(self) -> None:
+        class ApproveSessionBroker:
+            calls = 0
+
+            @classmethod
+            def request(cls, **_kwargs: object) -> object:
+                cls.calls += 1
+                return type(
+                    "Decision",
+                    (),
+                    {"status": "approved", "scope": "session"},
+                )()
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch.dict(
+                os.environ,
+                {"AGENT_RUNTIME_OS_SANDBOX": "off"},
+                clear=False,
+            ):
+                runtime = Runtime(root, permission_mode="safe")
+                runtime.local_permission_broker = ApproveSessionBroker()  # type: ignore[assignment]
+                try:
+                    first_arguments: dict[str, object] = {
+                        "tool_name": "exec_process",
+                        "permission": "long_timeout",
+                        "reason": "Grant the current server session",
+                        "arguments": {
+                            "program": "/bin/echo",
+                            "args": ["first"],
+                            "timeout_ms": 180_000,
+                        },
+                        "scope": "session",
+                        "ttl_seconds": 300,
+                    }
+                    second_arguments: dict[str, object] = {
+                        "tool_name": "exec_process",
+                        "permission": "sandbox_env_override",
+                        "reason": "Reuse the existing session grant",
+                        "arguments": {
+                            "program": "/bin/echo",
+                            "args": ["second"],
+                            "env": {"HOME": str(root)},
+                        },
+                        "scope": "once",
+                        "ttl_seconds": 300,
+                    }
+                    first = dispatch(
+                        runtime,
+                        self._modern_tool_request(
+                            1,
+                            "request_permissions",
+                            first_arguments,
+                            elicitation=False,
+                        ),
+                        principal="principal-session-request",
+                    )
+                    second = dispatch(
+                        runtime,
+                        self._modern_tool_request(
+                            2,
+                            "request_permissions",
+                            second_arguments,
+                            elicitation=False,
+                        ),
+                        principal="principal-session-request",
+                    )
+                finally:
+                    runtime.close()
+
+        assert first is not None and second is not None
+        self.assertEqual(first["result"]["structuredContent"]["status"], "granted")
+        second_content = second["result"]["structuredContent"]
+        self.assertEqual(second_content["status"], "granted")
+        self.assertEqual(second_content["constraints"]["scope"], "session_all")
+        self.assertEqual(second_content["constraints"]["via"], "existing_session_grant")
+        self.assertEqual(ApproveSessionBroker.calls, 1)
 
     def test_git_mutations_require_git_metadata_write_permission(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

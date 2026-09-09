@@ -95,7 +95,7 @@ class ProcessCommandPolicy:
     def _validate_environment(self, env: dict[str, str]) -> None:
         protected_names = {name.upper() for name in SANDBOX_PROTECTED_ENV}
         protected = [name for name in env if name.upper() in protected_names]
-        if protected:
+        if protected and not self.permission_granted("sandbox_env_override"):
             raise ToolError(
                 "PERMISSION_REQUIRED",
                 "sandbox-controlled environment variables cannot be overridden outside dangerous mode",

@@ -633,15 +633,18 @@ class Runtime(
         )
         if name == "request_permissions":
             requested_permission = str(arguments.get("permission") or "")
-            if requested_permission in round_granted:
-                scope = str(arguments.get("scope") or "once")
+            if requested_permission in granted:
+                session_granted = requested_permission in self.permission_session.session_permissions_for_call(context)
+                scope = "session" if session_granted else str(arguments.get("scope") or "once")
                 return self._store_permission_result(
                     name,
                     arguments,
                     permission=requested_permission,
                     context=context,
                     scope=scope,
-                    ttl_seconds=int(arguments.get("ttl_seconds", 300)),
+                    ttl_seconds=(3_600 if session_granted else int(arguments.get("ttl_seconds", 300))),
+                    constraint_scope=("session_all" if session_granted else scope),
+                    via=("existing_session_grant" if session_granted else None),
                 )
         permission_token = ACTIVE_PERMISSIONS.set(granted)
         request_context_token = ACTIVE_REQUEST_CONTEXT.set(context)
