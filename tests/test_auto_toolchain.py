@@ -12,7 +12,9 @@ from unittest.mock import Mock, patch
 
 from agent_runtime.local_permission_broker import LocalPermissionBrokerClient
 from agent_runtime.runtime import Runtime
+from agent_runtime.sandbox.backend import create_process_sandbox
 from agent_runtime.toolchains.registration import register_toolchain, prepare_toolchain, fingerprint
+from agent_runtime.toolchains.registration import require_confinement
 from agent_workbench.api.approvals import ApprovalAPI
 from agent_workbench.gateways.store import GatewayProfileStore
 from agent_workbench.gateways.models import MCPGatewayMember
@@ -153,7 +155,16 @@ class AutoToolchainTests(unittest.TestCase):
 class AutoToolchainIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        temporary = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(temporary.cleanup)
+        root = Path(temporary.name).resolve()
         try:
+            backend = create_process_sandbox(
+                mode='safe', workspace=root, runtime_dir=root,
+                readable_roots=[], writable_roots=[root], protected_paths=[],
+                network=False,
+            )
+            require_confinement(backend)
             cls.record = register_toolchain('python', sys.executable, [])
         except RuntimeError as exc:
             raise unittest.SkipTest(str(exc))

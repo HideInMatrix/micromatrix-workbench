@@ -500,7 +500,7 @@ go.mod 的 go 版本
   -> 若路径已经是 Runtime 允许的同一个系统 executable：直接使用
   -> 否则桌面“允许并记住此 Profile”
        -> 指纹二次校验
-       -> 独立 OS 沙箱验证版本/运行目标
+       -> 冻结 executable / read_roots / 文件指纹
        -> 持久化 Profile.toolchains
        -> 当前 Runtime 热加载只读范围
        -> 原调用继续
@@ -521,6 +521,8 @@ POSIX Host Resolution 会运行当前用户登录 Shell 的受控 `command -v` �
 ```
 
 Safe Runtime 默认 PATH 只保留操作系统基础目录；Homebrew、`/usr/local`、版本管理器等用户工具不再作为预授权目录。程序注册名也不再限制为 Node/Python 固定枚举，`git`、`go`、`cargo`、`ffmpeg` 等合法 CLI 名称都可以走同一注册模型。
+
+注册阶段禁止执行候选工具本身，也不为某个平台或某个工具增加缓存写入白名单。版本查询、解释器选择和其他工具行为只能发生在实际任务或显式诊断中，并继续受正常 Runtime Sandbox 约束。
 
 `discover_toolchains` 返回 `missing`、`registration_errors`、`host_user_environment_queried`、`host_environment_exposed_to_ai` 等诊断字段，不会假装缺失工具可用。无 Desktop Host 通道时不扫描 Home，也不临时扩展用户目录读取范围。
 

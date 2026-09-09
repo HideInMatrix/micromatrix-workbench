@@ -137,7 +137,7 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
         <pre class="mt-1.5 mb-0 max-h-[220px] overflow-auto whitespace-pre-wrap rounded-[7px] border border-border bg-secondary p-2.5 text-[10px] leading-4 text-foreground [overflow-wrap:anywhere]">{{ permissionArguments }}</pre>
       </div>
 
-      <p v-if="isToolchainRegistration" class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">此授权会保存到当前 Profile，供后续调用及重启后使用。工具链只读范围见上方；不会更改当前安全模式，危险模式仍无任务隔离。路径或版本变化需重新验证。可在服务设置中移除注册。</p>
+      <p v-if="isToolchainRegistration" class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">此授权会保存到当前 Profile，供后续调用及重启后使用。注册阶段不会执行该工具，只冻结程序路径、只读范围和文件指纹；文件或路径变化后需重新确认。可在服务设置中移除注册。</p>
       <p v-else class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">“仅允许本次”只作用于当前调用；“本次服务会话全部允许”在当前 MCP Server 停止或重启前，对同一已认证客户端自动放行可临时授权的权限。Workspace 边界和不可临时提升的系统限制仍然生效。</p>
 
       <footer class="mt-4 flex justify-end gap-2">

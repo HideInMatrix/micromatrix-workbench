@@ -173,7 +173,7 @@ class ProcessHandlers:
                 return resolved
             raise ToolError(
                 "TOOLCHAIN_REGISTRATION_STALE",
-                f"已注册工具 {normalized} 当前不可执行，请重新验证。",
+                f"已注册工具 {normalized} 当前不可执行，请重新确认注册。",
                 "process", False,
             )
         local = self.toolchains.resolve_program(normalized)

@@ -117,13 +117,15 @@ class ToolchainResolver:
     def discover(
         self,
         kinds: list[str] | None = None,
+        *,
+        probe_versions: bool = True,
     ) -> dict[str, object]:
         requested = kinds or ["node", "python", "go"]
         result: dict[str, object] = {}
         for raw_kind in requested:
             kind = raw_kind.strip().lower()
             if kind in {"node", "python", "go"}:
-                result[kind] = self._discover_kind(kind)
+                result[kind] = self._discover_kind(kind, probe_versions=probe_versions)
         return {
             "toolchains": result,
             "safe_path": self.safe_path_entries(result),
@@ -196,13 +198,14 @@ class ToolchainResolver:
         found = self._query_program(raw)
         return str(found) if found is not None else None
 
-    def _discover_kind(self, kind: str) -> dict[str, object]:
+    def _discover_kind(self, kind: str, *, probe_versions: bool = True) -> dict[str, object]:
         cache_key = kind
-        cached = self._cache.get(cache_key)
-        if cached is not None:
-            return cached
+        if probe_versions:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                return cached
         hint = self._workspace_hint(kind)
-        candidates = self._candidates(kind)
+        candidates = self._candidates(kind, probe_versions=probe_versions)
         selected = next((self._selected_candidate(c, "explicit desktop registration")
                          for c in candidates if c.source == "registered"), None)
         if selected is None and hint:
@@ -225,7 +228,8 @@ class ToolchainResolver:
             "candidates": [item.to_dict() for item in candidates],
             "lookup_scope": "unrestricted" if self.unrestricted else "sandbox",
         }
-        self._cache[cache_key] = payload
+        if probe_versions:
+            self._cache[cache_key] = payload
         return payload
 
     @staticmethod
@@ -276,7 +280,7 @@ class ToolchainResolver:
         except (OSError, IndexError):
             return ""
 
-    def _candidates(self, kind: str) -> list[ToolchainCandidate]:
+    def _candidates(self, kind: str, *, probe_versions: bool = True) -> list[ToolchainCandidate]:
         primary_names = {
             "node": ["node"], "python": ["python3", "python"], "go": ["go"],
         }[kind]
@@ -295,7 +299,7 @@ class ToolchainResolver:
                     executable.parent.parent,
                 ))
         return self._build_candidates(
-            kind, paths, executable_names,
+            kind, paths, executable_names, probe_versions=probe_versions,
         )
 
     def _build_candidates(
@@ -303,6 +307,8 @@ class ToolchainResolver:
         kind: str,
         paths: list[tuple[Path, str, Path]],
         executable_names: list[str],
+        *,
+        probe_versions: bool = True,
     ) -> list[ToolchainCandidate]:
         seen: set[str] = set()
         result: list[ToolchainCandidate] = []
@@ -320,10 +326,8 @@ class ToolchainResolver:
             if key in seen or (not registered and not self._trusted_executable(resolved, bin_dir, resolved_root)):
                 continue
             seen.add(key)
-            version = self._read_version(
-                kind, resolved, bin_dir,
-            )
-            if not version:
+            version = self._read_version(kind, resolved, bin_dir) if probe_versions else ""
+            if probe_versions and not version:
                 continue
             executables: dict[str, str] = {}
             for name in executable_names:

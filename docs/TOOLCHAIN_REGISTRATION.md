@@ -14,7 +14,7 @@ Runtime 请求 program=git/node/python3/ffmpeg/...
   -> Workbench 桌面弹出注册授权
   -> 用户选择“允许并记住此 Profile”
   -> 桌面端校验提案指纹未变化
-  -> 在完整 OS 沙箱中验证版本/运行目标/指纹
+  -> 保存 executable / read_roots / 文件指纹
   -> 保存 Profile.toolchains
   -> 当前 Runtime 热加载新的只读范围并继续原命令
 ```
@@ -79,13 +79,13 @@ terraform
 - `program`
 - `executable`
 - `read_roots`
-- `version`
 - executable SHA-256 指纹
-- Node / Python 的实际 runtime target 与对应指纹
+
+`version`、`runtime_target` 和 `runtime_fingerprint` 仅作为旧记录或诊断信息兼容，不再是注册成立的必要条件，也不会为了填充这些字段在注册阶段执行工具。
 
 Host 在弹出授权前还会计算 `proposal_fingerprint`。用户点击允许时桌面端必须重新计算并比较；路径或目标文件在等待确认期间发生变化时，拒绝注册并要求重新解析。
 
-程序升级、路径变化、符号链接目标变化或实际解释器变化后，已有注册被视为 stale，不能自动接受新的二进制。
+程序文件、路径或符号链接目标发生变化后，已有注册被视为 stale，不能自动接受新的二进制。对于版本管理器 shim，授权对象就是 Host 实际解析出的入口及用户确认的只读范围；Workbench 不再执行工具去猜测它下一步会选择哪个解释器。
 
 ## 手动注册
 
@@ -95,7 +95,7 @@ Host 在弹出授权前还会计算 `proposal_fingerprint`。用户点击允许�
 2. 输入绝对 executable 路径。
 3. 必要时补充额外只读目录。
 4. 检查自动推导的 executable、符号链接目标及只读范围。
-5. 在完整 OS 沙箱中验证后保存服务。
+5. 确认后计算文件指纹并保存服务；注册阶段不执行该工具。
 
 禁止把整个 Home、Home 上级目录或凭据目录注册为只读工具根。
 
@@ -114,28 +114,18 @@ GIT_TERMINAL_PROMPT=0
 
 这样真实 Git 不会读取 `~/.gitconfig` 或弹出凭据交互。AI 如需覆盖这些沙箱控制变量，仍必须获得 `sandbox_env_override` 授权。Safe 模式不会因注册本机 Git 而自动获得用户 GitHub 凭据。
 
-## macOS `/usr/bin/git` 与 xcrun
+## 注册阶段禁止工具执行
 
-Apple 的 `/usr/bin/git` 可能通过 Developer Tools 解析并尝试创建 `xcrun_db-*` 系统缓存。在 Seatbelt 中直接使用该 shim 会产生无意义的 `Operation not permitted` stderr。
+注册流程不得为了兼容某个系统或某个工具，增加类似“允许某个缓存文件写入”的平台特例。Workbench 不需要知道 Git、Node、Python、编译器或浏览器在不同系统上会创建哪些缓存。
 
-Host Resolution 不通过固定路径替换它，而是通过系统命令识别 Developer Tool 的真实 executable。例如当前机器可能解析为：
-
-```text
-command -v git
-  -> /usr/bin/git
-
-xcrun --find git
-  -> <当前机器实际 Developer Tool git 路径>
-```
-
-Workbench 注册后直接执行第二个真实 executable，因此不再经过 `/usr/bin/git` 的 xcrun shim，也不需要给 `/var/folders/.../T/xcrun_db-*` 增加宿主写权限。
+路径解析可以使用宿主系统提供的命令/API，因为它的目标只是回答“当前用户执行这个 program 时，实际入口是什么”。解析完成后，注册阶段只读取并冻结这个入口及用户确认的只读范围；真正的程序执行发生在原始任务继续时，并受正常 Safe / Trusted Sandbox 约束。
 
 ## 审批与失败行为
 
 - Host 路径解析不是授权，解析成功后仍必须确认注册。
 - “本次服务会话全部允许”不能代替持久化工具注册。
 - 用户拒绝某个工具注册后，本次服务会话不重复弹出同一工具。
-- Host 未找到工具、IPC 不可用、解析超时、指纹变化、沙箱验证失败或持久化失败时，原命令不执行。
+- Host 未找到工具、IPC 不可用、解析超时、指纹变化或持久化失败时，原命令不执行。
 - 无 Desktop Host Resolution 通道时，不扫描 Home，也不读取登录 Shell；仅可继续使用当前已经安全可访问/已注册的程序。
 - shell 中动态计算出的程序名无法可靠静态识别时，应改用明确的 `exec_process(program=...)`。
 
@@ -159,6 +149,6 @@ shell_startup_files_evaluated = true/false
 - macOS：Seatbelt，Safe / Trusted 要求完整文件系统与网络隔离。
 - Linux：要求完整可用的 OS sandbox backend；没有完整隔离时不得把应用层规则宣传为安全沙箱。
 - Windows：只有完整文件系统/网络隔离 backend 可用时才能提供与 Safe / Trusted 相同的工具注册保证。
-- Dangerous：任务执行不受 Safe 沙箱约束；注册验证仍应保持独立验证流程。
+- Dangerous：任务执行不受 Safe 沙箱约束；注册仍只冻结路径/只读范围/指纹，不额外执行工具。
 
 指纹是安装变化检测，不是软件供应链签名认证。真正的安全边界仍是 OS 沙箱、最小只读范围、桌面用户确认和不向 Runtime 暴露主机环境。

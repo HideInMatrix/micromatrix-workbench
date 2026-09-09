@@ -177,14 +177,9 @@ test_git_read_tools_keep_project_contract_fields
 test_git_status_reports_workspace_changes
 ```
 
-Safe Sandbox 环境中的 macOS Git/Xcode 会尝试访问：
+Git 注册不得通过放宽系统临时目录、`xcrun_db-*` 或其他平台缓存路径来通过验证。注册阶段只冻结 Host Resolution 返回的 executable、用户确认的只读范围和文件指纹，不执行 Git 本身。
 
-```text
-/var/.../xcrun_db-*
-~/.gitconfig
-```
-
-项目级门禁运行时使用 `GIT_CONFIG_GLOBAL=/dev/null` 隔离用户全局 Git 配置，不放宽 Workspace / `.git` / HOME 沙箱边界。两个 Git Contract 均真实执行并通过；macOS `xcrun_db` 仍可能打印不可写 warning，但不影响 Git 测试结果。
+实际 Git 命令仍在正常 Safe Sandbox 中运行，并使用 `GIT_CONFIG_GLOBAL=/dev/null` 隔离用户全局 Git 配置，不放宽 Workspace / `.git` / HOME 沙箱边界。
 
 ### 6.3 TTY fixture
 

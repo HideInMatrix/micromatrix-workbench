@@ -93,3 +93,22 @@ class ToolchainCleanupTests(unittest.TestCase):
             selected = resolver.discover(['python'])['toolchains']['python']['selected']
             self.assertEqual(selected['source'], 'registered')
             self.assertEqual(selected['version'], '3.13')
+
+    def test_metadata_snapshot_does_not_execute_version_probe(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            binary = root / 'registered' / 'bin' / 'python'
+            binary.parent.mkdir(parents=True)
+            binary.write_text('#!/bin/sh\nexit 0\n')
+            binary.chmod(0o700)
+            probe = Mock(side_effect=AssertionError('metadata snapshot must not execute tools'))
+            resolver = ToolchainResolver(
+                root,
+                safe_path=[],
+                registered_programs={'python': str(binary)},
+                probe_runner=probe,
+            )
+            selected = resolver.discover(['python'], probe_versions=False)['toolchains']['python']['selected']
+            self.assertEqual(selected['source'], 'registered')
+            self.assertEqual(selected['version'], '')
+            probe.assert_not_called()

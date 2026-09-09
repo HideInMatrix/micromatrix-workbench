@@ -40,8 +40,9 @@ from .tools.system.handlers import SystemHandlers
 from .tools.toolchains.handlers import ToolchainHandlers
 from .tools.workbench.handlers import WorkbenchHandlers
 from .toolchains import ToolchainResolver
-from .toolchains.registration import (normalize_registrations, fingerprint, probe_version,
-                                      require_confinement, system_read_roots, probe_runtime_target, write_launchers)
+from .toolchains.registration import (normalize_registrations, fingerprint,
+                                      require_confinement, write_launchers)
+from .toolchains.paths import system_read_roots
 from .workspace import Workspace
 from .workbench.capability_assets import CapabilityAssetService
 from .workbench.engine import WorkflowEngine
@@ -152,21 +153,6 @@ class Runtime(
             protected_paths=sandbox_protected_paths,
             network=self.allow_network,
         )
-        self._registration_verifier = self.process_sandbox
-        if self.toolchain_registrations:
-            if self.permission_mode == "dangerous":
-                self._registration_verifier = create_process_sandbox(
-                    mode="safe", workspace=self.workspace.root,
-                    runtime_dir=Path(tempfile.mkdtemp(prefix="verifier-", dir=self._toolchain_state_dir)),
-                    readable_roots=sandbox_readable_roots,
-                    writable_roots=sandbox_writable_roots,
-                    protected_paths=sandbox_protected_paths, network=False,
-                )
-            try:
-                self._verify_registered_toolchains()
-            except Exception:
-                self.commands.close()
-                raise
         self.toolchains = ToolchainResolver(
             self.workspace.root,
             safe_path=self.safe_exec_path,
@@ -175,7 +161,7 @@ class Runtime(
             registered_programs={item["program"]: item["executable"]
                                  for item in self.toolchain_registrations},
         )
-        self._toolchain_snapshot = self.toolchains.discover()
+        self._toolchain_snapshot = self.toolchains.discover(probe_versions=False)
         self.safe_exec_path = list(dict.fromkeys([
             *([str(self.registered_bin_dir)] if self.registered_bin_dir else []),
             *(str(item) for item in self._toolchain_snapshot.get("safe_path", [])),
@@ -225,23 +211,11 @@ class Runtime(
         if self.registered_bin_dir:
             protected.append(self.registered_bin_dir)
         readable = list(dict.fromkeys([*roots, *self.toolchain_read_roots, *self._platform_read_roots()]))
-        verifier = create_process_sandbox(
-            mode="safe", workspace=self.workspace.root, runtime_dir=generation,
-            readable_roots=readable, writable_roots=writable,
-            protected_paths=protected, network=False,
-        )
-        require_confinement(verifier)
-        from .toolchains.registration import toolchain_environment
         safe_path = [str(bin_dir), *[p for p in self.safe_exec_path if p != str(self.registered_bin_dir)]]
-        env = toolchain_environment(safe_path, Path.home(), self.commands.cache_dir, self.commands.tmp_dir)
         for r in records:
             if (fingerprint(r["executable"], r["read_roots"]) != r["fingerprint"]
                 or (r["runtime_target"] and fingerprint(r["runtime_target"], r["read_roots"]) != r["runtime_fingerprint"])):
-                raise ToolError("TOOLCHAIN_REGISTRATION_STALE", "工具链验证后已变化，请重新注册。", "process", False)
-            if (probe_version(r["executable"], verifier, self.workspace.root, env) != r["version"]
-                or probe_runtime_target(r["program"], r["executable"], verifier, self.workspace.root, env) != r["runtime_target"]):
-                raise ToolError("TOOLCHAIN_REGISTRATION_STALE", "工具链版本或路径已变化，请重新注册。", "process", False)
-        # Separate directories prevent a task's network policy overwriting the verifier policy.
+                raise ToolError("TOOLCHAIN_REGISTRATION_STALE", "工具注册后文件已变化，请重新确认。", "process", False)
         task_generation = Path(tempfile.mkdtemp(prefix="task-", dir=self._toolchain_state_dir))
         backend = create_process_sandbox(
             mode=self.permission_mode, workspace=self.workspace.root, runtime_dir=task_generation,
@@ -252,7 +226,6 @@ class Runtime(
             require_confinement(backend)
             self.workspace.readonly_roots = tuple(roots)
         self.process_sandbox = backend
-        self._registration_verifier = verifier
         self.safe_exec_path = safe_path
         self.registered_bin_dir = bin_dir
         self.toolchain_read_roots = list(dict.fromkeys([*roots, *self.toolchain_read_roots]))
@@ -262,7 +235,7 @@ class Runtime(
             unrestricted=self.permission_mode == "dangerous",
             registered_programs={r["program"]: r["executable"] for r in records},
         )
-        self._toolchain_snapshot = self.toolchains.discover()
+        self._toolchain_snapshot = self.toolchains.discover(probe_versions=False)
         self.sandbox_profile = build_sandbox_profile(
             mode=self.permission_mode, workspace=self.workspace.root, runtime_paths=writable,
             toolchain_paths=[str(p) for p in self.toolchain_read_roots],
@@ -296,30 +269,12 @@ class Runtime(
                     raise ValueError("runtime executable changed")
             except (OSError, ValueError) as exc:
                 raise ToolError("TOOLCHAIN_REGISTRATION_STALE",
-                                f"工具链 {item['program']} 路径或文件发生变化，请在桌面重新验证并注册。",
+                                f"工具链 {item['program']} 路径或文件发生变化，请在桌面重新确认并注册。",
                                 "process", False) from exc
 
     def _verify_registered_toolchains(self) -> None:
+        """Compatibility hook: registrations are verified by immutable file identity only."""
         self._verify_toolchain_files()
-        if not self.toolchain_registrations:
-            return
-        backend = self._registration_verifier
-        require_confinement(backend)
-        from .toolchains.registration import toolchain_environment
-        env = toolchain_environment(self.safe_exec_path, Path.home(),
-                                    self.commands.cache_dir, self.commands.tmp_dir)
-        for item in self.toolchain_registrations:
-            version = probe_version(item["executable"], backend, self.workspace.root, env)
-            target = probe_runtime_target(item["program"], item["executable"], backend,
-                                          self.workspace.root, env)
-            if target != item["runtime_target"]:
-                raise ToolError("TOOLCHAIN_REGISTRATION_STALE",
-                                f"工具链 {item['program']} 实际解释器路径发生变化，请重新注册。",
-                                "process", False)
-            if version != item["version"]:
-                raise ToolError("TOOLCHAIN_REGISTRATION_STALE",
-                                f"工具链 {item['program']} 版本发生变化，请在桌面重新验证并注册。",
-                                "process", False)
 
     @staticmethod
     def _platform_read_roots() -> list[Path]:

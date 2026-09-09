@@ -5,17 +5,10 @@ import hashlib
 import os
 import re
 import shlex
-import signal
-import subprocess
-import tempfile
 from pathlib import Path
 from typing import Any
 
-from ..sandbox.backend import create_process_sandbox
-from .paths import system_read_roots
-
 PROGRAM_NAME_RE = re.compile(r"^[A-Za-z0-9_.+@-]+$")
-RUNTIME_TARGET_PROGRAMS = {"node", "python", "python3"}
 
 
 def normalize_program_name(value: object) -> str:
@@ -65,13 +58,13 @@ def normalize_registrations(values: Any) -> tuple[dict[str, Any], ...]:
                 raise ValueError("工具链只读目录发生变化，请重新注册。")
         version = str(raw.get("version", ""))
         fingerprint = str(raw.get("fingerprint", ""))
-        if not version or not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
-            raise ValueError("工具链尚未验证，请在桌面点击“验证并注册”。")
+        if len(version) > 512 or not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
+            raise ValueError("工具注册缺少有效的文件指纹，请重新确认并注册。")
         runtime_target = str(raw.get("runtime_target", ""))
         runtime_fingerprint = str(raw.get("runtime_fingerprint", ""))
-        if program in RUNTIME_TARGET_PROGRAMS:
+        if runtime_target or runtime_fingerprint:
             if not Path(runtime_target).is_absolute() or not re.fullmatch(r"[0-9a-f]{64}", runtime_fingerprint):
-                raise ValueError("缺少实际解释器指纹，请重新验证并注册。")
+                raise ValueError("实际解释器记录不完整，请重新确认并注册。")
         result.append({"runtime_target": runtime_target, "runtime_fingerprint": runtime_fingerprint,
                        "program": program, "executable": str(executable),
                        "read_roots": list(roots), "version": version,
@@ -124,81 +117,6 @@ def toolchain_environment(path: list[str], home: Path, cache: Path, tmp: Path) -
     return env
 
 
-def _probe_environment(env: dict[str, str]) -> dict[str, str]:
-    # Query the installed tool, not the packageManager requested by the project.
-    # pnpm switches/downloads versions even for --version. Keep these overrides
-    # probe-only: real commands must still honor the project's configuration.
-    return {**env,
-            "npm_config_manage_package_manager_versions": "false",
-            "npm_config_package_manager_strict": "false",
-            "npm_config_package_manager_strict_version": "false",
-            "COREPACK_ENABLE_PROJECT_SPEC": "0",
-            "COREPACK_DEFAULT_TO_LATEST": "0",
-            "COREPACK_ENABLE_NETWORK": "0",
-            "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
-            "YARN_IGNORE_PATH": "1",
-            "YARN_ENABLE_NETWORK": "0"}
-
-
-def _run_registration_probe(argv: list[str], backend: Any, cwd: Path,
-                            env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    require_confinement(backend)
-    command = backend.wrap(argv, cwd=cwd)
-    with subprocess.Popen(command, cwd=cwd, env=_probe_environment(env),
-                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE, text=True, shell=False,
-                          start_new_session=os.name != "nt") as process:
-        try:
-            stdout, stderr = process.communicate(timeout=8)
-        except subprocess.TimeoutExpired as exc:
-            # Version-manager shims spawn children. Killing just the shim leaves
-            # downloads/retries running after the Profile has failed to start.
-            try:
-                if os.name != "nt":
-                    os.killpg(process.pid, signal.SIGKILL)
-                else:
-                    process.kill()
-            except ProcessLookupError:
-                pass
-            process.wait()
-            raise ValueError(
-                f"工具链沙箱验证超时（8 秒）: {shlex.join(argv)}。"
-                "请检查版本管理器及只读依赖目录，或选择已安装的工具入口重新验证并注册。"
-            ) from exc
-    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
-
-
-def probe_version(executable: str, backend: Any, cwd: Path, env: dict[str, str]) -> str:
-    require_confinement(backend)
-    # Managers such as nvmd inspect package.json before handing off to pnpm,
-    # so pnpm's own environment switches alone do not prevent provisioning.
-    # Use the already-authorized runtime temp root, as desktop registration
-    # does, without changing the real task cwd or granting new read roots.
-    with tempfile.TemporaryDirectory(prefix="toolchain-probe-", dir=env["TMPDIR"]) as temporary:
-        completed = _run_registration_probe([executable, "--version"], backend,
-                                            Path(temporary).resolve(), env)
-    if completed.returncode:
-        raise ValueError("工具链沙箱验证失败；请补充必要的只读依赖目录，不能关闭沙箱。 "
-                         + completed.stderr[-1200:])
-    version = completed.stdout.strip()
-    if not version or len(version) > 512:
-        raise ValueError("工具链未返回有效版本。")
-    return version
-
-
-def probe_runtime_target(program: str, executable: str, backend: Any,
-                         cwd: Path, env: dict[str, str]) -> str:
-    if program not in RUNTIME_TARGET_PROGRAMS:
-        return ""
-    args = (["-p", "process.execPath"] if program == "node" else
-            ["-I", "-c", "import sys; print(sys._base_executable)"])
-    completed = _run_registration_probe([executable, *args], backend, cwd, env)
-    target = completed.stdout.strip()
-    if completed.returncode or not target or not Path(target).is_absolute():
-        raise ValueError("无法在沙箱中确定实际解释器路径: " + completed.stderr[-1200:])
-    return str(Path(target).resolve(strict=True))
-
-
 def prepare_toolchain(program: str, executable: str, read_roots: list[str]) -> dict[str, Any]:
     """Inspect paths without executing them, so the user can review the scope."""
     program = normalize_program_name(program)
@@ -230,33 +148,23 @@ def prepare_toolchain(program: str, executable: str, read_roots: list[str]) -> d
 
 def register_toolchain(program: str, executable: str, read_roots: list[str], *,
                        confirmed_roots: list[str] | None = None) -> dict[str, Any]:
-    """Called only by the desktop confirmation button, not by an MCP tool."""
+    """Freeze a desktop-confirmed executable without executing it.
+
+    Registration is authorization metadata, not a compatibility probe.  The
+    real command is executed later by Runtime under the normal task sandbox.
+    This keeps registration independent from platform-specific caches, shell
+    startup side effects, package-manager provisioning, and tool-specific
+    ``--version`` behaviour.
+    """
     prepared = prepare_toolchain(program, executable, read_roots)
     path = Path(prepared["executable"])
     roots = prepared["read_roots"]
     if confirmed_roots is not None and set(roots) != set(confirmed_roots):
         raise ValueError("检查后工具链目录发生变化，请重新检查并确认权限范围。")
     before = fingerprint(str(path), roots)
-    from .resolver import ToolchainResolver
-    with tempfile.TemporaryDirectory(prefix="toolchain-registration-") as temporary:
-        runtime = Path(temporary).resolve()
-        cache = runtime / "cache"
-        cache.mkdir()
-        backend = create_process_sandbox(
-            mode="safe", workspace=runtime, runtime_dir=runtime,
-            readable_roots=[*[Path(item) for item in roots], *system_read_roots()], writable_roots=[runtime],
-            protected_paths=[Path(item) for item in roots], network=False,
-        )
-        env = toolchain_environment([str(path.parent), *ToolchainResolver.system_path_entries()],
-                                    Path.home(), cache, runtime)
-        version = probe_version(str(path), backend, runtime, env)
-        runtime_target = probe_runtime_target(program, str(path), backend, runtime, env)
-        runtime_fingerprint = fingerprint(runtime_target, roots) if runtime_target else ""
-    if fingerprint(str(path), roots) != before:
-        raise ValueError("验证期间工具链发生变化，请重新注册。")
     return {"program": program, "executable": str(path), "read_roots": roots,
-            "version": version, "fingerprint": before,
-            "runtime_target": runtime_target, "runtime_fingerprint": runtime_fingerprint}
+            "version": "", "fingerprint": before,
+            "runtime_target": "", "runtime_fingerprint": ""}
 
 
 def write_launchers(registrations: tuple[dict[str, Any], ...], runtime_dir: Path) -> Path | None:

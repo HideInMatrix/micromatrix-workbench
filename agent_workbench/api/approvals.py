@@ -77,7 +77,7 @@ class ApprovalAPI:
                 raise ValueError("工具在授权确认前已发生变化，请重新发起工具请求。")
             record = register_toolchain(proposal["program"], proposal["executable"],
                                         proposal["read_roots"], confirmed_roots=proposal["read_roots"])
-            # Reload after probing so a slow verification cannot overwrite newer edits.
+            # Reload after fingerprinting so a concurrent profile edit cannot be overwritten.
             if gateway is None:
                 current = self.store.get(server_id)
             else:

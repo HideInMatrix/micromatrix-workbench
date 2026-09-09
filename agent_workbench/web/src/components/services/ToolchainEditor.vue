@@ -95,14 +95,14 @@ function remove(item: ToolchainRegistration) {
             <span class="grid min-w-0 gap-1">
               <span class="flex items-center gap-2">
                 <span class="font-medium text-foreground">{{ item.program }}</span>
-                <span class="font-mono text-[10px] text-muted-foreground">{{ item.version }}</span>
+                <span v-if="item.version" class="font-mono text-[10px] text-muted-foreground">{{ item.version }}</span>
                 <ChevronDown :size="12" class="shrink-0 text-muted-foreground transition-transform" :class="{ 'rotate-180': expanded === item.program }" />
               </span>
               <span class="truncate font-mono text-[10px] leading-4 text-muted-foreground" :title="item.executable">{{ item.executable }}</span>
             </span>
           </button>
           <div class="flex shrink-0 items-center gap-0.5">
-            <Button type="button" size="icon" variant="ghost" class="size-7 text-muted-foreground" :disabled="locked || busy" :aria-label="`重新验证 ${item.program}`" title="重新验证" @click="openEditor(item)"><RefreshCw :size="13" /></Button>
+            <Button type="button" size="icon" variant="ghost" class="size-7 text-muted-foreground" :disabled="locked || busy" :aria-label="`重新确认 ${item.program}`" title="重新确认" @click="openEditor(item)"><RefreshCw :size="13" /></Button>
             <Button type="button" size="icon" variant="ghost" class="size-7 text-muted-foreground hover:text-destructive" :disabled="locked || busy" :aria-label="`移除 ${item.program}`" title="移除" @click="remove(item)"><Trash2 :size="13" /></Button>
           </div>
         </div>
@@ -131,7 +131,7 @@ function remove(item: ToolchainRegistration) {
       <div v-else class="grid gap-2 border-t border-border pt-3">
         <span class="text-[11px] text-muted-foreground">确认只读访问范围</span>
         <code v-for="root in proposal.read_roots" :key="root" class="break-all text-[11px] text-foreground">{{ root }}</code>
-        <div class="flex justify-end"><Button type="button" size="sm" class="h-8 px-3 text-xs" :disabled="locked || busy" @click="register">{{ busy ? '验证中…' : '授权并验证' }}</Button></div>
+        <div class="flex justify-end"><Button type="button" size="sm" class="h-8 px-3 text-xs" :disabled="locked || busy" @click="register">{{ busy ? '注册中…' : '确认并注册' }}</Button></div>
       </div>
       <p v-if="error" role="alert" class="m-0 break-words text-[11px] text-destructive">{{ error }}</p>
     </div>
@@ -140,7 +140,7 @@ function remove(item: ToolchainRegistration) {
     <details class="text-[11px] leading-5 text-muted-foreground">
       <summary class="flex w-fit cursor-pointer list-none items-center gap-1.5 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden"><Info :size="12" />使用说明</summary>
       <p class="mt-1.5 mb-0">首次使用时由 Workbench Host 在真实用户环境中通过命令解析工具路径，只把绝对路径和必要只读范围交给授权界面；确认后保存到当前 Profile。</p>
-      <p class="mt-1 mb-0">安全与受信任模式保留沙箱边界，目录只读、缓存独立；隔离不可用时拒绝启动，不开放整个 Home。</p>
+      <p class="mt-1 mb-0">注册阶段不执行工具，只冻结程序路径、只读范围和文件指纹；真正命令仍在安全与受信任模式的正常沙箱中执行。</p>
     </details>
   </section>
 </template>
