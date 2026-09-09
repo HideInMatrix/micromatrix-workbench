@@ -17,8 +17,10 @@ BROKER_SECRET_ENV = "AGENT_RUNTIME_PERMISSION_BROKER_SECRET"
 BROKER_SERVER_ID_ENV = "AGENT_RUNTIME_PERMISSION_BROKER_SERVER_ID"
 BROKER_VERSION = 1
 BROKER_REQUEST_TTL_SECONDS = 120
+HOST_TOOL_RESOLUTION_TTL_SECONDS = 15
 WORKFLOW_APPROVAL_TTL_SECONDS = 86_400
 WORKFLOW_APPROVAL_KIND = "workflow_approval"
+HOST_TOOL_RESOLUTION_KIND = "host_tool_resolution"
 _SENSITIVE_KEY_RE = re.compile(
     r"(token|secret|credential|api[_-]?key|password|passwd|private)",
     re.I,
@@ -105,6 +107,13 @@ class LocalPermissionDecision:
         return self.approved and self.scope == "session"
 
 
+@dataclass(frozen=True, slots=True)
+class LocalHostToolResolution:
+    status: str
+    proposal: dict[str, Any] | None = None
+    error: str = ""
+
+
 class LocalPermissionBrokerClient:
     def __init__(self, directory: Path, secret: bytes, server_id: str) -> None:
         self.directory = directory.resolve()
@@ -148,6 +157,70 @@ class LocalPermissionBrokerClient:
         if not resolved.is_dir():
             raise ValueError(f"permission broker directory is not available: {resolved}")
         return cls(resolved, secret, server_id.strip())
+
+    def resolve_host_tool(
+        self,
+        program: str,
+        *,
+        timeout_seconds: int = HOST_TOOL_RESOLUTION_TTL_SECONDS,
+    ) -> LocalHostToolResolution:
+        from .toolchains.registration import normalize_program_name
+
+        normalized = normalize_program_name(program)
+        timeout = max(1, min(int(timeout_seconds), HOST_TOOL_RESOLUTION_TTL_SECONDS))
+        now = int(time.time())
+        request_id = secrets.token_urlsafe(24)
+        request_path = self.directory / f"{request_id}.host-tool.request.json"
+        response_path = self.directory / f"{request_id}.host-tool.response.json"
+        payload: dict[str, Any] = {
+            "version": BROKER_VERSION,
+            "kind": HOST_TOOL_RESOLUTION_KIND,
+            "request_id": request_id,
+            "server_id": self.server_id,
+            "program": normalized,
+            "created_at": now,
+            "expires_at": now + timeout,
+            "pid": os.getpid(),
+        }
+        payload["signature"] = sign_payload(self.secret, payload)
+        try:
+            atomic_json_write(request_path, payload)
+        except OSError:
+            return LocalHostToolResolution("unavailable", error="无法创建主机工具解析请求。")
+
+        deadline = time.monotonic() + timeout
+        try:
+            while time.monotonic() < deadline:
+                try:
+                    raw = json.loads(response_path.read_text(encoding="utf-8"))
+                except FileNotFoundError:
+                    time.sleep(0.05)
+                    continue
+                except (OSError, json.JSONDecodeError):
+                    return LocalHostToolResolution("unavailable", error="主机工具解析响应不可读。")
+                if not isinstance(raw, dict) or not verify_payload(self.secret, raw):
+                    return LocalHostToolResolution("unavailable", error="主机工具解析响应签名无效。")
+                if (
+                    raw.get("version") != BROKER_VERSION
+                    or raw.get("kind") != HOST_TOOL_RESOLUTION_KIND
+                    or raw.get("request_id") != request_id
+                    or raw.get("server_id") != self.server_id
+                    or raw.get("program") != normalized
+                ):
+                    return LocalHostToolResolution("unavailable", error="主机工具解析响应与请求不匹配。")
+                if raw.get("ok") is True and isinstance(raw.get("proposal"), dict):
+                    return LocalHostToolResolution("resolved", proposal=dict(raw["proposal"]))
+                return LocalHostToolResolution(
+                    "not_found",
+                    error=str(raw.get("error") or f"当前用户环境未找到工具 {normalized}。"),
+                )
+            return LocalHostToolResolution("timeout", error="等待 Workbench Host 解析工具路径超时。")
+        finally:
+            for path in (request_path, response_path):
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
 
     def request(
         self,

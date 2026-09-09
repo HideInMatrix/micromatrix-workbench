@@ -44,7 +44,7 @@ class ToolchainCleanupTests(unittest.TestCase):
                     self.assertEqual(after['HOME'], before['HOME'])
                     with self.assertRaises(ToolError) as raised:
                         runtime._resolve_program('no-such-unregistered-tool')
-                    self.assertEqual(raised.exception.code, 'EXECUTABLE_NOT_FOUND')
+                    self.assertEqual(raised.exception.code, 'HOST_TOOL_RESOLUTION_REQUIRED')
                 finally:
                     ACTIVE_PERMISSIONS.reset(token)
             finally:

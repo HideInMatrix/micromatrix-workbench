@@ -4,7 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 from threading import RLock
 
-from agent_runtime.toolchains.registration import register_toolchain
+from agent_runtime.toolchains.registration import fingerprint, register_toolchain
 
 _REGISTRATION_LOCK = RLock()
 
@@ -69,6 +69,12 @@ class ApprovalAPI:
                 raise ValueError("发起请求的 Profile 已删除或未参与运行。")
             if str(profile.workspace.resolve()) != proposal.get("workspace"):
                 raise ValueError("运行 Workspace 与保存的 Profile 不一致，请先保存服务配置。")
+            displayed_fingerprint = str(proposal.get("proposal_fingerprint") or "")
+            if not displayed_fingerprint or fingerprint(
+                str(proposal["executable"]),
+                list(proposal["read_roots"]),
+            ) != displayed_fingerprint:
+                raise ValueError("工具在授权确认前已发生变化，请重新发起工具请求。")
             record = register_toolchain(proposal["program"], proposal["executable"],
                                         proposal["read_roots"], confirmed_roots=proposal["read_roots"])
             # Reload after probing so a slow verification cannot overwrite newer edits.

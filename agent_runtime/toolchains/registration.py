@@ -14,7 +14,15 @@ from typing import Any
 from ..sandbox.backend import create_process_sandbox
 from .paths import system_read_roots
 
-PROGRAMS = {"node", "npm", "npx", "pnpm", "yarn", "python", "python3", "pip", "pip3"}
+PROGRAM_NAME_RE = re.compile(r"^[A-Za-z0-9_.+@-]+$")
+RUNTIME_TARGET_PROGRAMS = {"node", "python", "python3"}
+
+
+def normalize_program_name(value: object) -> str:
+    program = str(value or "").strip()
+    if not program or not PROGRAM_NAME_RE.fullmatch(program) or program in {".", ".."}:
+        raise ValueError("工具名称只能包含字母、数字、点、下划线、加号、@ 和连字符。")
+    return program
 
 
 def _root(value: str, *, resolve: bool = True) -> Path:
@@ -39,9 +47,9 @@ def normalize_registrations(values: Any) -> tuple[dict[str, Any], ...]:
     result = []
     seen = set()
     for raw in values:
-        if not isinstance(raw, dict) or raw.get("program") not in PROGRAMS:
-            raise ValueError("不支持的工具链程序。")
-        program = raw["program"]
+        if not isinstance(raw, dict):
+            raise ValueError("工具注册记录格式无效。")
+        program = normalize_program_name(raw.get("program"))
         if program in seen:
             raise ValueError(f"重复工具链注册: {program}")
         seen.add(program)
@@ -61,7 +69,7 @@ def normalize_registrations(values: Any) -> tuple[dict[str, Any], ...]:
             raise ValueError("工具链尚未验证，请在桌面点击“验证并注册”。")
         runtime_target = str(raw.get("runtime_target", ""))
         runtime_fingerprint = str(raw.get("runtime_fingerprint", ""))
-        if program in {"node", "python", "python3"}:
+        if program in RUNTIME_TARGET_PROGRAMS:
             if not Path(runtime_target).is_absolute() or not re.fullmatch(r"[0-9a-f]{64}", runtime_fingerprint):
                 raise ValueError("缺少实际解释器指纹，请重新验证并注册。")
         result.append({"runtime_target": runtime_target, "runtime_fingerprint": runtime_fingerprint,
@@ -180,7 +188,7 @@ def probe_version(executable: str, backend: Any, cwd: Path, env: dict[str, str])
 
 def probe_runtime_target(program: str, executable: str, backend: Any,
                          cwd: Path, env: dict[str, str]) -> str:
-    if program not in {"node", "python", "python3"}:
+    if program not in RUNTIME_TARGET_PROGRAMS:
         return ""
     args = (["-p", "process.execPath"] if program == "node" else
             ["-I", "-c", "import sys; print(sys._base_executable)"])
@@ -193,8 +201,7 @@ def probe_runtime_target(program: str, executable: str, backend: Any,
 
 def prepare_toolchain(program: str, executable: str, read_roots: list[str]) -> dict[str, Any]:
     """Inspect paths without executing them, so the user can review the scope."""
-    if program not in PROGRAMS:
-        raise ValueError("不支持的工具链程序。")
+    program = normalize_program_name(program)
     path = Path(executable).expanduser()
     if not path.is_absolute():
         raise ValueError("请选择程序的绝对路径。")

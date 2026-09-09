@@ -9,7 +9,7 @@ TOOLCHAIN_TOOLS = (
     ToolDefinition(
         "discover_toolchains",
         "Discover toolchains",
-        "Discover configured Node.js, Python, and Go toolchains. Missing supported programs use the same desktop-confirmed registration as execution; no login shell or temporary Home access. Reports missing programs and registration errors explicitly.",
+        "Discover configured Node.js, Python, and Go toolchains. Missing programs are delegated to the Workbench Host for real-user command resolution, then require desktop confirmation before registration. Runtime never receives the host PATH, HOME, credentials, or shell output.",
         obj(
             {
                 "kinds": {

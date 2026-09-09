@@ -5,6 +5,7 @@ import os
 import secrets
 import shutil
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -14,11 +15,15 @@ from agent_runtime.local_permission_broker import (
     BROKER_SECRET_ENV,
     BROKER_SERVER_ID_ENV,
     BROKER_VERSION,
+    HOST_TOOL_RESOLUTION_KIND,
     WORKFLOW_APPROVAL_KIND,
     atomic_json_write,
     sign_payload,
     verify_payload,
 )
+from agent_runtime.toolchains.registration import fingerprint, prepare_toolchain
+
+from .host_tools import resolve_host_tool
 
 
 class DesktopPermissionBroker:
@@ -29,6 +34,86 @@ class DesktopPermissionBroker:
         except OSError:
             pass
         self.secret = secrets.token_bytes(32)
+        self._host_tool_stop = threading.Event()
+        self._host_tool_worker = threading.Thread(
+            target=self._host_tool_loop,
+            name="micromatrix-host-tool-resolver",
+            daemon=True,
+        )
+        self._host_tool_worker.start()
+
+    def _host_tool_loop(self) -> None:
+        while not self._host_tool_stop.wait(0.05):
+            for path in tuple(self.directory.glob("*.host-tool.request.json")):
+                self._respond_host_tool_request(path)
+
+    def _respond_host_tool_request(self, path: Path) -> None:
+        request_id = path.name.removesuffix(".host-tool.request.json")
+        response_path = self.directory / f"{request_id}.host-tool.response.json"
+        if response_path.exists():
+            return
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if (
+            not isinstance(raw, dict)
+            or not verify_payload(self.secret, raw)
+            or raw.get("version") != BROKER_VERSION
+            or raw.get("kind") != HOST_TOOL_RESOLUTION_KIND
+            or str(raw.get("request_id") or "") != request_id
+        ):
+            return
+        if int(raw.get("expires_at", 0)) <= int(time.time()):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            return
+        program = str(raw.get("program") or "")
+        try:
+            resolution = resolve_host_tool(program)
+            proposal = prepare_toolchain(
+                program,
+                str(resolution["executable"]),
+                [],
+            )
+            proposal["resolution"] = {
+                "source": "host_command",
+                "resolver": resolution.get("resolver"),
+                "shell": resolution.get("shell"),
+                "shell_startup_files_evaluated": resolution.get(
+                    "shell_startup_files_evaluated",
+                    False,
+                ),
+                "host_environment_exposed_to_ai": False,
+            }
+            proposal["proposal_fingerprint"] = fingerprint(
+                str(proposal["executable"]),
+                list(proposal["read_roots"]),
+            )
+            ok = True
+            error = ""
+        except (OSError, RuntimeError, ValueError) as exc:
+            proposal = None
+            ok = False
+            error = str(exc)
+        payload: dict[str, Any] = {
+            "version": BROKER_VERSION,
+            "kind": HOST_TOOL_RESOLUTION_KIND,
+            "request_id": request_id,
+            "server_id": str(raw.get("server_id") or ""),
+            "program": program,
+            "ok": ok,
+            "proposal": proposal,
+            "error": error,
+            "responded_at": int(time.time()),
+        }
+        payload["signature"] = sign_payload(self.secret, payload)
+        try:
+            atomic_json_write(response_path, payload)
+        except OSError:
+            pass
 
     def child_environment(self, server_id: str) -> dict[str, str]:
         return {
@@ -52,7 +137,7 @@ class DesktopPermissionBroker:
                 continue
             if not isinstance(raw, dict) or not verify_payload(self.secret, raw):
                 continue
-            if raw.get("kind") == WORKFLOW_APPROVAL_KIND:
+            if raw.get("kind") in {WORKFLOW_APPROVAL_KIND, HOST_TOOL_RESOLUTION_KIND}:
                 continue
             if raw.get("version") != BROKER_VERSION:
                 continue
@@ -209,7 +294,7 @@ class DesktopPermissionBroker:
                 continue
             if not isinstance(raw, dict) or not verify_payload(self.secret, raw):
                 continue
-            if raw.get("kind") == WORKFLOW_APPROVAL_KIND:
+            if raw.get("kind") in {WORKFLOW_APPROVAL_KIND, HOST_TOOL_RESOLUTION_KIND}:
                 continue
             if str(raw.get("server_id") or "") != server_id:
                 continue
@@ -245,6 +330,30 @@ class DesktopPermissionBroker:
                 except FileNotFoundError:
                     pass
 
+        host_suffix = ".host-tool.request.json"
+        for path in self.directory.glob(f"*{host_suffix}"):
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(raw, dict) or not verify_payload(self.secret, raw):
+                continue
+            if raw.get("kind") != HOST_TOOL_RESOLUTION_KIND:
+                continue
+            if str(raw.get("server_id") or "") != server_id:
+                continue
+            request_id = str(raw.get("request_id") or "")
+            for target in (
+                path,
+                self.directory / f"{request_id}.host-tool.response.json",
+            ):
+                try:
+                    target.unlink()
+                except FileNotFoundError:
+                    pass
+
     def cleanup(self) -> None:
+        self._host_tool_stop.set()
+        self._host_tool_worker.join(timeout=1)
         shutil.rmtree(self.directory, ignore_errors=True)
 

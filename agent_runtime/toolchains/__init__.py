@@ -1,4 +1,4 @@
-"""Sandbox-first development toolchain discovery with explicit elevation."""
+"""Host-resolved development tools with explicit sandbox registration."""
 
 from .resolver import ToolchainResolver
 

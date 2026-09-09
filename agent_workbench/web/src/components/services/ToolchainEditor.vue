@@ -119,8 +119,8 @@ function remove(item: ToolchainRegistration) {
 
     <div v-if="editing" class="grid gap-3 rounded-lg border border-border bg-secondary/30 p-3">
       <div class="flex items-center justify-between"><span class="text-[11px] font-medium">手动配置</span><Button type="button" size="icon" variant="ghost" class="size-6" :disabled="busy" aria-label="关闭手动配置" @click="closeEditor"><X :size="13" /></Button></div>
-      <div class="grid grid-cols-[100px_minmax(0,1fr)] gap-2 max-[420px]:grid-cols-1">
-        <FormField label="工具"><select v-model="program" :disabled="locked || busy"><option v-for="name in ['node', 'python', 'python3', 'npm', 'pnpm', 'npx', 'pip', 'pip3', 'yarn']" :key="name" :value="name">{{ name }}</option></select></FormField>
+      <div class="grid grid-cols-[140px_minmax(0,1fr)] gap-2 max-[420px]:grid-cols-1">
+        <FormField label="工具"><input v-model.trim="program" :disabled="locked || busy" placeholder="例如 git、node、ffmpeg" /></FormField>
         <FormField label="程序路径"><input ref="pathInput" v-model.trim="executable" :disabled="locked || busy" placeholder="程序的绝对路径" /></FormField>
       </div>
       <details class="text-[11px] text-muted-foreground">
@@ -139,7 +139,7 @@ function remove(item: ToolchainRegistration) {
     <p v-if="notice" role="status" class="m-0 text-[11px] text-muted-foreground">{{ notice }}</p>
     <details class="text-[11px] leading-5 text-muted-foreground">
       <summary class="flex w-fit cursor-pointer list-none items-center gap-1.5 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden"><Info :size="12" />使用说明</summary>
-      <p class="mt-1.5 mb-0">首次使用自动检测，确认后保存到当前 Profile。手动修改需保存服务；路径或版本变化需重新验证。</p>
+      <p class="mt-1.5 mb-0">首次使用时由 Workbench Host 在真实用户环境中通过命令解析工具路径，只把绝对路径和必要只读范围交给授权界面；确认后保存到当前 Profile。</p>
       <p class="mt-1 mb-0">安全与受信任模式保留沙箱边界，目录只读、缓存独立；隔离不可用时拒绝启动，不开放整个 Home。</p>
     </details>
   </section>

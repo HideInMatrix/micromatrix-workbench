@@ -474,7 +474,7 @@ agent_runtime/patching.py
 
 ## 10. 受控进程执行与工具链发现
 
-`discover_toolchains` 与命令执行共用工具注册入口。已注册路径优先，系统 PATH 作为兜底；Node/Python 系列缺失时，仅通过项目虚拟环境、继承 PATH 和有限管理器候选目录定位待确认路径。Go 等未接入注册的程序只使用已配置路径，不再回退到登录 Shell。
+`discover_toolchains` 与命令执行共用 Host Resolution + 工具注册入口。Runtime 不维护 Homebrew、nvm、pyenv、asdf、Xcode、浏览器等安装位置候选，也不递归扫描用户目录。除已注册程序和操作系统基础 executable 外，缺失的合法 CLI 名称统一交给 Workbench Host 在真实用户环境中通过命令解析。
 
 当前会读取 Workspace 内的版本提示：
 
@@ -490,24 +490,39 @@ go.mod 的 go 版本
 统一查询链路：
 
 ```text
-已注册路径 / 系统 PATH 元数据查找 + 原沙箱内版本验证
-  -> 找到：使用已批准范围，不从成功探测推导新权限
-  -> 未找到：有限候选路径检查（不执行）
-       -> 桌面“允许并记住此 Profile” → 沙箱验证 → 持久化 → 原调用继续
-       -> 无桌面通道、拒绝或检测失败：明确报告，不读取登录环境
+已注册程序
+  -> 直接验证并使用
+
+未注册 program
+  -> Desktop Host 在真实用户环境执行受控路径解析命令
+  -> Host 只返回 absolute executable + read_roots + 指纹元数据
+  -> Runtime 不接收 PATH / HOME / 凭据 / 原始 Shell 输出
+  -> 若路径已经是 Runtime 允许的同一个系统 executable：直接使用
+  -> 否则桌面“允许并记住此 Profile”
+       -> 指纹二次校验
+       -> 独立 OS 沙箱验证版本/运行目标
+       -> 持久化 Profile.toolchains
+       -> 当前 Runtime 热加载只读范围
+       -> 原调用继续
 ```
 
-任何工具发现阶段都不会自动执行：
+POSIX Host Resolution 会运行当前用户登录 Shell 的受控 `command -v` 查询，因此可能执行该 Shell 的登录初始化文件；这个行为只发生在桌面 Host，不发生在 Runtime。Host 不把 Shell 环境或 stdout/stderr 交给 AI。macOS 遇到 Apple Developer Tool 系统 shim 时，可通过 `xcrun --find <program>` 获取真实 Developer Tool executable，而不是维护 Xcode/Command Line Tools 固定路径。
+
+禁止通过增加以下固定候选来支持新工具：
 
 ```text
-~/.zshrc
-~/.zprofile
-~/.bashrc
-~/.profile
-eval "$(...)"
+/opt/homebrew/...
+/usr/local/...
+~/.nvm/...
+~/.pyenv/...
+~/.asdf/...
+~/.volta/...
+其他用户安装目录枚举
 ```
 
-`discover_toolchains` 返回 `missing` 和 `registration_errors`，不会假装缺失工具可用。旧 `privileged_executable` 登录环境探测、负结果扩权缓存以及推测安装父目录的临时可读授权已移除。Dangerous 可以查询继承的 PATH，但发现过程仍不执行登录脚本。
+Safe Runtime 默认 PATH 只保留操作系统基础目录；Homebrew、`/usr/local`、版本管理器等用户工具不再作为预授权目录。程序注册名也不再限制为 Node/Python 固定枚举，`git`、`go`、`cargo`、`ffmpeg` 等合法 CLI 名称都可以走同一注册模型。
+
+`discover_toolchains` 返回 `missing`、`registration_errors`、`host_user_environment_queried`、`host_environment_exposed_to_ai` 等诊断字段，不会假装缺失工具可用。无 Desktop Host 通道时不扫描 Home，也不临时扩展用户目录读取范围。
 
 `exec_process` 接收结构化 `program + args`，最终使用 `shell=False` 启动。对于不需要 shell 管道、重定向或条件表达式的构建命令，应优先使用它：
 

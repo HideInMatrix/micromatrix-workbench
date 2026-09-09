@@ -29,6 +29,8 @@ SANDBOX_PROTECTED_ENV = {
     "npm_config_offline",
     "YARN_ENABLE_NETWORK",
     "CARGO_NET_OFFLINE",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_TERMINAL_PROMPT",
 }
 
 NETWORK_RE = re.compile(

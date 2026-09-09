@@ -1,82 +1,164 @@
-# 用户工具链注册与执行隔离
+# 用户工具注册与 Host Resolution
 
-## 默认：AI 首次使用时自动检测
+## 核心原则
 
-当 `discover_toolchains`、`exec_process` 或可解析的 `exec_command` 首次找不到 Node/Python 系列程序时，仅检查项目虚拟环境、继承的 PATH 和有限的已知管理器目录。不读取登录脚本、不运行候选程序、不递归扫描 Home，也不启动其他 Profile。
+Workbench 不维护“某种工具通常安装在哪里”的知识，也不通过扫描 Home、版本管理器目录或包管理器目录来猜工具路径。
 
-桌面弹出自动检测的程序路径与只读目录，用户点击 **允许并记住此 Profile** 后：
-
-1. 在完整 OS 沙箱内验证版本、真实解释器和指纹。
-2. 保存到发起请求的 Profile；单 Workspace 不修改或注册停用的子 Profile。
-3. 当前 Runtime 添加只读工具链，继续原命令，无需重启服务；后续使用无需重复授权环境读取。
-4. 新旧命令使用各自的不可修改策略文件；审批不取消文件或网络隔离。
-
-拒绝后本次服务会话不重复弹出该程序的注册请求。超时、检测失败、验证失败、持久化失败均不执行原命令；不会隐式改用危险模式。“本次会话全部允许”不能代替持久化注册的确认。多个安装版本无法确定时不猜版本，使用下方手动入口。无桌面 Broker 的 CLI 不支持此持久化流程，会返回候选和注册要求，不回退到旧登录环境查询。Go 和其他尚未接入注册的程序只使用已配置路径。
-
-已注册程序变化仍会停止执行，需重新验证；这里不自动接受升级后的二进制。通用 shell 的动态计算程序名不保证被静态识别，AI 可改用明确的 `exec_process(program=...)` 触发检测。
-
-## 桌面使用
-
-在服务设置的每个 Workspace / Profile 下打开“工具链与隔离”：
-
-1. 选择程序名（Node / Python，也可单独注册 npm、pnpm、pip 等）。
-2. 输入本机程序的绝对路径，包括版本管理器 shim 或项目 `.venv/bin/python`。
-3. 必要时补充额外只读依赖目录，每行一个。禁止注册整个 Home、其上级目录或凭据目录。
-4. 点击“检查路径（不执行）”，核对自动推导的安装目录、真实目标目录及符号链接所在的管理器目录。
-5. 点击“确认权限并验证注册”：仅在完整 OS 沙箱内执行版本与实际解释器查询，不执行用户登录 shell。
-6. 保存服务配置并启动。手动编辑已经运行服务的注册需要先停止；首次使用授权不受此限制。
-
-版本或路径发生变化时，点击该注册旁的“重新验证”，重新确认后保存并重启。注册保存在对应服务 / Member 的 `toolchains` 字段，不随是否记住 OAuth 密码的选项删除。删除注册并保存会撤销这部分只读目录授权。
-
-默认旧配置使用空注册列表，无需迁移。单 Workspace 模式只加载主 Profile 的注册，已停用子 Profile 的工具链不应进入本次运行配置。
-
-## 运行链路
+Safe / Trusted 模式下，首次使用一个尚未注册的 CLI 程序时，统一走以下链路：
 
 ```text
-Desktop 路径检查（无执行）
-  -> 用户确认只读目录
-  -> OS 沙箱验证版本和真实解释器
+Runtime 请求 program=git/node/python3/ffmpeg/...
+  -> Workbench Host 在真实用户环境中执行受控路径解析命令
+  -> Host 只返回绝对 executable、必要只读范围和解析元数据
+  -> Runtime 不接收 PATH、HOME、凭据、Shell stdout/stderr 等主机环境内容
+  -> Workbench 桌面弹出注册授权
+  -> 用户选择“允许并记住此 Profile”
+  -> 桌面端校验提案指纹未变化
+  -> 在完整 OS 沙箱中验证版本/运行目标/指纹
   -> 保存 Profile.toolchains
-  -> Direct 环境变量 / Gateway 每 Profile 配置
-  -> Runtime 验证文件指纹并构建只读挂载
-  -> 无登录 shell 的命令查找
-  -> 执行前重新核对指纹、版本、实际解释器位置
-  -> 在原 OS 沙箱中执行命令及其子进程
+  -> 当前 Runtime 热加载新的只读范围并继续原命令
 ```
 
-注册包括调用路径、只读目录、SHA-256、版本；Node/Python 还记录实际解释器路径及指纹。shell 命令通过 Runtime 内的只读精确入口选择注册程序，避免多个安装目录的 PATH 遮蔽。保留原始调用 basename，避免将 `node -> nvmd` 错误执行成 `nvmd`，也保留 Python venv 调用路径。工具管理器选择了不同版本/解释器时，停止执行并要求在桌面重新注册，不自动扩权。
+维护时禁止通过新增以下内容来“支持更多工具”：
 
-探测和执行使用清理过的环境。HOME 可保留真实路径供管理器定位配置，但**设置 HOME 不授予 Home 可读权限**。只有已确认的工具链目录、系统运行依赖、Workspace 和 Runtime 专用目录纳入沙箱。安装布局无法自动推导的动态库或管理器配置目录需要明确补充，验证失败不自动扩大权限。
+```text
+/opt/homebrew/...
+/usr/local/...
+~/.nvm/...
+~/.pyenv/...
+~/.asdf/...
+~/.volta/...
+某浏览器固定安装目录
+其他用户安装目录候选表
+```
 
-版本校验统一在 Runtime 临时空目录执行，并关闭探测进程中的包管理器自动切换、下载和交互提示，避免 `nvmd/pnpm --version` 读取项目的 `packageManager` 后尝试安装另一版本，导致禁网启动超时。Node/Python 的实际解释器路径仍在 Workspace 中核验；普通任务仍使用项目目录及其配置。探测超过 8 秒返回明确的注册验证错误；macOS/Linux 同时清理探测进程组，避免管理器子进程在启动失败后继续重试。
+这些路径只能作为 Host 真实解析结果出现，不能成为 Runtime 的发现规则。
 
-npm、pnpm、Yarn、pip、uv、Corepack 和 Python 字节码缓存指向 Runtime 专用缓存目录。注册目录只读，因此安装/升级工具本身或向已注册 venv 安装包，需要停止服务、解除相应注册或在本机终端完成，再重新注册；工作区内普通构建输出不受影响。
+## Host 路径解析
 
-## 审批与隔离
+POSIX 桌面端使用当前用户的登录 Shell 执行受控 `command -v` 路径解析。Shell 初始化发生在 Workbench Host，而不是 Runtime 沙箱；Host 不把完整 Shell 环境或输出返回给 AI。
 
-- 注册是授权使用一个工具链及其只读依赖目录，不是批准任意文件访问。
-- `python -c` 和 `.py` 文件具有同等执行能力；完整内核文件/网络隔离生效时，Safe 不再仅因内联语法要求额外批准。
-- 缺少完整隔离时，应用层内联脚本审批仍保留；它不是文件系统安全边界。
-- 文件操作工具不能改写已注册的只读目录；shell/解释器及其子进程由 OS 实施同样限制。
-- 临时 `network` / `git_metadata_write` 批准只放开对应能力，不解除工具链目录只读，也不解除工作区外写入限制。
-- macOS 生成的 Seatbelt 策略文件禁止被沙箱子进程改写，避免影响下一次执行。
+macOS 对 Apple Developer Tools 额外处理系统 shim：当登录环境解析到的工具与系统默认命令一致，并且 `xcrun --find <program>` 给出不同的真实 Developer Tool executable 时，注册真实 executable。这里仍然通过系统命令查询，不枚举 Xcode 或 Command Line Tools 安装路径。
 
-## 平台与失败行为
+Windows 使用系统命令解析可执行文件路径。无论平台如何，最终进入授权界面的必须是已验证的绝对路径。
 
-桌面 Direct / Gateway 启动器强制 `AGENT_RUNTIME_OS_SANDBOX=require`。Safe / Trusted 的后台自检必须同时具备文件系统和网络隔离，否则拒绝启动，原因进入服务日志。不再静默退回应用层策略。
+Host Resolution 请求通过 Desktop Permission Broker 的私有、签名 IPC 通道完成，但它本身不是权限批准：路径解析完成后仍必须单独显示注册授权，用户确认后才能扩大 Runtime 的只读/执行范围。
 
-- macOS：Seatbelt；本机真实 Node/nvmd、Python/uv/venv 已实测。
-- Linux：bubblewrap；需要平台支持和完整自检通过。此改动有配置层测试，但不等同于 Linux 实机验证。
-- Windows 当前 Restricted Token + Job Object 不提供完整文件系统/网络隔离，因此 Safe / Trusted 将明确拒绝启动。需要后续完整隔离 backend，不能把受限令牌冒充完整沙箱。
-- Dangerous 明确不提供执行隔离。已注册工具的验证仍在独立的受限验证环境中进行；实际任务按 Dangerous 模式执行。
-- 直接使用 `agent_runtime` 的高级 CLI 仍支持 `auto/off`；诊断和日志显式报告 `full/partial/none`，不能把 `partial/none` 当作完整隔离。注册验证不接受这种降级。
+## Safe PATH 与用户工具
 
-指纹和版本检查用于发现安装变化，不是对软件供应链的签名认证，也不能完全消除宿主机在检查与启动之间修改文件的竞争窗口。真正的任务执行边界始终是 OS 沙箱。
+Safe Runtime 的默认 PATH 只保留操作系统基础目录。Homebrew、`/usr/local`、版本管理器和其他用户安装位置不再预先加入 Safe PATH。
 
-## 旧实现收尾
+因此用户工具的正常首次使用过程是：
 
-- 系统 PATH 与平台只读依赖集中在 `agent_runtime/toolchains/paths.py`；用户管理器候选只保留在 `discovery.py`，候选不是授权。
-- 移除登录 Shell / `command -v` 子进程查找，改为配置目录中的元数据检查；版本探测继续使用原 OS 沙箱。
-- 移除 `privileged_executable` 对任务 PATH/HOME 的切换、临时工具根可读授权，以及成功探测后的父目录可读扩展。
-- `discover_toolchains` 与执行入口共用注册确认；返回明确的缺失/注册失败信息。其声明不再标为只读，因为用户确认后会保存 Profile。
-- 旧权限名仅用于外部 stdio MCP 启动，不再赋予任务工具发现能力。Dangerous 仍明确无任务隔离，但自动发现不会读取登录脚本。
+```text
+真实用户 Shell 能找到工具
+  -> Host Resolution 返回真实路径
+  -> 用户批准该路径及只读依赖
+  -> Runtime 注册并使用
+```
+
+如果 Host 返回的路径与 Runtime 已经允许使用的系统基础 executable 完全相同，则不产生没有意义的重复授权。
+
+## 注册模型
+
+程序名不再限制为 Node/Python 的固定枚举。任何满足安全名称规则的 CLI program 都可以注册，例如：
+
+```text
+git
+node
+pnpm
+python3
+go
+cargo
+ffmpeg
+terraform
+```
+
+注册记录包含：
+
+- `program`
+- `executable`
+- `read_roots`
+- `version`
+- executable SHA-256 指纹
+- Node / Python 的实际 runtime target 与对应指纹
+
+Host 在弹出授权前还会计算 `proposal_fingerprint`。用户点击允许时桌面端必须重新计算并比较；路径或目标文件在等待确认期间发生变化时，拒绝注册并要求重新解析。
+
+程序升级、路径变化、符号链接目标变化或实际解释器变化后，已有注册被视为 stale，不能自动接受新的二进制。
+
+## 手动注册
+
+服务设置仍保留手动入口，用于用户明确知道 executable 路径或自动 Host Resolution 无法满足特殊环境的情况。
+
+1. 输入任意合法程序名，不再使用 Node/Python 固定下拉列表。
+2. 输入绝对 executable 路径。
+3. 必要时补充额外只读目录。
+4. 检查自动推导的 executable、符号链接目标及只读范围。
+5. 在完整 OS 沙箱中验证后保存服务。
+
+禁止把整个 Home、Home 上级目录或凭据目录注册为只读工具根。
+
+## 环境隔离
+
+Runtime 不继承主机凭据、`NODE_OPTIONS`、`PYTHONPATH` 等敏感执行环境。工具缓存写入 Runtime 专用目录。
+
+部分版本管理器需要真实 `HOME` 字符串才能定位其安装结构，因此“环境中存在真实 HOME 路径”不等于“沙箱允许读取整个 Home”。OS 沙箱仍只开放已批准的工具根。
+
+Git 在 Safe / Trusted 模式下额外设置：
+
+```text
+GIT_CONFIG_GLOBAL=/dev/null
+GIT_TERMINAL_PROMPT=0
+```
+
+这样真实 Git 不会读取 `~/.gitconfig` 或弹出凭据交互。AI 如需覆盖这些沙箱控制变量，仍必须获得 `sandbox_env_override` 授权。Safe 模式不会因注册本机 Git 而自动获得用户 GitHub 凭据。
+
+## macOS `/usr/bin/git` 与 xcrun
+
+Apple 的 `/usr/bin/git` 可能通过 Developer Tools 解析并尝试创建 `xcrun_db-*` 系统缓存。在 Seatbelt 中直接使用该 shim 会产生无意义的 `Operation not permitted` stderr。
+
+Host Resolution 不通过固定路径替换它，而是通过系统命令识别 Developer Tool 的真实 executable。例如当前机器可能解析为：
+
+```text
+command -v git
+  -> /usr/bin/git
+
+xcrun --find git
+  -> <当前机器实际 Developer Tool git 路径>
+```
+
+Workbench 注册后直接执行第二个真实 executable，因此不再经过 `/usr/bin/git` 的 xcrun shim，也不需要给 `/var/folders/.../T/xcrun_db-*` 增加宿主写权限。
+
+## 审批与失败行为
+
+- Host 路径解析不是授权，解析成功后仍必须确认注册。
+- “本次服务会话全部允许”不能代替持久化工具注册。
+- 用户拒绝某个工具注册后，本次服务会话不重复弹出同一工具。
+- Host 未找到工具、IPC 不可用、解析超时、指纹变化、沙箱验证失败或持久化失败时，原命令不执行。
+- 无 Desktop Host Resolution 通道时，不扫描 Home，也不读取登录 Shell；仅可继续使用当前已经安全可访问/已注册的程序。
+- shell 中动态计算出的程序名无法可靠静态识别时，应改用明确的 `exec_process(program=...)`。
+
+## `discover_toolchains`
+
+`discover_toolchains` 仍提供 Node / Python / Go 的高层状态视图，但缺失程序和普通命令执行使用同一套 Host Resolution + 注册流程。
+
+返回诊断会明确报告：
+
+```text
+host_resolution = desktop_command
+host_user_environment_queried = true/false
+host_environment_exposed_to_ai = false
+shell_startup_files_evaluated = true/false
+```
+
+这用于区分“Runtime 自己扫描用户环境”和“Desktop Host 在用户侧解析后只返回安全结果”。
+
+## 平台与安全边界
+
+- macOS：Seatbelt，Safe / Trusted 要求完整文件系统与网络隔离。
+- Linux：要求完整可用的 OS sandbox backend；没有完整隔离时不得把应用层规则宣传为安全沙箱。
+- Windows：只有完整文件系统/网络隔离 backend 可用时才能提供与 Safe / Trusted 相同的工具注册保证。
+- Dangerous：任务执行不受 Safe 沙箱约束；注册验证仍应保持独立验证流程。
+
+指纹是安装变化检测，不是软件供应链签名认证。真正的安全边界仍是 OS 沙箱、最小只读范围、桌面用户确认和不向 Runtime 暴露主机环境。

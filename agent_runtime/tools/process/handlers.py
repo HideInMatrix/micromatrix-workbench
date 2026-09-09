@@ -9,7 +9,6 @@ from typing import Any
 
 from ...errors import ToolError
 from ...local_permission_broker import (
-    LocalPermissionBrokerClient,
     BROKER_DIR_ENV,
     BROKER_SECRET_ENV,
     BROKER_SERVER_ID_ENV,
@@ -27,6 +26,14 @@ from .policy import (
 
 class ProcessHandlers:
     """Command execution, process lifecycle and retained output handlers."""
+
+    def _host_tool_broker(self) -> Any | None:
+        broker = self.local_permission_broker
+        if not callable(getattr(broker, "resolve_host_tool", None)):
+            return None
+        if not callable(getattr(broker, "request", None)):
+            return None
+        return broker
 
     def _command_env(self, overrides: dict[str, str]) -> dict[str, str]:
         if self.permission_mode == "dangerous":
@@ -91,6 +98,9 @@ class ProcessHandlers:
             ROUTE_PROBE_TOKEN_ENV,
         ):
             env.pop(internal_name, None)
+        if self.permission_mode != "dangerous":
+            env["GIT_CONFIG_GLOBAL"] = os.devnull
+            env["GIT_TERMINAL_PROMPT"] = "0"
         if (
             self.permission_mode == "safe"
             and not self.allow_network
@@ -132,42 +142,123 @@ class ProcessHandlers:
         return self.workspace.writable(raw)
 
     def _resolve_program(self, program: str) -> str:
-        resolved = self.toolchains.resolve_program(program)
-        if resolved is not None:
-            return resolved
-        from ...toolchains.registration import PROGRAMS
-        if program in PROGRAMS:
-            return self._register_missing_toolchain(program)
-        raise ToolError(
-            "EXECUTABLE_NOT_FOUND",
-            f"已配置的工具路径中未找到 {program}；不会读取登录环境或临时开放 Home。"
-            "此程序未接入工具链注册，可使用工作区内程序的明确路径。",
-            "process", False, {"program": program, "safe_path": list(self.safe_exec_path)},
+        from ...toolchains.registration import normalize_program_name
+        path = Path(program).expanduser()
+        if path.is_absolute() or self.permission_mode == "dangerous":
+            resolved = self.toolchains.resolve_program(program)
+            if resolved is not None:
+                return resolved
+            raise ToolError(
+                "EXECUTABLE_NOT_FOUND",
+                f"已配置的工具路径中未找到 {program}。",
+                "process", False, {"program": program, "safe_path": list(self.safe_exec_path)},
+            )
+        try:
+            normalized = normalize_program_name(program)
+        except ValueError:
+            normalized = ""
+        if not normalized:
+            raise ToolError(
+                "EXECUTABLE_NOT_FOUND",
+                f"已配置的工具路径中未找到 {program}，且该名称不能作为主机工具解析。",
+                "process", False, {"program": program, "safe_path": list(self.safe_exec_path)},
+            )
+        existing = next(
+            (item for item in self.toolchain_registrations if item["program"] == normalized),
+            None,
         )
+        if existing is not None:
+            resolved = self.toolchains.resolve_program(normalized)
+            if resolved is not None:
+                return resolved
+            raise ToolError(
+                "TOOLCHAIN_REGISTRATION_STALE",
+                f"已注册工具 {normalized} 当前不可执行，请重新验证。",
+                "process", False,
+            )
+        local = self.toolchains.resolve_program(normalized)
+        if self._host_tool_broker() is None:
+            if local is not None:
+                return local
+            raise ToolError(
+                "HOST_TOOL_RESOLUTION_REQUIRED",
+                "当前连接没有 Workbench Host 工具解析通道；无法确认真实用户环境会执行哪个工具。",
+                "permission", False, {"program": normalized},
+            )
+        proposal = self._resolve_host_tool_proposal(normalized)
+        host_executable = os.path.normcase(os.path.abspath(str(proposal["executable"])))
+        if local is not None and os.path.normcase(os.path.abspath(local)) == host_executable:
+            return local
+        return self._register_missing_toolchain(normalized, proposal=proposal)
 
-    def _register_missing_toolchain(self, program: str) -> str:
-        from ...toolchains.discovery import discover_toolchain
+    def _resolve_host_tool_proposal(self, program: str) -> dict[str, Any]:
+        cache = getattr(self, "_host_tool_resolution_cache", None)
+        if not isinstance(cache, dict):
+            cache = {}
+            setattr(self, "_host_tool_resolution_cache", cache)
+        cached = cache.get(program)
+        if isinstance(cached, dict):
+            return cached
+        broker = self._host_tool_broker()
+        if broker is None:
+            raise ToolError(
+                "HOST_TOOL_RESOLUTION_REQUIRED",
+                "当前连接没有 Workbench Host 工具解析通道。",
+                "permission", False, {"program": program},
+            )
+        resolution = broker.resolve_host_tool(program)
+        if resolution.status != "resolved" or not isinstance(resolution.proposal, dict):
+            code = (
+                "EXECUTABLE_NOT_FOUND"
+                if resolution.status == "not_found"
+                else "HOST_TOOL_RESOLUTION_UNAVAILABLE"
+            )
+            raise ToolError(
+                code,
+                resolution.error or f"Workbench Host 未能解析工具 {program}。",
+                "process",
+                resolution.status in {"timeout", "unavailable"},
+                {"program": program, "host_resolution_status": resolution.status},
+            )
+        proposal = dict(resolution.proposal)
+        if proposal.get("program") != program or not proposal.get("executable"):
+            raise ToolError(
+                "HOST_TOOL_RESOLUTION_INVALID",
+                "Workbench Host 返回的工具解析结果无效。",
+                "process", False, {"program": program},
+            )
+        cache[program] = proposal
+        return proposal
+
+    def _register_missing_toolchain(
+        self,
+        program: str,
+        *,
+        proposal: dict[str, Any] | None = None,
+    ) -> str:
         with self._toolchain_registration_lock:
             existing = next((r for r in self.toolchain_registrations if r["program"] == program), None)
             if existing:
                 return existing["executable"]
             if program in self._toolchain_consent_denied:
                 raise ToolError("TOOLCHAIN_APPROVAL_DENIED", "本次服务会话已拒绝工具链注册；可在桌面手动注册后重启。", "permission", False)
-            proposal = discover_toolchain(program, self.workspace.root)
-            if proposal is None:
-                raise ToolError("EXECUTABLE_NOT_FOUND", f"未能自动定位 {program}，请在服务设置中手动选择路径。未读取登录脚本。", "process", False)
-            if not isinstance(self.local_permission_broker, LocalPermissionBrokerClient):
+            broker = self._host_tool_broker()
+            if broker is None:
                 raise ToolError(
-                    "TOOLCHAIN_REGISTRATION_REQUIRED",
-                    "已发现工具，但当前连接没有桌面注册确认通道；请在桌面注册并加载配置后重试。",
-                    "permission", False, {"proposal": proposal},
+                    "HOST_TOOL_RESOLUTION_REQUIRED",
+                    "当前连接没有 Workbench Host 工具解析与注册确认通道；无法安全查询真实用户环境。",
+                    "permission", False, {"program": program},
                 )
+            proposal = dict(proposal or self._resolve_host_tool_proposal(program))
             isolation_note = ("当前为危险模式，原命令及子进程没有任务隔离，仅注册验证在沙箱内进行。"
                               if self.permission_mode == "dangerous" else
                               "仅增加所列只读目录，子进程仍受沙箱限制。")
-            decision = self.local_permission_broker.request(
-                tool_name="register_toolchain", arguments={**proposal, "workspace": str(self.workspace.root)}, permission="toolchain_registration",
-                reason=f"AI 首次使用 {program}，已自动找到以下路径。允许后验证并记住当前 Profile 的工具链，继续原命令。{isolation_note}",
+            decision = broker.request(
+                tool_name="register_toolchain",
+                arguments={**proposal, "workspace": str(self.workspace.root)},
+                permission="toolchain_registration",
+                reason=(f"AI 首次使用 {program}。Workbench Host 已通过真实用户环境命令解析出工具路径；"
+                        f"仅把绝对路径与必要只读范围展示给你确认，主机环境变量不会交给 AI。{isolation_note}"),
                 principal="toolchain-registration",
             )
             if not decision.approved or not decision.registration:
@@ -175,9 +266,15 @@ class ProcessHandlers:
                     self._toolchain_consent_denied.add(program)
                 raise ToolError("TOOLCHAIN_APPROVAL_REQUIRED", "工具链尚未获得桌面确认，未执行命令。", "permission", False)
             record = decision.registration
-            if any(record.get(k) != proposal[k] for k in ("program", "executable", "read_roots")):
+            if any(
+                record.get(key) != proposal.get(key)
+                for key in ("program", "executable", "read_roots")
+            ):
                 raise ToolError("TOOLCHAIN_APPROVAL_INVALID", "工具链批准范围与请求不一致。", "permission", False)
             self._install_registered_toolchain(record)
+            cache = getattr(self, "_host_tool_resolution_cache", None)
+            if isinstance(cache, dict):
+                cache.pop(program, None)
             return record["executable"]
 
     def _validate_process(

@@ -781,12 +781,12 @@ class RuntimeSafetyTests(unittest.TestCase):
         assert result is not None
         payload = result["result"]["structuredContent"]
         self.assertTrue(result["result"]["isError"])
-        self.assertEqual(payload["error"]["code"], "TOOLCHAIN_REGISTRATION_REQUIRED")
+        self.assertEqual(payload["error"]["code"], "HOST_TOOL_RESOLUTION_REQUIRED")
         self.assertNotIn(str(bin_dir.resolve()), environment["effective_path"])
         self.assertEqual([call["permission"] for call in ApproveOnceBroker.calls], ["long_timeout"])
 
     @unittest.skipIf(os.name == "nt", "POSIX fixture uses tool-manager symlinks")
-    def test_unknown_manager_does_not_trigger_login_shell_fallback(self) -> None:
+    def test_unknown_manager_requires_desktop_host_resolution_channel(self) -> None:
         class ApproveOnceBroker:
             calls = 0
 
@@ -862,7 +862,7 @@ class RuntimeSafetyTests(unittest.TestCase):
         assert response is not None
         result = response["result"]
         self.assertTrue(result["isError"])
-        self.assertEqual(result["structuredContent"]["error"]["code"], "EXECUTABLE_NOT_FOUND")
+        self.assertEqual(result["structuredContent"]["error"]["code"], "HOST_TOOL_RESOLUTION_REQUIRED")
         self.assertEqual(ApproveOnceBroker.calls, 0)
 
     @unittest.skipIf(os.name == "nt", "POSIX fixture uses /bin/echo")
@@ -925,14 +925,31 @@ class RuntimeSafetyTests(unittest.TestCase):
         self.assertFalse(second["result"]["isError"])
         self.assertEqual(ApproveSessionBroker.calls, 1)
 
-    def test_unsupported_program_miss_never_requests_environment_access(self) -> None:
-        class ApproveOnceBroker:
+    def test_arbitrary_program_name_uses_host_registration_and_caches_denial(self) -> None:
+        class DenyBroker:
             calls = 0
 
             @classmethod
-            def request(cls, **_kwargs: object) -> object:
+            def resolve_host_tool(cls, program: str) -> object:
+                return SimpleNamespace(
+                    status="resolved",
+                    proposal={
+                        "program": program,
+                        "executable": sys.executable,
+                        "read_roots": [],
+                        "resolution": {"source": "host_command"},
+                    },
+                    error="",
+                )
+
+            @classmethod
+            def request(cls, **kwargs: object) -> object:
                 cls.calls += 1
-                return type("Decision", (), {"status": "approved"})()
+                self.assertEqual(kwargs["permission"], "toolchain_registration")
+                arguments = kwargs["arguments"]
+                self.assertEqual(arguments["program"], "agent-runtime-no-such-program-xyz")
+                self.assertEqual(arguments["executable"], sys.executable)
+                return SimpleNamespace(approved=False, denied=True, registration=None)
 
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)
@@ -942,7 +959,7 @@ class RuntimeSafetyTests(unittest.TestCase):
                 clear=False,
             ):
                 runtime = Runtime(workspace, permission_mode="safe")
-                runtime.local_permission_broker = ApproveOnceBroker()  # type: ignore[assignment]
+                runtime.local_permission_broker = DenyBroker()  # type: ignore[assignment]
                 try:
                     first = dispatch(
                         runtime,
@@ -970,22 +987,35 @@ class RuntimeSafetyTests(unittest.TestCase):
         assert first is not None and second is not None
         first_error = first["result"]["structuredContent"]["error"]
         second_error = second["result"]["structuredContent"]["error"]
-        self.assertEqual(first_error["code"], "EXECUTABLE_NOT_FOUND")
-        self.assertEqual(second_error["code"], "EXECUTABLE_NOT_FOUND")
-        self.assertEqual(ApproveOnceBroker.calls, 0)
+        self.assertEqual(first_error["code"], "TOOLCHAIN_APPROVAL_REQUIRED")
+        self.assertEqual(second_error["code"], "TOOLCHAIN_APPROVAL_DENIED")
+        self.assertEqual(DenyBroker.calls, 1)
 
-    def test_missing_toolchain_returns_registration_error_without_environment_access(self) -> None:
-        class ApproveOnceBroker:
+    def test_missing_toolchain_delegates_to_host_registration_broker(self) -> None:
+        class DenyBroker:
             calls = 0
+
+            @classmethod
+            def resolve_host_tool(cls, program: str) -> object:
+                return SimpleNamespace(
+                    status="resolved",
+                    proposal={
+                        "program": program,
+                        "executable": sys.executable,
+                        "read_roots": [],
+                        "resolution": {"source": "host_command"},
+                    },
+                    error="",
+                )
 
             @classmethod
             def request(cls, **_kwargs: object) -> object:
                 cls.calls += 1
-                return type("Decision", (), {"status": "approved"})()
+                return SimpleNamespace(approved=False, denied=True, registration=None)
 
         with tempfile.TemporaryDirectory() as temporary:
             runtime = Runtime(Path(temporary), permission_mode="safe")
-            runtime.local_permission_broker = ApproveOnceBroker()  # type: ignore[assignment]
+            runtime.local_permission_broker = DenyBroker()  # type: ignore[assignment]
 
             def fake_discover(kinds: list[str]) -> dict[str, object]:
                 return {
@@ -1002,8 +1032,7 @@ class RuntimeSafetyTests(unittest.TestCase):
                     "lookup_scope": "sandbox",
                 }
 
-            with patch.object(runtime.toolchains, "discover", side_effect=fake_discover), \
-                 patch("agent_runtime.toolchains.discovery.discover_toolchain", return_value=None):
+            with patch.object(runtime.toolchains, "discover", side_effect=fake_discover):
                 try:
                     first = dispatch(
                         runtime,
@@ -1035,49 +1064,49 @@ class RuntimeSafetyTests(unittest.TestCase):
         second_payload = second["result"]["structuredContent"]
         self.assertEqual(first_payload["missing"], ["node"])
         self.assertEqual(second_payload["missing"], ["node"])
-        self.assertEqual(first_payload["registration_errors"]["node"]["code"], "EXECUTABLE_NOT_FOUND")
-        self.assertFalse(first_payload["shell_startup_files_evaluated"])
-        self.assertEqual(ApproveOnceBroker.calls, 0)
+        self.assertEqual(first_payload["registration_errors"]["node"]["code"], "TOOLCHAIN_APPROVAL_REQUIRED")
+        self.assertEqual(second_payload["registration_errors"]["node"]["code"], "TOOLCHAIN_APPROVAL_DENIED")
+        self.assertTrue(first_payload["shell_startup_files_evaluated"])
+        self.assertTrue(first_payload["host_user_environment_queried"])
+        self.assertFalse(first_payload["host_environment_exposed_to_ai"])
+        self.assertEqual(DenyBroker.calls, 1)
 
-    @unittest.skipIf(os.name == "nt", "POSIX fixture uses executable shell scripts")
-    def test_exec_command_does_not_fall_back_to_login_environment(self) -> None:
-        class ApproveOnceBroker:
+    @unittest.skipIf(os.name == "nt", "POSIX command fixture")
+    def test_exec_command_delegates_missing_program_resolution_to_desktop_host(self) -> None:
+        class InspectBroker:
             calls = 0
+
+            @classmethod
+            def resolve_host_tool(cls, program: str) -> object:
+                return SimpleNamespace(
+                    status="resolved",
+                    proposal={
+                        "program": program,
+                        "executable": sys.executable,
+                        "read_roots": [],
+                        "resolution": {"source": "host_command"},
+                    },
+                    error="",
+                )
 
             @classmethod
             def request(cls, **kwargs: object) -> object:
                 cls.calls += 1
-                self.assertEqual(kwargs["permission"], "privileged_executable")
-                return type("Decision", (), {"status": "approved"})()
+                self.assertEqual(kwargs["permission"], "toolchain_registration")
+                arguments = kwargs["arguments"]
+                self.assertEqual(arguments["program"], "custom-build")
+                self.assertEqual(arguments["executable"], sys.executable)
+                return SimpleNamespace(approved=False, denied=True, registration=None)
 
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            workspace = root / "workspace"
-            tool_bin = root / "user-tools" / "bin"
-            workspace.mkdir()
-            tool_bin.mkdir(parents=True)
-            tool = tool_bin / "custom-build"
-            tool.write_text('#!/bin/sh\necho custom-ok "$@"\n', encoding="utf-8")
-            tool.chmod(0o755)
-            shell = root / "lookup-shell"
-            shell.write_text(
-                '#!/bin/sh\npath="$TEST_TOOL_BIN/$4"\n[ -x "$path" ] || exit 1\nprintf "%s\\n" "$path"\n',
-                encoding="utf-8",
-            )
-            shell.chmod(0o755)
-
+            workspace = Path(temporary)
             with patch.dict(
                 os.environ,
-                {
-                    "AGENT_RUNTIME_OS_SANDBOX": "off",
-                    "PATH": "/usr/bin:/bin",
-                    "SHELL": str(shell),
-                    "TEST_TOOL_BIN": str(tool_bin),
-                },
+                {"AGENT_RUNTIME_OS_SANDBOX": "off", "PATH": "/usr/bin:/bin"},
                 clear=False,
             ):
                 runtime = Runtime(workspace, permission_mode="safe")
-                runtime.local_permission_broker = ApproveOnceBroker()  # type: ignore[assignment]
+                runtime.local_permission_broker = InspectBroker()  # type: ignore[assignment]
                 try:
                     response = dispatch(
                         runtime,
@@ -1094,8 +1123,8 @@ class RuntimeSafetyTests(unittest.TestCase):
 
         assert response is not None
         self.assertTrue(response["result"]["isError"])
-        self.assertEqual(response["result"]["structuredContent"]["error"]["code"], "EXECUTABLE_NOT_FOUND")
-        self.assertEqual(ApproveOnceBroker.calls, 0)
+        self.assertEqual(response["result"]["structuredContent"]["error"]["code"], "TOOLCHAIN_APPROVAL_REQUIRED")
+        self.assertEqual(InspectBroker.calls, 1)
 
     def test_exec_process_blocks_known_network_package_commands_in_safe_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1131,6 +1160,28 @@ class RuntimeSafetyTests(unittest.TestCase):
         error = result["structuredContent"]["error"]
         self.assertEqual(error["details"]["permission"], "sandbox_env_override")
         self.assertEqual(set(error["details"]["variables"]), {"HOME", "PATH"})
+
+    def test_safe_mode_isolates_git_global_config_and_terminal_prompts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = Runtime(Path(temporary), permission_mode="safe")
+            try:
+                environment = runtime._command_env({})
+                blocked = runtime.call_tool(
+                    "exec_command",
+                    {
+                        "cmd": "printf hello",
+                        "env": {"GIT_CONFIG_GLOBAL": str(Path.home() / ".gitconfig")},
+                    },
+                )
+            finally:
+                runtime.close()
+
+        self.assertEqual(environment["GIT_CONFIG_GLOBAL"], os.devnull)
+        self.assertEqual(environment["GIT_TERMINAL_PROMPT"], "0")
+        self.assertTrue(blocked["isError"])
+        error = blocked["structuredContent"]["error"]
+        self.assertEqual(error["details"]["permission"], "sandbox_env_override")
+        self.assertEqual(error["details"]["variables"], ["GIT_CONFIG_GLOBAL"])
 
     def test_safe_mode_allows_sandbox_environment_override_after_desktop_approval(self) -> None:
         class ApproveOnceBroker:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import threading
 import time
 import unittest
@@ -11,6 +12,38 @@ from agent_runtime.local_permission_broker import LocalPermissionBrokerClient
 
 
 class PermissionBrokerTests(unittest.TestCase):
+    def test_host_tool_resolution_uses_private_ipc_without_permission_prompt(self) -> None:
+        broker = DesktopPermissionBroker()
+        try:
+            client = LocalPermissionBrokerClient(broker.directory, broker.secret, "server-a")
+            resolution = {
+                "program": "python3",
+                "executable": sys.executable,
+                "resolver": "test-host-command",
+                "shell": "/bin/sh",
+                "shell_startup_files_evaluated": True,
+            }
+            with patch(
+                "agent_workbench.runtime.permission_broker.resolve_host_tool",
+                return_value=resolution,
+            ):
+                result = client.resolve_host_tool("python3", timeout_seconds=5)
+            self.assertEqual(result.status, "resolved")
+            self.assertIsNotNone(result.proposal)
+            assert result.proposal is not None
+            self.assertEqual(result.proposal["program"], "python3")
+            self.assertEqual(result.proposal["executable"], sys.executable)
+            self.assertEqual(
+                result.proposal["resolution"]["resolver"],
+                "test-host-command",
+            )
+            self.assertFalse(
+                result.proposal["resolution"]["host_environment_exposed_to_ai"]
+            )
+            self.assertEqual(broker.pending(), [])
+        finally:
+            broker.cleanup()
+
     def test_signed_request_can_be_approved_and_sensitive_fields_are_redacted(self) -> None:
         broker = DesktopPermissionBroker()
         try:

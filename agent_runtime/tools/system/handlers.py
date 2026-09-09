@@ -43,6 +43,13 @@ class SystemHandlers:
                     "configured": self.permission_session.broker_client is not None,
                     "priority": "desktop_first",
                 },
+                "host_tool_resolution": {
+                    "configured": callable(
+                        getattr(self.local_permission_broker, "resolve_host_tool", None)
+                    ),
+                    "strategy": "desktop_host_command",
+                    "host_environment_exposed_to_ai": False,
+                },
             },
             "auth_enabled": self.auth_enabled(),
             "supported_protocol_versions": list(KNOWN_PROTOCOL_VERSIONS),
