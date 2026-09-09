@@ -18,6 +18,7 @@ let pollTimer = 0
 
 const activePermissionRequest = computed(() => permissionRequests.value[0] || null)
 const isToolchainRegistration = computed(() => activePermissionRequest.value?.permission === 'toolchain_registration')
+const isBrowserControl = computed(() => activePermissionRequest.value?.permission === 'browser_control')
 const permissionArguments = computed(() => {
   const request = activePermissionRequest.value
   if (!request) return ''
@@ -49,6 +50,7 @@ function permissionLabel(permission: string) {
     shell_expansion: '使用 Shell 展开',
     inline_script: '执行内联脚本',
     privileged_executable: '启动外部 stdio MCP',
+    browser_control: '控制隔离浏览器会话',
     toolchain_registration: '自动发现工具 · 确认并记住',
     write_generated_or_ignored: '写入生成或忽略文件',
   } as Record<string, string>)[permission] || permission
@@ -138,6 +140,7 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
       </div>
 
       <p v-if="isToolchainRegistration" class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">此授权会保存到当前 Profile，供后续调用及重启后使用。注册阶段不会执行该工具，只冻结程序路径、只读范围和文件指纹；文件或路径变化后需重新确认。可在服务设置中移除注册。</p>
+      <p v-else-if="isBrowserControl" class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">Workbench Desktop Host 会创建独立临时浏览器 Profile，并通过本机 CDP 控制该 Session；不会复用你的日常浏览器 Cookie、扩展或登录 Profile。Session 关闭或 MCP Server 停止后会自动回收。</p>
       <p v-else class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">“仅允许本次”只作用于当前调用；“本次服务会话全部允许”在当前 MCP Server 停止或重启前，对同一已认证客户端自动放行可临时授权的权限。Workspace 边界和不可临时提升的系统限制仍然生效。</p>
 
       <footer class="mt-4 flex justify-end gap-2">

@@ -18,9 +18,11 @@ BROKER_SERVER_ID_ENV = "AGENT_RUNTIME_PERMISSION_BROKER_SERVER_ID"
 BROKER_VERSION = 1
 BROKER_REQUEST_TTL_SECONDS = 120
 HOST_TOOL_RESOLUTION_TTL_SECONDS = 15
+HOST_CAPABILITY_TTL_SECONDS = 30
 WORKFLOW_APPROVAL_TTL_SECONDS = 86_400
 WORKFLOW_APPROVAL_KIND = "workflow_approval"
 HOST_TOOL_RESOLUTION_KIND = "host_tool_resolution"
+HOST_CAPABILITY_KIND = "host_capability"
 _SENSITIVE_KEY_RE = re.compile(
     r"(token|secret|credential|api[_-]?key|password|passwd|private)",
     re.I,
@@ -112,6 +114,17 @@ class LocalHostToolResolution:
     status: str
     proposal: dict[str, Any] | None = None
     error: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class LocalHostCapabilityResult:
+    status: str
+    result: dict[str, Any] | None = None
+    error: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "ok"
 
 
 class LocalPermissionBrokerClient:
@@ -218,6 +231,84 @@ class LocalPermissionBrokerClient:
                     error=str(raw.get("error") or f"当前用户环境未找到工具 {normalized}。"),
                 )
             return LocalHostToolResolution("timeout", error="等待 Workbench Host 解析工具路径超时。")
+        finally:
+            for path in (request_path, response_path):
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+
+    def invoke_host_capability(
+        self,
+        capability: str,
+        action: str,
+        *,
+        parameters: dict[str, Any] | None = None,
+        session_id: str = "",
+        timeout_seconds: int = HOST_CAPABILITY_TTL_SECONDS,
+    ) -> LocalHostCapabilityResult:
+        normalized_capability = str(capability or "").strip().lower()
+        normalized_action = str(action or "").strip().lower()
+        if not re.fullmatch(r"[a-z][a-z0-9_.-]{0,63}", normalized_capability):
+            return LocalHostCapabilityResult("invalid", error="Host Capability 名称无效。")
+        if not re.fullmatch(r"[a-z][a-z0-9_.-]{0,63}", normalized_action):
+            return LocalHostCapabilityResult("invalid", error="Host Capability action 无效。")
+        if session_id and not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", session_id):
+            return LocalHostCapabilityResult("invalid", error="Host Capability session_id 无效。")
+
+        timeout = max(1, min(int(timeout_seconds), HOST_CAPABILITY_TTL_SECONDS))
+        now = int(time.time())
+        request_id = secrets.token_urlsafe(24)
+        request_path = self.directory / f"{request_id}.host-capability.request.json"
+        response_path = self.directory / f"{request_id}.host-capability.response.json"
+        payload: dict[str, Any] = {
+            "version": BROKER_VERSION,
+            "kind": HOST_CAPABILITY_KIND,
+            "request_id": request_id,
+            "server_id": self.server_id,
+            "capability": normalized_capability,
+            "action": normalized_action,
+            "session_id": session_id,
+            "parameters": dict(parameters or {}),
+            "created_at": now,
+            "expires_at": now + timeout,
+            "pid": os.getpid(),
+        }
+        payload["signature"] = sign_payload(self.secret, payload)
+        try:
+            atomic_json_write(request_path, payload)
+        except OSError:
+            return LocalHostCapabilityResult("unavailable", error="无法创建 Host Capability 请求。")
+
+        deadline = time.monotonic() + timeout
+        try:
+            while time.monotonic() < deadline:
+                try:
+                    raw = json.loads(response_path.read_text(encoding="utf-8"))
+                except FileNotFoundError:
+                    time.sleep(0.05)
+                    continue
+                except (OSError, json.JSONDecodeError):
+                    return LocalHostCapabilityResult("unavailable", error="Host Capability 响应不可读。")
+                if not isinstance(raw, dict) or not verify_payload(self.secret, raw):
+                    return LocalHostCapabilityResult("unavailable", error="Host Capability 响应签名无效。")
+                if (
+                    raw.get("version") != BROKER_VERSION
+                    or raw.get("kind") != HOST_CAPABILITY_KIND
+                    or raw.get("request_id") != request_id
+                    or raw.get("server_id") != self.server_id
+                    or raw.get("capability") != normalized_capability
+                    or raw.get("action") != normalized_action
+                    or str(raw.get("session_id") or "") != session_id
+                ):
+                    return LocalHostCapabilityResult("unavailable", error="Host Capability 响应与请求不匹配。")
+                if raw.get("ok") is True and isinstance(raw.get("result"), dict):
+                    return LocalHostCapabilityResult("ok", result=dict(raw["result"]))
+                return LocalHostCapabilityResult(
+                    "error",
+                    error=str(raw.get("error") or "Host Capability 操作失败。"),
+                )
+            return LocalHostCapabilityResult("timeout", error="等待 Workbench Host Capability 响应超时。")
         finally:
             for path in (request_path, response_path):
                 try:

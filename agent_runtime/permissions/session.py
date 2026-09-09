@@ -161,6 +161,7 @@ class PermissionSession:
             "shell_expansion": "该操作需要启用受限制的 Shell 展开能力。",
             "inline_script": "该操作需要执行内联脚本。",
             "privileged_executable": "启动用户配置的外部 stdio MCP 进程；此授权不改变任务工具链的 PATH 或沙箱读取范围。",
+            "browser_control": "启动并控制由 Workbench Desktop Host 托管的隔离浏览器会话；不会复用用户日常浏览器 Profile。",
         }
         try:
             rendered = json.dumps(

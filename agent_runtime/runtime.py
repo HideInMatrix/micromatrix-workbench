@@ -33,6 +33,7 @@ from .permissions.state import arguments_digest
 from .results import make_tool_result
 from .sandbox import build_sandbox_profile, create_process_sandbox
 from .tools import build_tool_registry
+from .tools.browser.handlers import BrowserHandlers
 from .tools.filesystem.handlers import FilesystemHandlers
 from .tools.git.handlers import GitHandlers
 from .tools.process.handlers import ProcessHandlers
@@ -57,6 +58,7 @@ LOGGER = logging.getLogger(__name__)
 
 class Runtime(
     FilesystemHandlers,
+    BrowserHandlers,
     ProcessHandlers,
     GitHandlers,
     SystemHandlers,

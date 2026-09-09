@@ -55,6 +55,13 @@ class SystemHandlers:
                     "project_context": "workspace_metadata_fingerprint",
                     "host_environment_exposed_to_ai": False,
                 },
+                "host_capabilities": {
+                    "configured": callable(
+                        getattr(self.local_permission_broker, "invoke_host_capability", None)
+                    ),
+                    "model": "desktop_host_session",
+                    "runtime_process_launch": False,
+                },
             },
             "auth_enabled": self.auth_enabled(),
             "supported_protocol_versions": list(KNOWN_PROTOCOL_VERSIONS),
@@ -138,6 +145,10 @@ class SystemHandlers:
                 definition.name: sorted(
                     capability.value for capability in definition.capabilities
                 )
+                for definition in self._tools
+            },
+            "tool_execution_kinds": {
+                definition.name: definition.execution_kind.value
                 for definition in self._tools
             },
             "tool_count": len(tools),

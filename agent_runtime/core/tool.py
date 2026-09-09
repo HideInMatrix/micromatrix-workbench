@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any
 
 from ..permissions.capabilities import Capability
@@ -17,6 +18,18 @@ class ToolAnnotations:
     open_world: bool = False
 
 
+class ToolExecutionKind(StrEnum):
+    """Where the concrete operation is executed.
+
+    Runtime tools execute inside the Runtime process/sandbox boundary. Host
+    capabilities are delegated to the trusted Workbench Desktop Host and are
+    represented to the Runtime only through bounded, signed session operations.
+    """
+
+    RUNTIME = "runtime"
+    HOST_CAPABILITY = "host_capability"
+
+
 @dataclass(frozen=True, slots=True)
 class ToolDefinition:
     name: str
@@ -28,6 +41,7 @@ class ToolDefinition:
     annotations: ToolAnnotations = field(default_factory=ToolAnnotations)
     feature: str | None = None
     mcp_exposed: bool = True
+    execution_kind: ToolExecutionKind = ToolExecutionKind.RUNTIME
 
     def mcp_definition(self, *, fake_readonly: bool = False) -> dict[str, Any]:
         annotations = self.annotations

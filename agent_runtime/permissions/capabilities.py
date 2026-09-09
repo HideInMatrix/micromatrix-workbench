@@ -22,6 +22,7 @@ class Capability(StrEnum):
     TOOLCHAIN_DISCOVER = "toolchain.discover"
     PERMISSION_MANAGE = "permission.manage"
     MEDIA_READ = "media.read"
+    HOST_CAPABILITY_USE = "host_capability.use"
 
 
 class OperationPermission(StrEnum):
@@ -35,6 +36,7 @@ class OperationPermission(StrEnum):
     INLINE_SCRIPT = "inline_script"
     PRIVILEGED_EXECUTABLE = "privileged_executable"
     WRITE_GENERATED_OR_IGNORED = "write_generated_or_ignored"
+    BROWSER_CONTROL = "browser_control"
 
 
 PERMISSION_MODES = ("safe", "trusted", "dangerous")
