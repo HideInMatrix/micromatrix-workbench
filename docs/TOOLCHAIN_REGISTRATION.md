@@ -8,7 +8,8 @@ Safe / Trusted 模式下，首次使用一个尚未注册的 CLI 程序时，统
 
 ```text
 Runtime 请求 program=git/node/python3/ffmpeg/...
-  -> Workbench Host 在真实用户环境中执行受控路径解析命令
+  -> Runtime 读取当前 Workspace 的项目工具版本元数据
+  -> Workbench Host 在目标 cwd 中启动受控的真实用户 Shell 并解析工具路径
   -> Host 只返回绝对 executable、必要只读范围和解析元数据
   -> Runtime 不接收 PATH、HOME、凭据、Shell stdout/stderr 等主机环境内容
   -> Workbench 桌面弹出注册授权
@@ -34,9 +35,11 @@ Runtime 请求 program=git/node/python3/ffmpeg/...
 
 这些路径只能作为 Host 真实解析结果出现，不能成为 Runtime 的发现规则。
 
-## Host 路径解析
+## Workspace-aware Host 路径解析
 
-POSIX 桌面端使用当前用户的登录 Shell 执行受控 `command -v` 路径解析。Shell 初始化发生在 Workbench Host，而不是 Runtime 沙箱；Host 不把完整 Shell 环境或输出返回给 AI。
+POSIX 桌面端会把实际命令的 `cwd` 传给 Workbench Host，并在该目录中启动当前用户的 login + interactive Shell，再执行受控 `command -v` 路径解析。这样 `.zshrc/.bashrc` 中的 nvm、pyenv、mise、asdf 等真实用户配置有机会按项目目录生效，但 Workbench 仍然不需要知道这些工具安装在哪里。
+
+Shell 初始化发生在 Workbench Host，而不是 Runtime 沙箱；Host 不把完整 Shell 环境、PATH、HOME、stdout 或 stderr 返回给 AI，只返回最终绝对 executable 和最小解析元数据。Host Resolution 仍然不会执行候选 executable 本身。
 
 macOS 对 Apple Developer Tools 额外处理系统 shim：当登录环境解析到的工具与系统默认命令一致，并且 `xcrun --find <program>` 给出不同的真实 Developer Tool executable 时，注册真实 executable。这里仍然通过系统命令查询，不枚举 Xcode 或 Command Line Tools 安装路径。
 
@@ -58,6 +61,46 @@ Safe Runtime 的默认 PATH 只保留操作系统基础目录。Homebrew、`/usr
 ```
 
 如果 Host 返回的路径与 Runtime 已经允许使用的系统基础 executable 完全相同，则不产生没有意义的重复授权。
+
+## Project Tool Resolution
+
+工具注册与项目版本选择分成两层：
+
+```text
+Host Resolution
+  -> 当前真实用户环境会执行哪个入口
+
+Project Tool Resolution
+  -> 当前 Workspace 声明了什么版本/工具链约束
+  -> 这些约束生成 metadata fingerprint
+  -> fingerprint 或 cwd 变化时重新做 Host Resolution
+```
+
+当前纯元数据读取包括：
+
+- Node：最近的 `.nvmrc` / `.node-version`、祖先 `package.json` 的 `engines.node` 与 `packageManager`
+- Python：最近的 `.python-version`、`pyproject.toml` 的 `project.requires-python`
+- Go：最近的 `.go-version`、`go.mod` 的 `go` 与 `toolchain` 指令
+
+这些文件只在 Workspace 内按当前 cwd 向上查找，不扫描 Home，不查找版本管理器安装目录，也不执行 nvm/node/python/go 等工具。
+
+项目版本元数据本身不是新的授权对象。它只决定 Host Resolution 缓存是否仍然有效，并作为注册确认信息展示。若版本文件变化后真实用户 Shell 解析到不同 executable，Workbench 会要求重新确认新的路径；如果仍解析到相同 shim，则继续使用同一注册，由该 shim/工具自身在正常任务沙箱里按项目配置选择实际版本。
+
+例如：
+
+```text
+Project A/.nvmrc = 20
+Project B/.nvmrc = 24
+
+如果真实 Shell 在两个目录解析出不同 node executable
+  -> 分别确认对应路径
+
+如果真实 Shell 都解析到同一个 nvmd/mise/asdf shim
+  -> 只需注册 shim
+  -> 实际版本由 shim 在运行时根据 cwd 选择
+```
+
+`nvm` 这类 Shell function 本身不会被当作可执行文件注册，也不会由 AI 在 Workbench Host 上直接执行。Workbench 使用它所影响的真实 Shell 环境来解析 `node` 等最终 CLI 入口。
 
 ## 注册模型
 
@@ -105,6 +148,16 @@ Runtime 不继承主机凭据、`NODE_OPTIONS`、`PYTHONPATH` 等敏感执行环
 
 部分版本管理器需要真实 `HOME` 字符串才能定位其安装结构，因此“环境中存在真实 HOME 路径”不等于“沙箱允许读取整个 Home”。OS 沙箱仍只开放已批准的工具根。
 
+POSIX/XDG 配置目录始终重定向到 Runtime 私有目录：
+
+```text
+XDG_CONFIG_HOME=<runtime>/config
+XDG_CACHE_HOME=<runtime>/cache
+TMPDIR=<runtime>/tmp
+```
+
+因此即使为了版本管理器兼容保留真实 `HOME` 字符串，遵循 XDG 的 CLI 也不会读取用户 `~/.config`。`XDG_CONFIG_HOME` 属于沙箱控制变量，Safe / Trusted 模式下覆盖它需要 `sandbox_env_override` 授权。
+
 Git 在 Safe / Trusted 模式下额外设置：
 
 ```text
@@ -140,9 +193,10 @@ host_resolution = desktop_command
 host_user_environment_queried = true/false
 host_environment_exposed_to_ai = false
 shell_startup_files_evaluated = true/false
+project_contexts = {...}
 ```
 
-这用于区分“Runtime 自己扫描用户环境”和“Desktop Host 在用户侧解析后只返回安全结果”。
+`server_info` / `check_exec_environment` 同样会暴露纯元数据的 `project_tool_contexts`，因此 AI 可以先看到当前 Workspace 声明的 Node/Python/Go 约束，再决定要执行什么命令。这用于区分“Runtime 读取项目元数据”和“Desktop Host 在用户侧解析后只返回安全结果”。
 
 ## 平台与安全边界
 

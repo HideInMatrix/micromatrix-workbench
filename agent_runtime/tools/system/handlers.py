@@ -17,6 +17,10 @@ class SystemHandlers:
     def server_info(self, _args: dict[str, Any]) -> dict[str, Any]:
         tools = [definition.name for definition in self._tools]
         mcp_tools = [definition.name for definition in self._tools if definition.mcp_exposed]
+        project_tool_contexts = {
+            kind: self.toolchains.project_context(program, self.workspace.root)
+            for kind, program in (("node", "node"), ("python", "python3"), ("go", "go"))
+        }
         return {
             "server": SERVER_NAME,
             "title": SERVER_TITLE,
@@ -47,7 +51,8 @@ class SystemHandlers:
                     "configured": callable(
                         getattr(self.local_permission_broker, "resolve_host_tool", None)
                     ),
-                    "strategy": "desktop_host_command",
+                    "strategy": "workspace_aware_desktop_host_command",
+                    "project_context": "workspace_metadata_fingerprint",
                     "host_environment_exposed_to_ai": False,
                 },
             },
@@ -56,6 +61,7 @@ class SystemHandlers:
             "endpoint_path": ENDPOINT_PATH,
             "runtime_dir": str(self.commands.runtime_dir),
             "home": str(self.commands.home_dir),
+            "config_dir": str(self.commands.config_dir),
             "tmpdir": str(self.commands.tmp_dir),
             "cache_dir": str(self.commands.cache_dir),
             "network_allowed": self.allow_network,
@@ -113,6 +119,7 @@ class SystemHandlers:
             "shell_env_exclude": [],
             "safe_exec_path": list(self.safe_exec_path),
             "toolchains": self._toolchain_snapshot.get("toolchains", {}),
+            "project_tool_contexts": project_tool_contexts,
             "registered_toolchains": list(self.toolchain_registrations),
             "output_retention": {
                 "buffer_bytes_per_stream": STREAM_LIMIT_BYTES,
@@ -139,6 +146,10 @@ class SystemHandlers:
 
     def check_exec_environment(self, _args: dict[str, Any]) -> dict[str, Any]:
         warnings = []
+        project_tool_contexts = {
+            kind: self.toolchains.project_context(program, self.workspace.root)
+            for kind, program in (("node", "node"), ("python", "python3"), ("go", "go"))
+        }
         if not self.sandbox_profile.os_kernel_sandbox:
             warnings.append(
                 "OS-kernel process confinement is not enforced yet; capability policy, workspace guards, sanitized environment, and offline hints provide defense in depth."
@@ -162,6 +173,7 @@ class SystemHandlers:
             "network_allowed": self.allow_network,
             "runtime_dir": str(self.commands.runtime_dir),
             "home": str(self.commands.home_dir),
+            "config_dir": str(self.commands.config_dir),
             "tmpdir": str(self.commands.tmp_dir),
             "cache_dir": str(self.commands.cache_dir),
             "landlock_enabled": False,
@@ -175,6 +187,7 @@ class SystemHandlers:
                 else os.environ.get("PATH", "").split(os.pathsep)
             ),
             "toolchains": self._toolchain_snapshot.get("toolchains", {}),
+            "project_tool_contexts": project_tool_contexts,
             "registered_toolchains": list(self.toolchain_registrations),
             "warnings": warnings,
             "sandbox": self.sandbox_profile.to_dict(),

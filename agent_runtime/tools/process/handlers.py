@@ -62,6 +62,7 @@ class ProcessHandlers:
             env.update(
                 {
                     "HOME": str(self.commands.home_dir),
+                    "XDG_CONFIG_HOME": str(self.commands.config_dir),
                     "TMPDIR": str(self.commands.tmp_dir),
                     "TEMP": str(self.commands.tmp_dir),
                     "TMP": str(self.commands.tmp_dir),
@@ -88,7 +89,11 @@ class ProcessHandlers:
         if self.toolchain_registrations and self.permission_mode != "dangerous":
             from ...toolchains.registration import toolchain_environment
             env.update(toolchain_environment(
-                self.safe_exec_path, Path.home(), self.commands.cache_dir, self.commands.tmp_dir,
+                self.safe_exec_path,
+                Path.home(),
+                self.commands.config_dir,
+                self.commands.cache_dir,
+                self.commands.tmp_dir,
             ))
         for internal_name in (
             "AGENT_RUNTIME_TOOLCHAINS",
@@ -141,7 +146,7 @@ class ProcessHandlers:
             return None
         return self.workspace.writable(raw)
 
-    def _resolve_program(self, program: str) -> str:
+    def _resolve_program(self, program: str, cwd: Path | None = None) -> str:
         from ...toolchains.registration import normalize_program_name
         path = Path(program).expanduser()
         if path.is_absolute() or self.permission_mode == "dangerous":
@@ -169,12 +174,22 @@ class ProcessHandlers:
         )
         if existing is not None:
             resolved = self.toolchains.resolve_program(normalized)
-            if resolved is not None:
+            if resolved is None:
+                raise ToolError(
+                    "TOOLCHAIN_REGISTRATION_STALE",
+                    f"已注册工具 {normalized} 当前不可执行，请重新确认注册。",
+                    "process", False,
+                )
+            if self._host_tool_broker() is None:
                 return resolved
-            raise ToolError(
-                "TOOLCHAIN_REGISTRATION_STALE",
-                f"已注册工具 {normalized} 当前不可执行，请重新确认注册。",
-                "process", False,
+            proposal = self._resolve_host_tool_proposal(normalized, cwd=cwd)
+            host_executable = os.path.normcase(os.path.abspath(str(proposal["executable"])))
+            if os.path.normcase(os.path.abspath(resolved)) == host_executable:
+                return resolved
+            return self._register_missing_toolchain(
+                normalized,
+                proposal=proposal,
+                replace_existing=True,
             )
         local = self.toolchains.resolve_program(normalized)
         if self._host_tool_broker() is None:
@@ -185,18 +200,30 @@ class ProcessHandlers:
                 "当前连接没有 Workbench Host 工具解析通道；无法确认真实用户环境会执行哪个工具。",
                 "permission", False, {"program": normalized},
             )
-        proposal = self._resolve_host_tool_proposal(normalized)
+        proposal = self._resolve_host_tool_proposal(normalized, cwd=cwd)
         host_executable = os.path.normcase(os.path.abspath(str(proposal["executable"])))
         if local is not None and os.path.normcase(os.path.abspath(local)) == host_executable:
             return local
         return self._register_missing_toolchain(normalized, proposal=proposal)
 
-    def _resolve_host_tool_proposal(self, program: str) -> dict[str, Any]:
+    def _resolve_host_tool_proposal(
+        self,
+        program: str,
+        *,
+        cwd: Path | None = None,
+    ) -> dict[str, Any]:
+        working_directory = (cwd or self.workspace.root).resolve()
+        project_context = self.toolchains.project_context(program, working_directory)
         cache = getattr(self, "_host_tool_resolution_cache", None)
         if not isinstance(cache, dict):
             cache = {}
             setattr(self, "_host_tool_resolution_cache", cache)
-        cached = cache.get(program)
+        cache_key = (
+            program,
+            str(working_directory),
+            str(project_context.get("fingerprint") or ""),
+        )
+        cached = cache.get(cache_key)
         if isinstance(cached, dict):
             return cached
         broker = self._host_tool_broker()
@@ -206,7 +233,7 @@ class ProcessHandlers:
                 "当前连接没有 Workbench Host 工具解析通道。",
                 "permission", False, {"program": program},
             )
-        resolution = broker.resolve_host_tool(program)
+        resolution = broker.resolve_host_tool(program, workspace=working_directory)
         if resolution.status != "resolved" or not isinstance(resolution.proposal, dict):
             code = (
                 "EXECUTABLE_NOT_FOUND"
@@ -227,7 +254,8 @@ class ProcessHandlers:
                 "Workbench Host 返回的工具解析结果无效。",
                 "process", False, {"program": program},
             )
-        cache[program] = proposal
+        proposal["project_context"] = project_context
+        cache[cache_key] = proposal
         return proposal
 
     def _register_missing_toolchain(
@@ -235,13 +263,12 @@ class ProcessHandlers:
         program: str,
         *,
         proposal: dict[str, Any] | None = None,
+        replace_existing: bool = False,
     ) -> str:
         with self._toolchain_registration_lock:
             existing = next((r for r in self.toolchain_registrations if r["program"] == program), None)
-            if existing:
+            if existing and not replace_existing:
                 return existing["executable"]
-            if program in self._toolchain_consent_denied:
-                raise ToolError("TOOLCHAIN_APPROVAL_DENIED", "本次服务会话已拒绝工具链注册；可在桌面手动注册后重启。", "permission", False)
             broker = self._host_tool_broker()
             if broker is None:
                 raise ToolError(
@@ -250,6 +277,22 @@ class ProcessHandlers:
                     "permission", False, {"program": program},
                 )
             proposal = dict(proposal or self._resolve_host_tool_proposal(program))
+            if existing and (
+                os.path.normcase(os.path.abspath(str(existing["executable"])))
+                == os.path.normcase(os.path.abspath(str(proposal["executable"])))
+                and set(existing["read_roots"]) == set(proposal.get("read_roots") or [])
+            ):
+                return existing["executable"]
+            consent_key = f"{program}:{proposal.get('proposal_fingerprint') or proposal.get('executable')}"
+            if consent_key in self._toolchain_consent_denied:
+                raise ToolError("TOOLCHAIN_APPROVAL_DENIED", "本次服务会话已拒绝这个工具解析结果的注册；可在桌面重新确认。", "permission", False)
+            context = proposal.get("project_context")
+            requirements = context.get("requirements") if isinstance(context, dict) else []
+            project_note = (
+                f"当前 Workspace 检测到 {len(requirements)} 条项目工具版本约束，并已用于本次 Host 解析上下文。"
+                if isinstance(requirements, list) and requirements
+                else "当前 Workspace 未检测到该工具的项目版本约束。"
+            )
             isolation_note = ("当前为危险模式，原命令及子进程没有任务隔离，仅注册验证在沙箱内进行。"
                               if self.permission_mode == "dangerous" else
                               "仅增加所列只读目录，子进程仍受沙箱限制。")
@@ -257,13 +300,14 @@ class ProcessHandlers:
                 tool_name="register_toolchain",
                 arguments={**proposal, "workspace": str(self.workspace.root)},
                 permission="toolchain_registration",
-                reason=(f"AI 首次使用 {program}。Workbench Host 已通过真实用户环境命令解析出工具路径；"
-                        f"仅把绝对路径与必要只读范围展示给你确认，主机环境变量不会交给 AI。{isolation_note}"),
+                reason=(f"AI 准备在当前 Workspace 使用 {program}。Workbench Host 已通过真实用户环境命令解析出工具路径；"
+                        f"仅把绝对路径与必要只读范围展示给你确认，主机环境变量不会交给 AI。"
+                        f"{project_note}{isolation_note}"),
                 principal="toolchain-registration",
             )
             if not decision.approved or not decision.registration:
                 if decision.denied:
-                    self._toolchain_consent_denied.add(program)
+                    self._toolchain_consent_denied.add(consent_key)
                 raise ToolError("TOOLCHAIN_APPROVAL_REQUIRED", "工具链尚未获得桌面确认，未执行命令。", "permission", False)
             record = decision.registration
             if any(
@@ -274,7 +318,9 @@ class ProcessHandlers:
             self._install_registered_toolchain(record)
             cache = getattr(self, "_host_tool_resolution_cache", None)
             if isinstance(cache, dict):
-                cache.pop(program, None)
+                for key in tuple(cache):
+                    if isinstance(key, tuple) and key and key[0] == program:
+                        cache.pop(key, None)
             return record["executable"]
 
     def _validate_process(
@@ -283,10 +329,11 @@ class ProcessHandlers:
         argv: list[str],
         env: dict[str, str],
         timeout_ms: int,
+        cwd: Path,
     ) -> str:
         display = subprocess.list2cmdline([program, *argv])
         self._validate_command(display, env, timeout_ms)
-        return self._resolve_program(program)
+        return self._resolve_program(program, cwd=cwd)
 
     def _command_workdir(self, args: dict[str, Any], *, label: str) -> Path:
         cwd = self.workspace.existing(
@@ -326,10 +373,10 @@ class ProcessHandlers:
         env_overrides = {
             str(key): str(value) for key, value in dict(args.get("env") or {}).items()
         }
-        resolved_program = self._validate_process(
-            program, argv, env_overrides, timeout_ms
-        )
         cwd = self._command_workdir(args, label="process")
+        resolved_program = self._validate_process(
+            program, argv, env_overrides, timeout_ms, cwd
+        )
         command = self._process_launch_command(resolved_program, argv)
         command = self.process_sandbox.wrap(
             command,
@@ -400,9 +447,9 @@ class ProcessHandlers:
                 names.append(name)
         return names
 
-    def _ensure_shell_programs(self, cmd: str) -> None:
+    def _ensure_shell_programs(self, cmd: str, *, cwd: Path) -> None:
         for program in self._shell_program_names(cmd):
-            self._resolve_program(program)
+            self._resolve_program(program, cwd=cwd)
 
     def _shell_launch_command(
         self,
@@ -434,7 +481,7 @@ class ProcessHandlers:
         }
         self._validate_command(cmd, env_overrides, timeout_ms)
         cwd = self._command_workdir(args, label="command")
-        self._ensure_shell_programs(cmd)
+        self._ensure_shell_programs(cmd, cwd=cwd)
         launch_command, launch_shell = self._shell_launch_command(cmd, cwd=cwd)
         command_env = self._command_env(env_overrides)
         managed = self.commands.start(

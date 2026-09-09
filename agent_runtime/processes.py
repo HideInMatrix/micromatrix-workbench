@@ -102,9 +102,10 @@ class CommandManager:
         self.workspace = workspace.resolve()
         self.runtime_dir = Path(tempfile.mkdtemp(prefix="micromatrix-workbench-"))
         self.home_dir = self.runtime_dir / "home"
+        self.config_dir = self.runtime_dir / "config"
         self.tmp_dir = self.runtime_dir / "tmp"
         self.cache_dir = self.runtime_dir / "cache"
-        for path in (self.home_dir, self.tmp_dir, self.cache_dir):
+        for path in (self.home_dir, self.config_dir, self.tmp_dir, self.cache_dir):
             path.mkdir(parents=True, exist_ok=True)
         self._commands: OrderedDict[str, ManagedCommand] = OrderedDict()
         self._lock = threading.RLock()

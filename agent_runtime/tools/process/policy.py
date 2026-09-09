@@ -15,6 +15,7 @@ SENSITIVE_ENV_RE = re.compile(
 SANDBOX_PROTECTED_ENV = {
     "HOME",
     "PATH",
+    "XDG_CONFIG_HOME",
     "TMPDIR",
     "TEMP",
     "TMP",

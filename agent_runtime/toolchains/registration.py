@@ -102,13 +102,20 @@ def require_confinement(backend: Any) -> None:
         )
 
 
-def toolchain_environment(path: list[str], home: Path, cache: Path, tmp: Path) -> dict[str, str]:
+def toolchain_environment(
+    path: list[str],
+    home: Path,
+    config: Path,
+    cache: Path,
+    tmp: Path,
+) -> dict[str, str]:
     # No inherited credentials, NODE_OPTIONS, PYTHONPATH or shell initialization.
     env = {key: value for key, value in os.environ.items()
            if key.upper() in {"SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "LANG", "LC_ALL"}}
     env.update({"PATH": os.pathsep.join(path), "HOME": str(home), "USERPROFILE": str(home),
                 "TMPDIR": str(tmp), "TMP": str(tmp), "TEMP": str(tmp),
-                "XDG_CACHE_HOME": str(cache), "npm_config_cache": str(cache / "npm"),
+                "XDG_CONFIG_HOME": str(config), "XDG_CACHE_HOME": str(cache),
+                "npm_config_cache": str(cache / "npm"),
                 "YARN_CACHE_FOLDER": str(cache / "yarn"),
                 "npm_config_store_dir": str(cache / "pnpm"),
                 "PIP_CACHE_DIR": str(cache / "pip"), "UV_CACHE_DIR": str(cache / "uv"),

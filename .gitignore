@@ -25,6 +25,7 @@ node_modules/
 agent_workbench/web/dist/
 
 # Test / coverage
+tests/
 .pytest_cache/
 .coverage
 .coverage.*

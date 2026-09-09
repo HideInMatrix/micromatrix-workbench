@@ -30,12 +30,18 @@ class ToolchainHandlers:
         discovered = self.toolchains.discover(kinds)
         missing = [kind for kind in kinds
                    if not discovered["toolchains"].get(kind, {}).get("selected")]
+        project_contexts = {
+            kind: self.toolchains.project_context(primary[kind], self.workspace.root)
+            for kind in kinds
+            if kind in primary
+        }
         return {
             **discovered,
+            "project_contexts": project_contexts,
             "shell_startup_files_evaluated": host_resolution_attempted and os.name != "nt",
             "home_scanned_recursively": False,
             "elevated_user_environment_queried": False,
-            "host_resolution": "desktop_command",
+            "host_resolution": "workspace_aware_desktop_command",
             "host_user_environment_queried": host_resolution_attempted,
             "host_environment_exposed_to_ai": False,
             "missing": missing,

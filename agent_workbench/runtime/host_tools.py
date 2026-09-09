@@ -31,7 +31,16 @@ def _login_shell() -> str:
     return shell
 
 
-def _resolve_posix(program: str) -> dict[str, Any]:
+def _resolved_workspace(workspace: str | Path | None) -> Path | None:
+    if workspace is None or str(workspace).strip() == "":
+        return None
+    path = Path(workspace).expanduser()
+    if not path.is_absolute() or not path.is_dir():
+        raise RuntimeError("主机工具解析 Workspace 必须是存在的绝对目录。")
+    return path.resolve()
+
+
+def _resolve_posix(program: str, workspace: Path | None) -> dict[str, Any]:
     shell = _login_shell()
     script = (
         'resolved=$(command -v "$1") || exit 127; '
@@ -53,7 +62,7 @@ def _resolve_posix(program: str) -> dict[str, Any]:
     completed = subprocess.run(
         [
             shell,
-            "-lc",
+            "-lic",
             script,
             "micromatrix-host-tool",
             program,
@@ -66,6 +75,7 @@ def _resolve_posix(program: str) -> dict[str, Any]:
         timeout=8,
         check=False,
         env=os.environ.copy(),
+        cwd=str(workspace) if workspace is not None else None,
         **hidden_process_kwargs(),
     )
     resolved = ""
@@ -85,11 +95,13 @@ def _resolve_posix(program: str) -> dict[str, Any]:
         "executable": str(path),
         "resolver": resolver,
         "shell": shell,
+        "shell_mode": "login_interactive",
         "shell_startup_files_evaluated": True,
+        "workspace": str(workspace) if workspace is not None else "",
     }
 
 
-def _resolve_windows(program: str) -> dict[str, Any]:
+def _resolve_windows(program: str, workspace: Path | None) -> dict[str, Any]:
     comspec = _login_shell()
     completed = subprocess.run(
         [comspec, "/d", "/s", "/c", f"where {program}"],
@@ -100,6 +112,7 @@ def _resolve_windows(program: str) -> dict[str, Any]:
         timeout=8,
         check=False,
         env=os.environ.copy(),
+        cwd=str(workspace) if workspace is not None else None,
         **hidden_process_kwargs(),
     )
     candidates = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
@@ -112,10 +125,15 @@ def _resolve_windows(program: str) -> dict[str, Any]:
         "resolver": "where",
         "shell": comspec,
         "shell_startup_files_evaluated": False,
+        "workspace": str(workspace) if workspace is not None else "",
     }
 
 
-def resolve_host_tool(program: str) -> dict[str, Any]:
+def resolve_host_tool(
+    program: str,
+    *,
+    workspace: str | Path | None = None,
+) -> dict[str, Any]:
     """Resolve the executable the real desktop user environment would invoke.
 
     The Runtime never receives PATH, HOME, credentials, or shell output. Only the
@@ -123,4 +141,9 @@ def resolve_host_tool(program: str) -> dict[str, Any]:
     """
 
     normalized = normalize_program_name(program)
-    return _resolve_windows(normalized) if os.name == "nt" else _resolve_posix(normalized)
+    resolved_workspace = _resolved_workspace(workspace)
+    return (
+        _resolve_windows(normalized, resolved_workspace)
+        if os.name == "nt"
+        else _resolve_posix(normalized, resolved_workspace)
+    )

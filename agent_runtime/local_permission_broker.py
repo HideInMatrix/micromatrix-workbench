@@ -162,6 +162,7 @@ class LocalPermissionBrokerClient:
         self,
         program: str,
         *,
+        workspace: str | Path | None = None,
         timeout_seconds: int = HOST_TOOL_RESOLUTION_TTL_SECONDS,
     ) -> LocalHostToolResolution:
         from .toolchains.registration import normalize_program_name
@@ -178,6 +179,7 @@ class LocalPermissionBrokerClient:
             "request_id": request_id,
             "server_id": self.server_id,
             "program": normalized,
+            "workspace": str(Path(workspace).expanduser().resolve()) if workspace else "",
             "created_at": now,
             "expires_at": now + timeout,
             "pid": os.getpid(),
@@ -206,6 +208,7 @@ class LocalPermissionBrokerClient:
                     or raw.get("request_id") != request_id
                     or raw.get("server_id") != self.server_id
                     or raw.get("program") != normalized
+                    or str(raw.get("workspace") or "") != str(payload["workspace"])
                 ):
                     return LocalHostToolResolution("unavailable", error="主机工具解析响应与请求不匹配。")
                 if raw.get("ok") is True and isinstance(raw.get("proposal"), dict):

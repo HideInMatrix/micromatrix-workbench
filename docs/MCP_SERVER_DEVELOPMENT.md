@@ -483,18 +483,23 @@ agent_runtime/patching.py
 .node-version
 .python-version
 .go-version
-package.json engines.node（仅精确版本）
-go.mod 的 go 版本
+package.json engines.node / packageManager
+pyproject.toml project.requires-python
+go.mod 的 go / toolchain
 ```
 
 统一查询链路：
 
 ```text
 已注册程序
-  -> 直接验证并使用
+  -> 根据当前 cwd + 项目版本元数据 fingerprint 检查 Host Resolution 缓存
+  -> 若 Host 在当前项目目录解析出相同 executable：继续使用
+  -> 若解析出不同 executable：重新弹出 Profile 注册确认
 
 未注册 program
-  -> Desktop Host 在真实用户环境执行受控路径解析命令
+  -> Runtime 先读取当前 cwd 的项目工具版本元数据
+  -> Desktop Host 在该 cwd 启动真实用户 login + interactive Shell
+  -> 在这个 Shell 中执行受控路径解析命令
   -> Host 只返回 absolute executable + read_roots + 指纹元数据
   -> Runtime 不接收 PATH / HOME / 凭据 / 原始 Shell 输出
   -> 若路径已经是 Runtime 允许的同一个系统 executable：直接使用
@@ -506,7 +511,9 @@ go.mod 的 go 版本
        -> 原调用继续
 ```
 
-POSIX Host Resolution 会运行当前用户登录 Shell 的受控 `command -v` 查询，因此可能执行该 Shell 的登录初始化文件；这个行为只发生在桌面 Host，不发生在 Runtime。Host 不把 Shell 环境或 stdout/stderr 交给 AI。macOS 遇到 Apple Developer Tool 系统 shim 时，可通过 `xcrun --find <program>` 获取真实 Developer Tool executable，而不是维护 Xcode/Command Line Tools 固定路径。
+POSIX Host Resolution 会在实际命令 cwd 中运行当前用户 login + interactive Shell 的受控 `command -v` 查询，因此 `.zshrc/.bashrc` 中的 nvm、pyenv、mise、asdf 等真实用户配置有机会按项目目录生效。这个行为只发生在桌面 Host，不发生在 Runtime。Host 不把 Shell 环境、PATH、HOME 或 stdout/stderr 交给 AI。macOS 遇到 Apple Developer Tool 系统 shim 时，可通过 `xcrun --find <program>` 获取真实 Developer Tool executable，而不是维护 Xcode/Command Line Tools 固定路径。
+
+项目版本元数据本身不触发工具执行，也不直接授权路径；它只参与 Project Tool Resolution 与缓存失效。`.nvmrc`、`go.mod` 等发生变化时会重新向 Host 查询。若真实 Shell 返回新 executable，则重新确认；若仍是同一个版本管理 shim，则继续使用该 shim，让它在正常 Runtime Sandbox 中根据 cwd 选择实际版本。
 
 禁止通过增加以下固定候选来支持新工具：
 
@@ -524,7 +531,7 @@ Safe Runtime 默认 PATH 只保留操作系统基础目录；Homebrew、`/usr/lo
 
 注册阶段禁止执行候选工具本身，也不为某个平台或某个工具增加缓存写入白名单。版本查询、解释器选择和其他工具行为只能发生在实际任务或显式诊断中，并继续受正常 Runtime Sandbox 约束。
 
-`discover_toolchains` 返回 `missing`、`registration_errors`、`host_user_environment_queried`、`host_environment_exposed_to_ai` 等诊断字段，不会假装缺失工具可用。无 Desktop Host 通道时不扫描 Home，也不临时扩展用户目录读取范围。
+`discover_toolchains` 返回 `project_contexts`、`missing`、`registration_errors`、`host_user_environment_queried`、`host_environment_exposed_to_ai` 等诊断字段；`server_info` 与 `check_exec_environment` 也返回 `project_tool_contexts`。这些上下文读取只发生在 Workspace 内，不会假装缺失工具可用。无 Desktop Host 通道时不扫描 Home，也不临时扩展用户目录读取范围。
 
 `exec_process` 接收结构化 `program + args`，最终使用 `shell=False` 启动。对于不需要 shell 管道、重定向或条件表达式的构建命令，应优先使用它：
 

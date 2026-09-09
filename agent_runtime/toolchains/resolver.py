@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import stat
 import subprocess
+import tomllib
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
@@ -149,7 +151,7 @@ class ToolchainResolver:
 
     def safe_path_entries(self, discovered: dict[str, object] | None = None) -> list[str]:
         payload = discovered or {
-            kind: self._discover_kind(kind)
+            kind: self._discover_kind(kind, probe_versions=False)
             for kind in ("node", "python", "go")
         }
         entries: list[str] = []
@@ -186,7 +188,7 @@ class ToolchainResolver:
 
         kind = _PROGRAM_KINDS.get(raw)
         if kind is not None:
-            payload = self._discover_kind(kind)
+            payload = self._discover_kind(kind, probe_versions=False)
             selected = payload.get("selected")
             if isinstance(selected, dict):
                 executables = selected.get("executables")
@@ -197,6 +199,170 @@ class ToolchainResolver:
 
         found = self._query_program(raw)
         return str(found) if found is not None else None
+
+    def project_context(
+        self,
+        program: str,
+        cwd: Path | None = None,
+    ) -> dict[str, object]:
+        """Return project-owned version/tool requirements without executing tools.
+
+        The context is deliberately metadata-only.  It never inspects version-manager
+        installation directories and never runs nvm/asdf/mise/go/node/python.  The
+        fingerprint is used to invalidate Host-resolution cache entries when project
+        version files change.
+        """
+
+        raw_program = program.strip().lower()
+        kind = _PROGRAM_KINDS.get(raw_program, "")
+        directory = self._project_directory(cwd)
+        requirements: list[dict[str, str]] = []
+
+        if kind == "node":
+            version_file = self._nearest_named_file(directory, (".nvmrc", ".node-version"))
+            if version_file is not None:
+                value = self._read_first_line(version_file)
+                if value:
+                    requirements.append(self._requirement(version_file, "runtime_version", value))
+            node_engine_found = False
+            package_manager_found = False
+            for ancestor in self._project_ancestors(directory):
+                package_json = ancestor / "package.json"
+                if not package_json.is_file():
+                    continue
+                try:
+                    payload = json.loads(package_json.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    payload = {}
+                if not isinstance(payload, dict):
+                    continue
+                engines = payload.get("engines")
+                node_requirement = engines.get("node") if isinstance(engines, dict) else None
+                if not node_engine_found and isinstance(node_requirement, str) and node_requirement.strip():
+                    requirements.append(self._requirement(
+                        package_json,
+                        "node_engine",
+                        node_requirement.strip(),
+                    ))
+                    node_engine_found = True
+                package_manager = payload.get("packageManager")
+                if not package_manager_found and isinstance(package_manager, str) and package_manager.strip():
+                    requirements.append(self._requirement(
+                        package_json,
+                        "package_manager",
+                        package_manager.strip(),
+                    ))
+                    package_manager_found = True
+                if node_engine_found and package_manager_found:
+                    break
+        elif kind == "python":
+            version_file = self._nearest_file(directory, ".python-version")
+            if version_file is not None:
+                value = self._read_first_line(version_file)
+                if value:
+                    requirements.append(self._requirement(version_file, "runtime_version", value))
+            for ancestor in self._project_ancestors(directory):
+                pyproject = ancestor / "pyproject.toml"
+                if not pyproject.is_file():
+                    continue
+                try:
+                    payload = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+                except (OSError, tomllib.TOMLDecodeError):
+                    payload = {}
+                project = payload.get("project") if isinstance(payload, dict) else None
+                requires_python = project.get("requires-python") if isinstance(project, dict) else None
+                if isinstance(requires_python, str) and requires_python.strip():
+                    requirements.append(self._requirement(
+                        pyproject,
+                        "python_requires",
+                        requires_python.strip(),
+                    ))
+                    break
+        elif kind == "go":
+            version_file = self._nearest_file(directory, ".go-version")
+            if version_file is not None:
+                value = self._read_first_line(version_file)
+                if value:
+                    requirements.append(self._requirement(version_file, "runtime_version", value))
+            go_mod = self._nearest_file(directory, "go.mod")
+            if go_mod is not None:
+                try:
+                    lines = go_mod.read_text(encoding="utf-8").splitlines()
+                except OSError:
+                    lines = []
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped.startswith("go "):
+                        requirements.append(self._requirement(
+                            go_mod,
+                            "go_version",
+                            stripped.split(None, 1)[1].strip(),
+                        ))
+                    elif stripped.startswith("toolchain "):
+                        requirements.append(self._requirement(
+                            go_mod,
+                            "go_toolchain",
+                            stripped.split(None, 1)[1].strip(),
+                        ))
+
+        try:
+            relative_cwd = str(directory.relative_to(self.workspace)) or "."
+        except ValueError:
+            relative_cwd = "."
+        identity = {
+            "program": raw_program,
+            "kind": kind,
+            "cwd": relative_cwd,
+            "requirements": requirements,
+        }
+        digest = hashlib.sha256(
+            json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return {**identity, "fingerprint": digest}
+
+    def _project_directory(self, cwd: Path | None) -> Path:
+        directory = (cwd or self.workspace).resolve()
+        if directory != self.workspace and not _within(directory, self.workspace):
+            return self.workspace
+        return directory if directory.is_dir() else directory.parent
+
+    def _nearest_named_file(self, directory: Path, names: tuple[str, ...]) -> Path | None:
+        for ancestor in self._project_ancestors(directory):
+            for name in names:
+                candidate = ancestor / name
+                if candidate.is_file():
+                    return candidate
+        return None
+
+    def _nearest_file(self, directory: Path, name: str) -> Path | None:
+        return self._nearest_named_file(directory, (name,))
+
+    def _project_ancestors(self, directory: Path) -> list[Path]:
+        result: list[Path] = []
+        current = directory
+        while True:
+            result.append(current)
+            if current == self.workspace:
+                break
+            parent = current.parent
+            if parent == current or not _within(parent, self.workspace):
+                break
+            current = parent
+        return result
+
+    def _requirement(self, path: Path, requirement_type: str, value: str) -> dict[str, str]:
+        try:
+            source = str(path.relative_to(self.workspace))
+        except ValueError:
+            source = path.name
+        return {"source": source, "type": requirement_type, "value": value}
+
+    @staticmethod
+    def _read_first_line(path: Path) -> str:
+        try:
+            return path.read_text(encoding="utf-8").strip().splitlines()[0].strip()
+        except (OSError, IndexError):
+            return ""
 
     def _discover_kind(self, kind: str, *, probe_versions: bool = True) -> dict[str, object]:
         cache_key = kind

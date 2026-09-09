@@ -71,8 +71,9 @@ class DesktopPermissionBroker:
                 pass
             return
         program = str(raw.get("program") or "")
+        workspace = str(raw.get("workspace") or "")
         try:
-            resolution = resolve_host_tool(program)
+            resolution = resolve_host_tool(program, workspace=workspace or None)
             proposal = prepare_toolchain(
                 program,
                 str(resolution["executable"]),
@@ -82,10 +83,12 @@ class DesktopPermissionBroker:
                 "source": "host_command",
                 "resolver": resolution.get("resolver"),
                 "shell": resolution.get("shell"),
+                "shell_mode": resolution.get("shell_mode"),
                 "shell_startup_files_evaluated": resolution.get(
                     "shell_startup_files_evaluated",
                     False,
                 ),
+                "workspace": resolution.get("workspace", workspace),
                 "host_environment_exposed_to_ai": False,
             }
             proposal["proposal_fingerprint"] = fingerprint(
@@ -104,6 +107,7 @@ class DesktopPermissionBroker:
             "request_id": request_id,
             "server_id": str(raw.get("server_id") or ""),
             "program": program,
+            "workspace": workspace,
             "ok": ok,
             "proposal": proposal,
             "error": error,
