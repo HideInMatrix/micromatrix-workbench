@@ -481,25 +481,18 @@ class Runtime(
         ):
             return None
 
-        input_required = self.permission_session.input_required(
-            name=name,
-            arguments=arguments,
-            permission=permission,
-            message=exc.message,
-            context=context,
-            granted=granted,
-        )
-        if input_required is not None:
-            return input_required
-
-        decision = self.permission_session.request_local_permission(
-            name=name,
-            arguments=arguments,
-            permission=permission,
-            message=exc.message,
-            context=context,
-        )
-        status = str(getattr(decision, "status", "unavailable"))
+        local_broker_configured = self.permission_session.broker_client is not None
+        status = "unavailable"
+        decision = None
+        if local_broker_configured:
+            decision = self.permission_session.request_local_permission(
+                name=name,
+                arguments=arguments,
+                permission=permission,
+                message=exc.message,
+                context=context,
+            )
+            status = str(getattr(decision, "status", "unavailable"))
         session_scope = (
             status == "approved"
             and str(getattr(decision, "scope", "once")) == "session"
@@ -545,18 +538,56 @@ class Runtime(
                     "details": {"permission": permission},
                 },
             }
-        elif name == "request_permissions":
+            return make_tool_result(name, payload)
+
+        if status == "timeout":
+            return make_tool_result(
+                name,
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "PERMISSION_TIMEOUT",
+                        "message": "等待 MicroMatrix Workbench 桌面端授权超时。",
+                        "category": "permission",
+                        "retryable": True,
+                        "details": {"permission": permission},
+                    },
+                },
+            )
+
+        input_required = self.permission_session.input_required(
+            name=name,
+            arguments=arguments,
+            permission=permission,
+            message=exc.message,
+            context=context,
+            granted=granted,
+        )
+        if input_required is not None:
+            return input_required
+
+        if name == "request_permissions":
+            if local_broker_configured:
+                code = "PERMISSION_BROKER_UNAVAILABLE"
+                message = "Workbench 桌面权限 Broker 当前不可用，且 MCP 客户端未提供可用的 elicitation form。"
+            else:
+                code = "ELICITATION_UNSUPPORTED"
+                message = "当前 Runtime 未连接 Workbench 桌面权限 Broker，且 MCP 客户端未声明可用的 elicitation form capability。"
             payload = {
                 "ok": False,
                 "status": "unsupported",
                 "grant_id": None,
                 "expires_at": None,
                 "error": {
-                    "code": "ELICITATION_UNSUPPORTED",
-                    "message": "当前 MCP 客户端未声明可用的 elicitation form capability。",
+                    "code": code,
+                    "message": message,
                     "category": "permission",
-                    "retryable": False,
-                    "details": {"requested": arguments},
+                    "retryable": local_broker_configured,
+                    "details": {
+                        "permission": permission,
+                        "desktop_broker_configured": local_broker_configured,
+                        "requested": arguments,
+                    },
                 },
             }
         else:

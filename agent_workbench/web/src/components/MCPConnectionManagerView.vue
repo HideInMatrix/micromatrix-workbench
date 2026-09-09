@@ -271,7 +271,7 @@ onMounted(load)
 
       <main class="min-h-0 overflow-y-auto p-4">
         <div class="grid max-w-4xl gap-4">
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-2 items-start gap-3">
             <FormField>
               <span>MCP 服务标识</span>
               <input v-model="draft.id" :disabled="Boolean(selectedId)" placeholder="github" />

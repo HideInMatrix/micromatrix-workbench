@@ -1501,6 +1501,61 @@ class RuntimeSafetyTests(unittest.TestCase):
         self.assertTrue(removed)
         self.assertEqual(ApproveOnceBroker.calls, 1)
 
+    @unittest.skipIf(os.name == "nt", "POSIX destructive command fixture")
+    def test_explicit_request_permissions_prefers_desktop_broker_over_elicitation(self) -> None:
+        class ApproveOnceBroker:
+            calls = 0
+
+            @classmethod
+            def request(cls, **_kwargs: object) -> object:
+                cls.calls += 1
+                return type("Decision", (), {"status": "approved"})()
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "desktop-first"
+            target.mkdir()
+            with patch.dict(
+                os.environ,
+                {"AGENT_RUNTIME_OS_SANDBOX": "off"},
+                clear=False,
+            ):
+                runtime = Runtime(root, permission_mode="safe")
+                runtime.local_permission_broker = ApproveOnceBroker()  # type: ignore[assignment]
+                try:
+                    target_arguments: dict[str, object] = {
+                        "cmd": "rm -rf desktop-first",
+                        "yield_time_ms": 2_000,
+                    }
+                    permission_arguments: dict[str, object] = {
+                        "tool_name": "exec_command",
+                        "permission": "destructive_command",
+                        "reason": "Prefer the Workbench desktop approval surface",
+                        "arguments": target_arguments,
+                        "scope": "once",
+                        "ttl_seconds": 300,
+                    }
+                    granted = dispatch(
+                        runtime,
+                        self._modern_tool_request(
+                            1,
+                            "request_permissions",
+                            permission_arguments,
+                        ),
+                        principal="principal-a",
+                    )
+                finally:
+                    runtime.close()
+
+        assert granted is not None
+        self.assertEqual(granted["result"]["resultType"], "complete")
+        self.assertEqual(granted["result"]["structuredContent"]["status"], "granted")
+        self.assertEqual(
+            granted["result"]["structuredContent"]["constraints"]["via"],
+            "desktop_permission_broker",
+        )
+        self.assertEqual(ApproveOnceBroker.calls, 1)
+
     def test_git_mutations_require_git_metadata_write_permission(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             runtime = Runtime(Path(temporary), permission_mode="safe")

@@ -39,6 +39,10 @@ class SystemHandlers:
                 "principal_isolated": True,
                 "request_state_single_use": True,
                 "grant_argument_bound": True,
+                "desktop_broker": {
+                    "configured": self.permission_session.broker_client is not None,
+                    "priority": "desktop_first",
+                },
             },
             "auth_enabled": self.auth_enabled(),
             "supported_protocol_versions": list(KNOWN_PROTOCOL_VERSIONS),
