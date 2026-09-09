@@ -183,6 +183,19 @@ Host Capability
 
 ## 9. Browser MVP 验收
 
+状态：**已验收 / 已封板（2026-09-09）**
+
+真实 Desktop Client Browser Gate 已通过。验收环境为 `safe + full isolation`，实际由 Desktop Host 通过 macOS LaunchServices 解析到 `com.google.Chrome`，使用 `desktop_chromium_cdp` Provider 创建独立临时 Profile，并完成同一 Session 内的 CDP 页面控制。
+
+真实 Gate 结果：
+
+- `open`：成功创建隔离 Browser Session；`application_source=launch_services`、`application_id=com.google.Chrome`、`isolated_profile=true`。
+- `navigate`：成功进入 `https://example.com/`。
+- `snapshot`：成功读取 `Example Domain` 页面文本并识别可交互元素 `Learn more`。
+- `status`：Session 保持 `alive=true`，Provider 为 `desktop_chromium_cdp`。
+- `close`：返回 `closed=true`，Session 正常回收。
+- 整条链路未使用 Runtime `exec_process`、`privileged_executable`、`sandbox_env_override` 或固定 Chrome 安装路径。
+
 1. `server_info` 能区分 Runtime Tool 与 Host Capability。
 2. 首次 `browser_open` 弹 `browser_control`，而不是 `privileged_executable`。
 3. 用户批准后 Desktop Host 启动独立 Chromium/CDP Session。
