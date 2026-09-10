@@ -27,9 +27,8 @@ class ToolDispatcher:
         self.definitions = registry.definitions(enabled_features=enabled_features)
         self._definitions = {definition.name: definition for definition in self.definitions}
 
-    def is_mcp_exposed(self, name: str) -> bool:
-        definition = self._definitions.get(name)
-        return bool(definition is not None and definition.mcp_exposed)
+    def is_registered(self, name: str) -> bool:
+        return name in self._definitions
 
     def resolve(
         self,

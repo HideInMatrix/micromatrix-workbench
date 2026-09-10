@@ -5,7 +5,16 @@ from typing import Any, Protocol
 
 
 class HostCapabilityError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "HOST_CAPABILITY_FAILED",
+        stage: str = "provider",
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.stage = stage
 
 
 @dataclass(frozen=True, slots=True)

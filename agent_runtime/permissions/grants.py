@@ -7,7 +7,7 @@ import threading
 import time
 from typing import Any
 
-from .capabilities import ELICITABLE_PERMISSIONS
+from .capabilities import ELICITABLE_PERMISSIONS, SESSION_GRANTABLE_PERMISSIONS
 from .state import arguments_digest
 
 
@@ -76,7 +76,7 @@ class PermissionGrantStore:
     def session_permissions(self, principal: str) -> frozenset[str]:
         with self._lock:
             if (principal or "anonymous") in self._session_principals:
-                return ELICITABLE_PERMISSIONS
+                return SESSION_GRANTABLE_PERMISSIONS
         return frozenset()
 
     def grant_session(self, principal: str) -> None:

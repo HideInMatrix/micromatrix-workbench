@@ -266,8 +266,9 @@ class WorkflowEngine:
                 )
             else:
                 result = self.runtime.call_tool(
-                    "mcp_connection_call_tool",
+                    "mcp_connection_manage",
                     {
+                        "action": "call_tool",
                         "connection_id": reference.connection_id,
                         "tool_name": reference.tool_name,
                         "arguments": dict(raw_arguments),
@@ -279,6 +280,14 @@ class WorkflowEngine:
                 isinstance(result, dict)
                 and result.get("resultType") == "input_required"
             )
+            process_running = (
+                isinstance(structured, dict)
+                and structured.get("status") == "running"
+                and isinstance(structured.get("command_id"), str)
+                and bool(structured.get("command_id"))
+            )
+            if process_running:
+                return LocalExecutionResult(state, node_id, "pending", result)
             failed = input_required or (
                 isinstance(structured, dict) and structured.get("ok") is False
             )

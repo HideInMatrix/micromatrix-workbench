@@ -93,6 +93,19 @@ class Runtime(
         self.capability_assets = CapabilityAssetService(global_root=global_asset_root)
         self.skill_registry = self.capability_assets.skill_registry
         self.workflow_store = WorkflowStore(self.workspace.root)
+        workflow_migration = self.workflow_store.migrate_legacy_tool_references()
+        if workflow_migration.get("unsupported"):
+            report = (
+                self.workspace.root
+                / ".micromatrix-workbench"
+                / "migrations"
+                / "browser-host-contract-reset"
+                / "report.json"
+            )
+            raise RuntimeError(
+                "检测到无法自动迁移的旧 Workflow 工具引用；未启用运行时兼容入口。"
+                f"请检查迁移报告: {report}"
+            )
         self.workflow_registry = build_workflow_registry(
             store=self.workflow_store,
         )
@@ -324,7 +337,6 @@ class Runtime(
                     fake_readonly=self.fake_readonly_annotations
                 )
                 for definition in self._tools
-                if definition.mcp_exposed
             ]
         }
 

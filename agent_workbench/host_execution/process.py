@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import json
+import hashlib
 import secrets
 import shutil
 import signal
@@ -56,15 +58,128 @@ class HostProcessSupervisor:
     cleanup.
     """
 
-    def __init__(self, root: Path) -> None:
-        self.root = root.expanduser().resolve()
-        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    def __init__(self, root: Path, *, generation: str = "standalone") -> None:
+        self.base_root = root.expanduser().resolve()
+        self.base_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.generation = generation or "standalone"
+        generation_key = hashlib.sha256(self.generation.encode("utf-8")).hexdigest()[:16]
+        self.root = self.base_root / f"generation-{generation_key}"
+        self._gc_stale_generations()
+        self.root.mkdir(mode=0o700, parents=False, exist_ok=True)
         try:
             os.chmod(self.root, 0o700)
         except OSError:
             pass
         self._handles: dict[str, HostProcessHandle] = {}
         self._lock = threading.RLock()
+
+    @staticmethod
+    def _owner_manifest(root: Path) -> Path:
+        return root / "owner.json"
+
+    @staticmethod
+    def _process_command(pid: int) -> str:
+        if os.name == "nt":
+            return ""
+        try:
+            completed = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "command="],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=0.5,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        return completed.stdout.strip() if completed.returncode == 0 else ""
+
+    def _owned_stale_process(self, workspace: Path, manifest: dict[str, object]) -> int | None:
+        try:
+            pid = int(manifest.get("pid") or 0)
+        except (TypeError, ValueError):
+            return None
+        if pid <= 1 or os.name == "nt":
+            return None
+        if str(manifest.get("workspace") or "") != str(workspace):
+            return None
+        command = self._process_command(pid)
+        executable = Path(str(manifest.get("executable") or "")).expanduser()
+        executable_is_owned = False
+        try:
+            executable.resolve().relative_to(workspace)
+            executable_is_owned = executable.is_file()
+        except (OSError, ValueError):
+            executable_is_owned = False
+        if not executable_is_owned and (not command or str(workspace) not in command):
+            return None
+        try:
+            if os.getpgid(pid) != pid:
+                return None
+        except (ProcessLookupError, OSError):
+            return 0
+        return pid
+
+    def _gc_stale_generations(self) -> None:
+        """Recover only resources whose Workbench ownership can be proven.
+
+        Unknown directories/processes are deliberately preserved. This avoids
+        turning startup GC into a generic PID/process cleanup facility.
+        """
+        candidates = sorted(self.base_root.glob("generation-*"))[:16]
+        for generation_root in candidates:
+            if generation_root == self.root or not generation_root.is_dir():
+                continue
+            preserve = False
+            for workspace in tuple(generation_root.iterdir()):
+                if not workspace.is_dir():
+                    preserve = True
+                    continue
+                manifest_path = self._owner_manifest(workspace)
+                try:
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    preserve = True
+                    continue
+                if not isinstance(manifest, dict):
+                    preserve = True
+                    continue
+                owned_pid = self._owned_stale_process(workspace.resolve(), manifest)
+                if owned_pid is None:
+                    # A live process that cannot be proven to be ours is never killed
+                    # and its directory is never deleted.
+                    try:
+                        pid = int(manifest.get("pid") or 0)
+                        os.kill(pid, 0)
+                    except (ProcessLookupError, OSError, TypeError, ValueError):
+                        shutil.rmtree(workspace, ignore_errors=True)
+                    else:
+                        preserve = True
+                    continue
+                if owned_pid > 0:
+                    try:
+                        os.killpg(owned_pid, signal.SIGTERM)
+                    except (ProcessLookupError, OSError):
+                        pass
+                    deadline = time.monotonic() + 1.0
+                    while time.monotonic() < deadline:
+                        try:
+                            os.kill(owned_pid, 0)
+                        except (ProcessLookupError, OSError):
+                            break
+                        time.sleep(0.05)
+                    else:
+                        try:
+                            os.killpg(owned_pid, signal.SIGKILL)
+                        except (ProcessLookupError, OSError):
+                            preserve = True
+                shutil.rmtree(workspace, ignore_errors=True)
+            if not preserve:
+                try:
+                    generation_root.rmdir()
+                except OSError:
+                    pass
 
     def prepare(self, server_id: str) -> HostExecutionWorkspace:
         workspace_id = secrets.token_urlsafe(18)
@@ -119,6 +234,27 @@ class HostProcessSupervisor:
         )
         with self._lock:
             self._handles[process_id] = handle
+        try:
+            self._owner_manifest(workspace.root).write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "generation": self.generation,
+                        "server_id": workspace.server_id,
+                        "workspace": str(workspace.root.resolve()),
+                        "pid": process.pid,
+                        "executable": str(executable),
+                        "started_at_ms": int(time.time() * 1000),
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                encoding="utf-8",
+            )
+        except OSError:
+            self.release(handle)
+            raise HostExecutionError("无法记录 Workbench Host 进程所有权，已取消启动。")
         return handle
 
     @staticmethod

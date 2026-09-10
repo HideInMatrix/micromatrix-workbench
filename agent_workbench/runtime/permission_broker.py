@@ -4,9 +4,12 @@ import json
 import os
 import secrets
 import shutil
+import subprocess
+import sys
 import tempfile
 import threading
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +19,12 @@ from agent_runtime.local_permission_broker import (
     BROKER_SERVER_ID_ENV,
     BROKER_VERSION,
     HOST_CAPABILITY_KIND,
+    HOST_CONTROL_KIND,
+    HOST_HEALTH_FILE,
+    HOST_HEALTH_KIND,
+    HOST_SUPERVISOR_FILE,
+    HOST_SUPERVISOR_KIND,
+    HOST_WORKER_CONTROL_KIND,
     HOST_IDENTITY_KIND,
     HOST_TOOL_RESOLUTION_KIND,
     WORKFLOW_APPROVAL_KIND,
@@ -23,11 +32,7 @@ from agent_runtime.local_permission_broker import (
     sign_payload,
     verify_payload,
 )
-from agent_runtime.toolchains.registration import fingerprint, prepare_toolchain
-from agent_workbench.host_capabilities import HostCapabilityError, HostCapabilityManager
-from agent_workbench.host_identity import HostIdentityError, HostIdentityProcessManager
-
-from .host_tools import resolve_host_tool
+from .process import hidden_process_kwargs
 
 
 class DesktopPermissionBroker:
@@ -38,237 +43,335 @@ class DesktopPermissionBroker:
         except OSError:
             pass
         self.secret = secrets.token_bytes(32)
-        self.host_capabilities = HostCapabilityManager(self.directory / "host-execution")
-        self.host_identity = HostIdentityProcessManager(self.directory / "host-identity")
-        self._host_identity_inflight: set[str] = set()
-        self._host_identity_inflight_lock = threading.RLock()
-        self._host_tool_stop = threading.Event()
-        self._host_tool_worker = threading.Thread(
-            target=self._host_tool_loop,
-            name="micromatrix-host-tool-resolver",
+        self.host_instance_id = secrets.token_urlsafe(18)
+        self._host_generation = 0
+        self._host_generation_id = ""
+        self._host_restart_count = 0
+        self._host_restart_times: deque[float] = deque(maxlen=16)
+        self._host_circuit_open = False
+        self._host_worker_process: subprocess.Popen[bytes] | None = None
+        self._host_worker_stop_file: Path | None = None
+        self._host_worker_started_monotonic = 0.0
+        self._host_lock = threading.RLock()
+        self._host_supervisor_stop = threading.Event()
+        self._supervisor_events: deque[dict[str, Any]] = deque(maxlen=32)
+        self._start_host_worker()
+        if not self._wait_for_worker_ready(timeout=3.0):
+            self._record_supervisor_event("initial_worker_ready_timeout")
+            self._stop_host_worker(terminate=True)
+            self._host_restart_count += 1
+            self._start_host_worker()
+            if not self._wait_for_worker_ready(timeout=3.0):
+                self._record_supervisor_event("initial_worker_retry_failed")
+                self._write_supervisor_status("degraded")
+        self._host_supervisor_thread = threading.Thread(
+            target=self._host_supervisor_loop,
+            name="micromatrix-host-supervisor",
             daemon=True,
         )
-        self._host_tool_worker.start()
+        self._host_supervisor_thread.start()
 
-    def _host_tool_loop(self) -> None:
-        while not self._host_tool_stop.wait(0.05):
-            for path in tuple(self.directory.glob("*.host-tool.request.json")):
-                self._respond_host_tool_request(path)
-            for path in tuple(self.directory.glob("*.host-capability.request.json")):
-                self._respond_host_capability_request(path)
-            for path in tuple(self.directory.glob("*.host-identity.request.json")):
-                self._dispatch_host_identity_request(path)
-
-    def _dispatch_host_identity_request(self, path: Path) -> None:
-        request_id = path.name.removesuffix(".host-identity.request.json")
-        with self._host_identity_inflight_lock:
-            if request_id in self._host_identity_inflight:
-                return
-            self._host_identity_inflight.add(request_id)
-
-        def run() -> None:
-            try:
-                self._respond_host_identity_request(path)
-            finally:
-                with self._host_identity_inflight_lock:
-                    self._host_identity_inflight.discard(request_id)
-
-        threading.Thread(
-            target=run,
-            name=f"micromatrix-host-identity-{request_id[:8]}",
-            daemon=True,
-        ).start()
-
-    def _respond_host_identity_request(self, path: Path) -> None:
-        request_id = path.name.removesuffix(".host-identity.request.json")
-        response_path = self.directory / f"{request_id}.host-identity.response.json"
-        if response_path.exists():
-            return
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return
-        if (
-            not isinstance(raw, dict)
-            or not verify_payload(self.secret, raw)
-            or raw.get("version") != BROKER_VERSION
-            or raw.get("kind") != HOST_IDENTITY_KIND
-            or str(raw.get("request_id") or "") != request_id
-        ):
-            return
-        if int(raw.get("expires_at", 0)) <= int(time.time()):
-            try:
-                path.unlink()
-            except OSError:
-                pass
-            return
-        server_id = str(raw.get("server_id") or "")
-        action = str(raw.get("action") or "")
-        command_id = str(raw.get("command_id") or "")
-        parameters = raw.get("parameters") if isinstance(raw.get("parameters"), dict) else {}
-        try:
-            result = self.host_identity.invoke(
-                action,
-                server_id=server_id,
-                command_id=command_id,
-                parameters=parameters,
-            )
-            ok = True
-            error = ""
-        except (HostIdentityError, OSError, RuntimeError, ValueError) as exc:
-            result = None
-            ok = False
-            error = str(exc)
-        payload: dict[str, Any] = {
-            "version": BROKER_VERSION,
-            "kind": HOST_IDENTITY_KIND,
-            "request_id": request_id,
-            "server_id": server_id,
-            "action": action,
-            "command_id": command_id,
-            "ok": ok,
-            "result": result,
-            "error": error,
-            "responded_at": int(time.time()),
-        }
-        payload["signature"] = sign_payload(self.secret, payload)
-        try:
-            atomic_json_write(response_path, payload)
-        except OSError:
-            pass
-
-    def _respond_host_capability_request(self, path: Path) -> None:
-        request_id = path.name.removesuffix(".host-capability.request.json")
-        response_path = self.directory / f"{request_id}.host-capability.response.json"
-        if response_path.exists():
-            return
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return
-        if (
-            not isinstance(raw, dict)
-            or not verify_payload(self.secret, raw)
-            or raw.get("version") != BROKER_VERSION
-            or raw.get("kind") != HOST_CAPABILITY_KIND
-            or str(raw.get("request_id") or "") != request_id
-        ):
-            return
-        if int(raw.get("expires_at", 0)) <= int(time.time()):
-            try:
-                path.unlink()
-            except OSError:
-                pass
-            return
-        server_id = str(raw.get("server_id") or "")
-        capability = str(raw.get("capability") or "")
-        action = str(raw.get("action") or "")
-        session_id = str(raw.get("session_id") or "")
-        parameters = raw.get("parameters") if isinstance(raw.get("parameters"), dict) else {}
-        try:
-            result = self.host_capabilities.invoke(
-                capability,
-                action,
-                server_id=server_id,
-                session_id=session_id,
-                parameters=parameters,
-            )
-            ok = True
-            error = ""
-        except (HostCapabilityError, OSError, RuntimeError, ValueError) as exc:
-            result = None
-            ok = False
-            error = str(exc)
-        payload: dict[str, Any] = {
-            "version": BROKER_VERSION,
-            "kind": HOST_CAPABILITY_KIND,
-            "request_id": request_id,
-            "server_id": server_id,
-            "capability": capability,
-            "action": action,
-            "session_id": session_id,
-            "ok": ok,
-            "result": result,
-            "error": error,
-            "responded_at": int(time.time()),
-        }
-        payload["signature"] = sign_payload(self.secret, payload)
-        try:
-            atomic_json_write(response_path, payload)
-        except OSError:
-            pass
-
-    def _respond_host_tool_request(self, path: Path) -> None:
-        request_id = path.name.removesuffix(".host-tool.request.json")
-        response_path = self.directory / f"{request_id}.host-tool.response.json"
-        if response_path.exists():
-            return
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return
-        if (
-            not isinstance(raw, dict)
-            or not verify_payload(self.secret, raw)
-            or raw.get("version") != BROKER_VERSION
-            or raw.get("kind") != HOST_TOOL_RESOLUTION_KIND
-            or str(raw.get("request_id") or "") != request_id
-        ):
-            return
-        if int(raw.get("expires_at", 0)) <= int(time.time()):
-            try:
-                path.unlink()
-            except OSError:
-                pass
-            return
-        program = str(raw.get("program") or "")
-        workspace = str(raw.get("workspace") or "")
-        try:
-            resolution = resolve_host_tool(program, workspace=workspace or None)
-            proposal = prepare_toolchain(
-                program,
-                str(resolution["executable"]),
-                [],
-            )
-            proposal["resolution"] = {
-                "source": "host_command",
-                "resolver": resolution.get("resolver"),
-                "shell": resolution.get("shell"),
-                "shell_mode": resolution.get("shell_mode"),
-                "shell_startup_files_evaluated": resolution.get(
-                    "shell_startup_files_evaluated",
-                    False,
-                ),
-                "workspace": resolution.get("workspace", workspace),
-                "host_environment_exposed_to_ai": False,
+    def _record_supervisor_event(self, event: str, **details: Any) -> None:
+        self._supervisor_events.append(
+            {
+                "at_ms": int(time.time() * 1000),
+                "event": event,
+                **details,
             }
-            proposal["proposal_fingerprint"] = fingerprint(
-                str(proposal["executable"]),
-                list(proposal["read_roots"]),
-            )
-            ok = True
-            error = ""
-        except (OSError, RuntimeError, ValueError) as exc:
-            proposal = None
-            ok = False
-            error = str(exc)
+        )
+
+    def _read_worker_health(self) -> dict[str, Any] | None:
+        try:
+            raw = json.loads((self.directory / HOST_HEALTH_FILE).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if (
+            not isinstance(raw, dict)
+            or not verify_payload(self.secret, raw)
+            or raw.get("version") != BROKER_VERSION
+            or raw.get("kind") != HOST_HEALTH_KIND
+            or str(raw.get("host_instance_id") or "") != self.host_instance_id
+            or str(raw.get("generation") or "") != self._host_generation_id
+        ):
+            return None
+        updated_at_ms = int(raw.get("updated_at_ms") or 0)
+        age_ms = int(time.time() * 1000) - updated_at_ms
+        if updated_at_ms <= 0 or age_ms < 0 or age_ms > 750:
+            return None
+        return raw
+
+    def _write_supervisor_status(self, state: str) -> None:
+        health = self._read_worker_health()
+        process = self._host_worker_process
         payload: dict[str, Any] = {
             "version": BROKER_VERSION,
-            "kind": HOST_TOOL_RESOLUTION_KIND,
+            "kind": HOST_SUPERVISOR_KIND,
+            "host_instance_id": self.host_instance_id,
+            "state": state,
+            "generation": self._host_generation_id,
+            "generation_index": self._host_generation,
+            "supervisor_pid": os.getpid(),
+            "worker_pid": process.pid if process is not None and process.poll() is None else None,
+            "worker_alive": bool(process is not None and process.poll() is None),
+            "heartbeat_at_ms": int(health.get("updated_at_ms") or 0) if health else None,
+            "restart_count": self._host_restart_count,
+            "circuit_open": self._host_circuit_open,
+            "events": list(self._supervisor_events),
+            "updated_at_ms": int(time.time() * 1000),
+        }
+        payload["signature"] = sign_payload(self.secret, payload)
+        try:
+            atomic_json_write(self.directory / HOST_SUPERVISOR_FILE, payload)
+        except OSError:
+            pass
+
+    def _start_host_worker(self) -> None:
+        with self._host_lock:
+            self._host_generation += 1
+            self._host_generation_id = secrets.token_urlsafe(16)
+            try:
+                (self.directory / HOST_HEALTH_FILE).unlink()
+            except FileNotFoundError:
+                pass
+            stop_file = self.directory / f"host-worker-{self._host_generation}.stop"
+            try:
+                stop_file.unlink()
+            except FileNotFoundError:
+                pass
+            worker_args = [
+                "--directory",
+                str(self.directory),
+                "--secret",
+                self.secret.hex(),
+                "--host-instance-id",
+                self.host_instance_id,
+                "--generation",
+                self._host_generation_id,
+                "--generation-index",
+                str(self._host_generation),
+                "--stop-file",
+                str(stop_file),
+            ]
+            command = (
+                [sys.executable, "--host-worker", *worker_args]
+                if getattr(sys, "frozen", False)
+                else [sys.executable, "-m", "agent_workbench.runtime.host_worker", *worker_args]
+            )
+            stdout_path = self.directory / "host-worker.stdout.log"
+            stderr_path = self.directory / "host-worker.stderr.log"
+            with stdout_path.open("ab", buffering=0) as stdout_handle, stderr_path.open("ab", buffering=0) as stderr_handle:
+                process = subprocess.Popen(
+                    command,
+                    cwd=str(Path(__file__).resolve().parents[2]),
+                    stdin=subprocess.DEVNULL,
+                    stdout=stdout_handle,
+                    stderr=stderr_handle,
+                    **hidden_process_kwargs(),
+                )
+            self._host_worker_stop_file = stop_file
+            self._host_worker_process = process
+            self._host_worker_started_monotonic = time.monotonic()
+            self._record_supervisor_event(
+                "worker_started",
+                generation=self._host_generation_id,
+                generation_index=self._host_generation,
+                worker_pid=process.pid,
+            )
+            self._write_supervisor_status("connecting")
+
+    def _stop_host_worker(self, *, terminate: bool = False) -> None:
+        with self._host_lock:
+            process = self._host_worker_process
+            stop_file = self._host_worker_stop_file
+            if process is None:
+                return
+            if stop_file is not None:
+                try:
+                    stop_file.touch(mode=0o600, exist_ok=True)
+                except OSError:
+                    pass
+            try:
+                process.wait(timeout=1.5)
+            except subprocess.TimeoutExpired:
+                pass
+            if process.poll() is None and terminate:
+                process.terminate()
+                try:
+                    process.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    try:
+                        process.wait(timeout=1.0)
+                    except subprocess.TimeoutExpired:
+                        pass
+            self._host_worker_process = None
+            self._host_worker_stop_file = None
+            if stop_file is not None:
+                try:
+                    stop_file.unlink()
+                except FileNotFoundError:
+                    pass
+
+    def _wait_for_worker_ready(self, *, timeout: float) -> bool:
+        deadline = time.monotonic() + max(0.0, timeout)
+        while time.monotonic() < deadline:
+            process = self._host_worker_process
+            if process is None or process.poll() is not None:
+                return False
+            health = self._read_worker_health()
+            if health is not None:
+                self._write_supervisor_status("ready")
+                return True
+            time.sleep(0.02)
+        return False
+
+    def _restart_host_worker(self, *, automatic: bool) -> bool:
+        self._write_supervisor_status("restarting")
+        self._stop_host_worker(terminate=True)
+        if not automatic:
+            self._host_circuit_open = False
+            self._host_restart_times.clear()
+        self._host_restart_count += 1
+        self._start_host_worker()
+        ready = self._wait_for_worker_ready(timeout=2.0)
+        self._record_supervisor_event(
+            "worker_restart_completed" if ready else "worker_restart_failed",
+            generation=self._host_generation_id,
+            automatic=automatic,
+        )
+        self._write_supervisor_status("ready" if ready else "degraded")
+        return ready
+
+    def _host_supervisor_loop(self) -> None:
+        while not self._host_supervisor_stop.wait(0.1):
+            for path in tuple(self.directory.glob("*.host-control.request.json")):
+                try:
+                    self._respond_host_control_request(path)
+                except Exception as exc:
+                    self._record_supervisor_event("control_request_failed", error=str(exc)[:1000])
+            process = self._host_worker_process
+            if process is not None and process.poll() is None:
+                if self._read_worker_health() is not None:
+                    self._write_supervisor_status("ready")
+                    continue
+                startup_age = time.monotonic() - self._host_worker_started_monotonic
+                if startup_age < 3.0:
+                    self._write_supervisor_status("connecting")
+                    continue
+                if not self._prepare_automatic_restart("worker_unresponsive"):
+                    continue
+                self._restart_host_worker(automatic=True)
+                continue
+            if self._host_circuit_open:
+                self._write_supervisor_status("disconnected")
+                continue
+            if not self._prepare_automatic_restart("worker_exit_detected"):
+                continue
+            self._restart_host_worker(automatic=True)
+
+    def _prepare_automatic_restart(self, event: str) -> bool:
+        if self._host_circuit_open:
+            self._write_supervisor_status("disconnected")
+            return False
+        now = time.monotonic()
+        while self._host_restart_times and now - self._host_restart_times[0] > 30:
+            self._host_restart_times.popleft()
+        if len(self._host_restart_times) >= 3:
+            self._host_circuit_open = True
+            self._record_supervisor_event("restart_circuit_open")
+            self._write_supervisor_status("disconnected")
+            return False
+        self._host_restart_times.append(now)
+        self._record_supervisor_event(event)
+        time.sleep(min(0.4, 0.1 * (2 ** max(0, len(self._host_restart_times) - 1))))
+        return True
+
+    def _respond_host_control_request(self, path: Path) -> None:
+        request_id = path.name.removesuffix(".host-control.request.json")
+        response_path = self.directory / f"{request_id}.host-control.response.json"
+        if response_path.exists():
+            return
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if (
+            not isinstance(raw, dict)
+            or not verify_payload(self.secret, raw)
+            or raw.get("version") != BROKER_VERSION
+            or raw.get("kind") != HOST_CONTROL_KIND
+            or str(raw.get("request_id") or "") != request_id
+            or int(raw.get("expires_at", 0)) <= int(time.time())
+        ):
+            return
+        action = str(raw.get("action") or "")
+        if action != "restart":
+            ok = False
+            error = "Unsupported host control action."
+        else:
+            ok = self._restart_host_worker(automatic=False)
+            error = "" if ok else "Host Worker restart failed."
+        payload: dict[str, Any] = {
+            "version": BROKER_VERSION,
+            "kind": HOST_CONTROL_KIND,
             "request_id": request_id,
             "server_id": str(raw.get("server_id") or ""),
-            "program": program,
-            "workspace": workspace,
+            "action": action,
             "ok": ok,
-            "proposal": proposal,
             "error": error,
-            "responded_at": int(time.time()),
+            "host_instance_id": self.host_instance_id,
+            "generation": self._host_generation_id,
+            "generation_index": self._host_generation,
+            "responded_at_ms": int(time.time() * 1000),
+        }
+        payload["signature"] = sign_payload(self.secret, payload)
+        atomic_json_write(response_path, payload)
+
+    def _send_worker_control(self, action: str, *, server_id: str) -> bool:
+        request_id = secrets.token_urlsafe(18)
+        request_path = self.directory / f"{request_id}.worker-control.request.json"
+        response_path = self.directory / f"{request_id}.worker-control.response.json"
+        now = int(time.time())
+        payload: dict[str, Any] = {
+            "version": BROKER_VERSION,
+            "kind": HOST_WORKER_CONTROL_KIND,
+            "request_id": request_id,
+            "server_id": server_id,
+            "action": action,
+            "generation": self._host_generation_id,
+            "created_at": now,
+            "expires_at": now + 2,
         }
         payload["signature"] = sign_payload(self.secret, payload)
         try:
-            atomic_json_write(response_path, payload)
+            atomic_json_write(request_path, payload)
         except OSError:
-            pass
+            return False
+        deadline = time.monotonic() + 1.0
+        try:
+            while time.monotonic() < deadline:
+                try:
+                    raw = json.loads(response_path.read_text(encoding="utf-8"))
+                except FileNotFoundError:
+                    time.sleep(0.02)
+                    continue
+                except (OSError, json.JSONDecodeError):
+                    return False
+                return bool(
+                    isinstance(raw, dict)
+                    and verify_payload(self.secret, raw)
+                    and raw.get("version") == BROKER_VERSION
+                    and raw.get("kind") == HOST_WORKER_CONTROL_KIND
+                    and raw.get("request_id") == request_id
+                    and raw.get("ok") is True
+                )
+            return False
+        finally:
+            for target in (request_path, response_path):
+                try:
+                    target.unlink()
+                except FileNotFoundError:
+                    pass
 
     def child_environment(self, server_id: str) -> dict[str, str]:
         return {
@@ -562,13 +665,11 @@ class DesktopPermissionBroker:
                     target.unlink()
                 except FileNotFoundError:
                     pass
-        self.host_capabilities.close_server(server_id)
-        self.host_identity.close_server(server_id)
+        self._send_worker_control("clear_server", server_id=server_id)
 
     def cleanup(self) -> None:
-        self._host_tool_stop.set()
-        self._host_tool_worker.join(timeout=1)
-        self.host_capabilities.close()
-        self.host_identity.close()
+        self._host_supervisor_stop.set()
+        self._host_supervisor_thread.join(timeout=1.0)
+        self._stop_host_worker(terminate=True)
         shutil.rmtree(self.directory, ignore_errors=True)
 

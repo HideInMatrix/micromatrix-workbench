@@ -358,6 +358,6 @@ def _tool_call(runtime: Any, params: dict[str, Any], context: RequestContext) ->
         raise RpcError(-32602, "tools/call requires a tool name")
     if not isinstance(arguments, dict):
         raise RpcError(-32602, "tools/call arguments must be an object")
-    if not runtime.tool_dispatcher.is_mcp_exposed(name):
+    if not runtime.tool_dispatcher.is_registered(name):
         raise RpcError(-32602, f"Unknown tool: {name}", {"reason": "unknown_tool"})
     return runtime.call_tool(name, arguments, context=context)

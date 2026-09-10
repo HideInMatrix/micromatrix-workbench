@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from typing import Any
 
@@ -14,14 +16,140 @@ from ...protocol import KNOWN_PROTOCOL_VERSIONS
 class SystemHandlers:
     """Server introspection, environment diagnostics and permission tool handlers."""
 
-    def server_info(self, _args: dict[str, Any]) -> dict[str, Any]:
+    def _host_client(self) -> Any | None:
+        broker = self.local_permission_broker
+        return broker if broker is not None else None
+
+    def _tool_contract_revision(self) -> str:
+        payload = json.dumps(
+            [
+                definition.mcp_definition(
+                    fake_readonly=self.fake_readonly_annotations,
+                )
+                for definition in self._tools
+            ],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()[:16]
+
+    def host_status(self, _args: dict[str, Any]) -> dict[str, Any]:
+        client = self._host_client()
+        status = getattr(client, "host_status", None) if client is not None else None
+        if not callable(status):
+            return {
+                "contract_version": 2,
+                "supported": False,
+                "configured": False,
+                "connection": {
+                    "state": "disconnected",
+                    "host_instance_id": "",
+                    "generation": None,
+                    "worker_pid": None,
+                    "worker_alive": False,
+                    "last_seen_ms": None,
+                    "heartbeat_age_ms": None,
+                },
+                "invocation": {
+                    "state": "unavailable",
+                    "reasons": [{"code": "HOST_NOT_CONFIGURED"}],
+                },
+                "ok": True,
+            }
+        return dict(status())
+
+    def host_reconnect(self, _args: dict[str, Any]) -> dict[str, Any]:
+        client = self._host_client()
+        reconnect = getattr(client, "host_reconnect", None) if client is not None else None
+        if not callable(reconnect):
+            return {**self.host_status({}), "reconnected": False}
+        return dict(reconnect())
+
+    def host_diagnostics(self, args: dict[str, Any]) -> dict[str, Any]:
+        client = self._host_client()
+        diagnostics = getattr(client, "host_diagnostics", None) if client is not None else None
+        if not callable(diagnostics):
+            return {
+                "status": self.host_status({}),
+                "supervisor": {},
+                "providers": [],
+                "active": [],
+                "events": [],
+                "ok": True,
+            }
+        return dict(diagnostics(max_events=int(args.get("max_events", 20))))
+
+    def host_restart(self, _args: dict[str, Any]) -> dict[str, Any]:
+        if not self._permission_granted("host_manage"):
+            raise ToolError(
+                "PERMISSION_REQUIRED",
+                "重启 Workbench Desktop Host Worker 需要独立的 Host 管理授权。",
+                "permission",
+                False,
+                {"permission": "host_manage", "scope": "workbench_owned_host_worker"},
+            )
+        client = self._host_client()
+        restart = getattr(client, "host_restart", None) if client is not None else None
+        if not callable(restart):
+            raise ToolError(
+                "HOST_DISCONNECTED",
+                "当前 Runtime 未连接 Desktop Host Supervisor。",
+                "runtime",
+                True,
+                {"stage": "preflight", "cause_code": "HOST_NOT_CONFIGURED"},
+            )
+        result = dict(restart())
+        if not result.get("ok"):
+            raise ToolError(
+                str(result.get("cause_code") or "HOST_RESTART_FAILED"),
+                str(result.get("error") or "Host Worker restart failed."),
+                "runtime",
+                True,
+                {"request_id": result.get("request_id")},
+            )
+        return result
+
+    def server_info(self, args: dict[str, Any]) -> dict[str, Any]:
         tools = [definition.name for definition in self._tools]
-        mcp_tools = [definition.name for definition in self._tools if definition.mcp_exposed]
+        mcp_tools = [definition.name for definition in self._tools]
+        host = self.host_status({})
+        connection = host.get("connection") if isinstance(host, dict) else {}
+        summary: dict[str, Any] = {
+            "server": SERVER_NAME,
+            "title": SERVER_TITLE,
+            "version": __version__,
+            "contract_version": 2,
+            "contract_revision": self._tool_contract_revision(),
+            "workspace": str(self.workspace.root),
+            "permission_mode": self.permission_mode,
+            "auth_enabled": self.auth_enabled(),
+            "supported_protocol_versions": list(KNOWN_PROTOCOL_VERSIONS),
+            "endpoint_path": ENDPOINT_PATH,
+            "tool_count": len(tools),
+            "host": {
+                "supported": bool(host.get("supported", False)) if isinstance(host, dict) else False,
+                "configured": bool(host.get("configured", False)) if isinstance(host, dict) else False,
+                "connection": {
+                    "state": str((connection or {}).get("state") or "disconnected")
+                    if isinstance(connection, dict)
+                    else "disconnected",
+                    "generation": (connection or {}).get("generation")
+                    if isinstance(connection, dict)
+                    else None,
+                },
+                "health_revision": host.get("health_revision") if isinstance(host, dict) else None,
+            },
+            "available_sections": ["permissions", "execution", "toolchains", "project", "tools"],
+        }
+        requested_sections = args.get("sections")
+        if not isinstance(requested_sections, list) or not requested_sections:
+            return summary
         project_tool_contexts = {
             kind: self.toolchains.project_context(program, self.workspace.root)
             for kind, program in (("node", "node"), ("python", "python3"), ("go", "go"))
         }
-        return {
+        details = {
             "server": SERVER_NAME,
             "title": SERVER_TITLE,
             "version": __version__,
@@ -167,6 +295,45 @@ class SystemHandlers:
             "tool_count": len(tools),
             "mcp_tool_count": len(mcp_tools),
         }
+        section_payloads = {
+            "permissions": {
+                "permission_profile": details["permission_profile"],
+                "permission_session": details["permission_session"],
+            },
+            "execution": {
+                key: details[key]
+                for key in (
+                    "sandbox",
+                    "exec_policy",
+                    "shell_env_inherit",
+                    "shell_env_include_only",
+                    "shell_env_exclude",
+                    "network_allowed",
+                    "dangerously_skip_all_permissions",
+                    "annotation_override",
+                    "output_retention",
+                )
+            },
+            "toolchains": {
+                "safe_exec_path": details["safe_exec_path"],
+                "toolchains": details["toolchains"],
+                "project_tool_contexts": details["project_tool_contexts"],
+                "registered_toolchains": details["registered_toolchains"],
+            },
+            "project": {"project_context": details["project_context"]},
+            "tools": {
+                "tools": details["tools"],
+                "tool_capabilities": details["tool_capabilities"],
+                "tool_execution_kinds": details["tool_execution_kinds"],
+                "tool_count": details["tool_count"],
+            },
+        }
+        summary["sections"] = {
+            section: section_payloads[section]
+            for section in requested_sections
+            if section in section_payloads
+        }
+        return summary
 
     def check_exec_environment(self, _args: dict[str, Any]) -> dict[str, Any]:
         warnings = []

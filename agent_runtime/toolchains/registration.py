@@ -11,6 +11,38 @@ from typing import Any
 PROGRAM_NAME_RE = re.compile(r"^[A-Za-z0-9_.+@-]+$")
 
 
+def _normalize_project_context(value: Any) -> dict[str, Any]:
+    if not value:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("工具注册的项目上下文格式无效。")
+    fingerprint_value = str(value.get("fingerprint") or "")
+    if not re.fullmatch(r"[0-9a-f]{64}", fingerprint_value):
+        raise ValueError("工具注册缺少有效的项目上下文指纹。")
+    requirements_raw = value.get("requirements")
+    if not isinstance(requirements_raw, list) or len(requirements_raw) > 64:
+        raise ValueError("工具注册的项目版本约束格式无效。")
+    requirements: list[dict[str, str]] = []
+    for item in requirements_raw:
+        if not isinstance(item, dict):
+            raise ValueError("工具注册的项目版本约束格式无效。")
+        normalized = {
+            "source": str(item.get("source") or "")[:512],
+            "type": str(item.get("type") or "")[:128],
+            "value": str(item.get("value") or "")[:512],
+        }
+        if not normalized["source"] or not normalized["type"]:
+            raise ValueError("工具注册的项目版本约束不完整。")
+        requirements.append(normalized)
+    return {
+        "program": str(value.get("program") or "")[:128],
+        "kind": str(value.get("kind") or "")[:64],
+        "cwd": str(value.get("cwd") or ".")[:1024],
+        "requirements": requirements,
+        "fingerprint": fingerprint_value,
+    }
+
+
 def normalize_program_name(value: object) -> str:
     program = str(value or "").strip()
     if not program or not PROGRAM_NAME_RE.fullmatch(program) or program in {".", ".."}:
@@ -65,10 +97,11 @@ def normalize_registrations(values: Any) -> tuple[dict[str, Any], ...]:
         if runtime_target or runtime_fingerprint:
             if not Path(runtime_target).is_absolute() or not re.fullmatch(r"[0-9a-f]{64}", runtime_fingerprint):
                 raise ValueError("实际解释器记录不完整，请重新确认并注册。")
+        project_context = _normalize_project_context(raw.get("project_context"))
         result.append({"runtime_target": runtime_target, "runtime_fingerprint": runtime_fingerprint,
                        "program": program, "executable": str(executable),
                        "read_roots": list(roots), "version": version,
-                       "fingerprint": fingerprint})
+                       "fingerprint": fingerprint, "project_context": project_context})
     return tuple(result)
 
 
@@ -154,7 +187,8 @@ def prepare_toolchain(program: str, executable: str, read_roots: list[str]) -> d
 
 
 def register_toolchain(program: str, executable: str, read_roots: list[str], *,
-                       confirmed_roots: list[str] | None = None) -> dict[str, Any]:
+                       confirmed_roots: list[str] | None = None,
+                       project_context: dict[str, Any] | None = None) -> dict[str, Any]:
     """Freeze a desktop-confirmed executable without executing it.
 
     Registration is authorization metadata, not a compatibility probe.  The
@@ -171,7 +205,8 @@ def register_toolchain(program: str, executable: str, read_roots: list[str], *,
     before = fingerprint(str(path), roots)
     return {"program": program, "executable": str(path), "read_roots": roots,
             "version": "", "fingerprint": before,
-            "runtime_target": "", "runtime_fingerprint": ""}
+            "runtime_target": "", "runtime_fingerprint": "",
+            "project_context": _normalize_project_context(project_context)}
 
 
 def write_launchers(registrations: tuple[dict[str, Any], ...], runtime_dir: Path) -> Path | None:

@@ -8,7 +8,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -74,12 +74,15 @@ class _CDPConnection:
 class _BrowserSession:
     session_id: str
     server_id: str
+    generation: str
     process: HostProcessHandle
     profile: Path
     port: int
     bundle_id: str
     cdp: _CDPConnection
     headless: bool
+    last_observation_id: str = ""
+    lock: threading.RLock = field(default_factory=threading.RLock)
 
 
 def _http_json(port: int, path: str, *, method: str = "GET") -> Any:
@@ -121,12 +124,25 @@ def _page_websocket(port: int) -> str:
     raise HostCapabilityError("浏览器没有可用的 CDP Page Target。")
 
 
-def _target_expression(ref: str, selector: str) -> str:
+def _target_expression(ref: str, selector: str, observation_id: str = "") -> str:
     if ref:
-        return f'document.querySelector({json.dumps(f"[data-mmx-ref={ref!r}]")})'
+        if not observation_id:
+            raise HostCapabilityError(
+                "使用 Browser ref 时必须提供对应的 observation_id。",
+                code="STALE_BROWSER_REFERENCE",
+                stage="validation",
+            )
+        target_selector = (
+            f'[data-mmx-ref="{ref}"][data-mmx-observation="{observation_id}"]'
+        )
+        return f"document.querySelector({json.dumps(target_selector)})"
     if selector:
         return f"document.querySelector({json.dumps(selector)})"
-    raise HostCapabilityError("需要 ref 或 selector。")
+    raise HostCapabilityError(
+        "需要 ref 或 selector。",
+        code="INVALID_BROWSER_TARGET",
+        stage="validation",
+    )
 
 
 class BrowserHostCapability:
@@ -137,8 +153,10 @@ class BrowserHostCapability:
         operations=("open", "navigate", "snapshot", "click", "fill", "press", "screenshot", "status", "close"),
     )
 
-    def __init__(self, process_supervisor: HostProcessSupervisor) -> None:
+    def __init__(self, process_supervisor: HostProcessSupervisor, *, generation: str = "") -> None:
         self._processes = process_supervisor
+        self._generation = generation or "standalone"
+        self._generation_prefix = self._generation[:10]
         self._sessions: dict[str, _BrowserSession] = {}
         self._lock = threading.RLock()
 
@@ -151,32 +169,85 @@ class BrowserHostCapability:
         parameters: dict[str, Any],
     ) -> dict[str, Any]:
         if action == "open":
-            return self._open(server_id, parameters)
+            result = self._open(server_id, parameters)
+            session = self._session(server_id, str(result["session_id"]))
+            return self._with_post_observation(session, result, parameters)
         if action == "close":
             with self._lock:
                 existing = self._sessions.get(session_id)
             if existing is None:
+                if session_id.startswith("br_") and not session_id.startswith(
+                    f"br_{self._generation_prefix}_"
+                ):
+                    raise HostCapabilityError(
+                        "Browser Session 属于已失效的 Host generation。",
+                        code="SESSION_EXPIRED",
+                        stage="session",
+                    )
                 return {"closed": False, "session_id": session_id}
             if existing.server_id != server_id:
                 raise HostCapabilityError("Browser Session 不存在或不属于当前 MCP Server。")
             self._close_session(existing)
             return {"closed": True, "session_id": session_id}
         session = self._session(server_id, session_id)
-        if action == "navigate":
-            return self._navigate(session, parameters)
-        if action == "snapshot":
-            return self._snapshot(session, parameters)
-        if action == "click":
-            return self._click(session, parameters)
-        if action == "fill":
-            return self._fill(session, parameters)
-        if action == "press":
-            return self._press(session, parameters)
-        if action == "screenshot":
-            return self._screenshot(session, parameters)
-        if action == "status":
-            return self._status(session)
+        with session.lock:
+            if action == "navigate":
+                result = self._navigate(session, parameters)
+                return self._with_post_observation(session, result, parameters)
+            if action == "snapshot":
+                return self._snapshot(session, parameters)
+            if action == "click":
+                result = self._click(session, parameters)
+                return self._with_post_observation(session, result, parameters)
+            if action == "fill":
+                result = self._fill(session, parameters)
+                return self._with_post_observation(session, result, parameters)
+            if action == "press":
+                result = self._press(session, parameters)
+                return self._with_post_observation(session, result, parameters)
+            if action == "screenshot":
+                return self._screenshot(session, parameters)
+            if action == "status":
+                return self._status(session)
         raise HostCapabilityError(f"不支持 Browser action: {action}")
+
+    def _with_post_observation(
+        self,
+        session: _BrowserSession,
+        action_result: dict[str, Any],
+        parameters: dict[str, Any],
+    ) -> dict[str, Any]:
+        result = {**action_result, "action_state": "completed"}
+        if not bool(parameters.get("observe_after", True)):
+            result["observation_state"] = "skipped"
+            return result
+        try:
+            observation = self._snapshot(
+                session,
+                {
+                    "max_text": int(parameters.get("max_text", 12_000)),
+                    "max_elements": int(parameters.get("max_elements", 300)),
+                },
+            )
+        except HostCapabilityError as exc:
+            result.update(
+                {
+                    "observation_state": "failed",
+                    "observation_error": {
+                        "code": exc.code,
+                        "stage": exc.stage,
+                        "message": str(exc),
+                    },
+                }
+            )
+            return result
+        result.update(
+            {
+                "observation_state": "succeeded",
+                "observation": observation,
+            }
+        )
+        return result
 
     def _open(self, server_id: str, parameters: dict[str, Any]) -> dict[str, Any]:
         application: BrowserApplication = resolve_chromium_browser()
@@ -220,7 +291,11 @@ class BrowserHostCapability:
                 ),
             )
         except HostExecutionError as exc:
-            raise HostCapabilityError(str(exc)) from exc
+            raise HostCapabilityError(
+                str(exc),
+                code="BROWSER_SPAWN_FAILED",
+                stage="spawn",
+            ) from exc
         try:
             port, _browser_ws = _wait_devtools(profile, process, 12)
             page_ws = _page_websocket(port)
@@ -231,11 +306,16 @@ class BrowserHostCapability:
             diagnostics = self._processes.diagnostics(process)
             self._processes.release(process)
             detail = self._diagnostic_message(diagnostics)
-            raise HostCapabilityError(f"{exc}{detail}") from exc
-        session_id = secrets.token_urlsafe(18)
+            raise HostCapabilityError(
+                f"{exc}{detail}",
+                code="CDP_CONNECT_FAILED",
+                stage="cdp_connect",
+            ) from exc
+        session_id = f"br_{self._generation_prefix}_{secrets.token_urlsafe(18)}"
         session = _BrowserSession(
             session_id=session_id,
             server_id=server_id,
+            generation=self._generation,
             process=process,
             profile=profile,
             port=port,
@@ -248,6 +328,7 @@ class BrowserHostCapability:
         return {
             "session_id": session_id,
             "provider": self.descriptor.provider,
+            "generation": self._generation,
             "application_id": bundle_id,
             "application_source": application.source,
             "headless": headless,
@@ -261,7 +342,19 @@ class BrowserHostCapability:
         with self._lock:
             session = self._sessions.get(session_id)
         if session is None or session.server_id != server_id:
-            raise HostCapabilityError("Browser Session 不存在或不属于当前 MCP Server。")
+            if session_id.startswith("br_") and not session_id.startswith(
+                f"br_{self._generation_prefix}_"
+            ):
+                raise HostCapabilityError(
+                    "Browser Session 属于已失效的 Host generation。",
+                    code="SESSION_EXPIRED",
+                    stage="session",
+                )
+            raise HostCapabilityError(
+                "Browser Session 不存在或不属于当前 MCP Server。",
+                code="SESSION_NOT_FOUND",
+                stage="session",
+            )
         if session.process.poll() is not None:
             diagnostics = self._processes.diagnostics(session.process)
             self._close_session(session)
@@ -335,39 +428,79 @@ class BrowserHostCapability:
     def _snapshot(self, session: _BrowserSession, parameters: dict[str, Any]) -> dict[str, Any]:
         max_text = max(500, min(int(parameters.get("max_text", 12000)), 50_000))
         max_elements = max(1, min(int(parameters.get("max_elements", 300)), 1000))
+        observation_id = secrets.token_urlsafe(12)
+        encoded_observation_id = json.dumps(observation_id)
         expression = f"""(() => {{
           const visible = (el) => {{ const s=getComputedStyle(el); const r=el.getBoundingClientRect(); return s.visibility!=='hidden' && s.display!=='none' && r.width>0 && r.height>0; }};
+          document.querySelectorAll('[data-mmx-ref]').forEach((el) => {{ el.removeAttribute('data-mmx-ref'); el.removeAttribute('data-mmx-observation'); }});
           let n=0;
           const nodes=[...document.querySelectorAll('a,button,input,textarea,select,summary,[role],[contenteditable=true]')]
             .filter(visible).slice(0,{max_elements}).map((el) => {{
-              const ref='e'+(++n); el.setAttribute('data-mmx-ref', ref);
-              return {{ref, tag:el.tagName.toLowerCase(), role:el.getAttribute('role')||'', name:el.getAttribute('aria-label')||el.getAttribute('name')||'', text:(el.innerText||el.textContent||'').trim().slice(0,300), value:('value' in el ? String(el.value) : '').slice(0,300), type:el.getAttribute('type')||''}};
+              const ref='e'+(++n); const rect=el.getBoundingClientRect();
+              el.setAttribute('data-mmx-ref', ref); el.setAttribute('data-mmx-observation', {encoded_observation_id});
+              return {{ref, tag:el.tagName.toLowerCase(), role:el.getAttribute('role')||'', name:el.getAttribute('aria-label')||el.getAttribute('name')||'', text:(el.innerText||el.textContent||'').trim().slice(0,300), value:('value' in el ? String(el.value) : '').slice(0,300), type:el.getAttribute('type')||'', rect:{{x:rect.x,y:rect.y,width:rect.width,height:rect.height}}}};
             }});
           return {{url:location.href,title:document.title,text:(document.body?.innerText||'').slice(0,{max_text}),elements:nodes}};
         }})()"""
         value = self._evaluate(session, expression)
         if not isinstance(value, dict):
-            raise HostCapabilityError("无法生成 Browser Snapshot。")
-        return {"session_id": session.session_id, **value}
+            raise HostCapabilityError(
+                "无法生成 Browser Snapshot。",
+                code="BROWSER_OBSERVATION_FAILED",
+                stage="observation",
+            )
+        session.last_observation_id = observation_id
+        screenshot = self._screenshot(session, {"full_page": False})
+        return {
+            "session_id": session.session_id,
+            "generation": session.generation,
+            "observation_id": observation_id,
+            **value,
+            **{key: item for key, item in screenshot.items() if key != "session_id"},
+        }
 
     def _click(self, session: _BrowserSession, parameters: dict[str, Any]) -> dict[str, Any]:
         ref = str(parameters.get("ref") or "").strip()
         selector = str(parameters.get("selector") or "").strip()
-        target = _target_expression(ref, selector)
+        observation_id = str(parameters.get("observation_id") or "").strip()
+        if ref and observation_id != session.last_observation_id:
+            raise HostCapabilityError(
+                "Browser ref 已过期；请先重新 snapshot 并使用新的 observation_id。",
+                code="STALE_BROWSER_REFERENCE",
+                stage="validation",
+            )
+        target = _target_expression(ref, selector, observation_id)
         result = self._evaluate(session, f"""(() => {{ const el={target}; if(!el) return false; el.scrollIntoView({{block:'center'}}); el.click(); return true; }})()""")
         if result is not True:
-            raise HostCapabilityError("Browser click 目标不存在。")
+            raise HostCapabilityError(
+                "Browser click 目标不存在。",
+                code="BROWSER_TARGET_NOT_FOUND",
+                stage="action",
+            )
+        time.sleep(0.05)
+        self._wait_ready(session)
         return {"session_id": session.session_id, "clicked": True, "url": self._location(session)}
 
     def _fill(self, session: _BrowserSession, parameters: dict[str, Any]) -> dict[str, Any]:
         ref = str(parameters.get("ref") or "").strip()
         selector = str(parameters.get("selector") or "").strip()
         value = str(parameters.get("value") or "")
-        target = _target_expression(ref, selector)
+        observation_id = str(parameters.get("observation_id") or "").strip()
+        if ref and observation_id != session.last_observation_id:
+            raise HostCapabilityError(
+                "Browser ref 已过期；请先重新 snapshot 并使用新的 observation_id。",
+                code="STALE_BROWSER_REFERENCE",
+                stage="validation",
+            )
+        target = _target_expression(ref, selector, observation_id)
         encoded = json.dumps(value)
-        result = self._evaluate(session, f"""(() => {{ const el={target}; if(!el) return false; el.focus(); if(el.isContentEditable) el.textContent={encoded}; else el.value={encoded}; el.dispatchEvent(new Event('input',{{bubbles:true}})); el.dispatchEvent(new Event('change',{{bubbles:true}})); return true; }})()""")
+        result = self._evaluate(session, f"""(() => {{ const el={target}; if(!el) return false; el.focus(); if(el.isContentEditable) {{ el.textContent={encoded}; }} else {{ const proto=el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; const setter=Object.getOwnPropertyDescriptor(proto,'value')?.set; if(setter) setter.call(el,{encoded}); else el.value={encoded}; }} el.dispatchEvent(new InputEvent('input',{{bubbles:true,inputType:'insertText',data:{encoded}}})); el.dispatchEvent(new Event('change',{{bubbles:true}})); return true; }})()""")
         if result is not True:
-            raise HostCapabilityError("Browser fill 目标不存在。")
+            raise HostCapabilityError(
+                "Browser fill 目标不存在。",
+                code="BROWSER_TARGET_NOT_FOUND",
+                stage="action",
+            )
         return {"session_id": session.session_id, "filled": True}
 
     def _press(self, session: _BrowserSession, parameters: dict[str, Any]) -> dict[str, Any]:
@@ -377,13 +510,31 @@ class BrowserHostCapability:
         ref = str(parameters.get("ref") or "").strip()
         selector = str(parameters.get("selector") or "").strip()
         if ref or selector:
-            target = _target_expression(ref, selector)
-            self._evaluate(session, f"(() => {{ const el={target}; if(el) el.focus(); return !!el; }})()")
+            observation_id = str(parameters.get("observation_id") or "").strip()
+            if ref and observation_id != session.last_observation_id:
+                raise HostCapabilityError(
+                    "Browser ref 已过期；请先重新 snapshot 并使用新的 observation_id。",
+                    code="STALE_BROWSER_REFERENCE",
+                    stage="validation",
+                )
+            target = _target_expression(ref, selector, observation_id)
+            focused = self._evaluate(session, f"(() => {{ const el={target}; if(el) el.focus(); return !!el; }})()")
+            if focused is not True:
+                raise HostCapabilityError(
+                    "Browser press 目标不存在。",
+                    code="BROWSER_TARGET_NOT_FOUND",
+                    stage="action",
+                )
         key_codes = {"Enter": 13, "Tab": 9, "Escape": 27, "Backspace": 8, "ArrowUp": 38, "ArrowDown": 40, "ArrowLeft": 37, "ArrowRight": 39}
         code = key_codes.get(key, ord(key.upper()) if len(key) == 1 else 0)
         params = {"key": key, "windowsVirtualKeyCode": code, "nativeVirtualKeyCode": code}
+        if len(key) == 1:
+            params["text"] = key
         session.cdp.command("Input.dispatchKeyEvent", {"type": "keyDown", **params})
         session.cdp.command("Input.dispatchKeyEvent", {"type": "keyUp", **params})
+        if key == "Enter":
+            time.sleep(0.05)
+            self._wait_ready(session)
         return {"session_id": session.session_id, "pressed": key}
 
     def _screenshot(self, session: _BrowserSession, parameters: dict[str, Any]) -> dict[str, Any]:
@@ -402,10 +553,23 @@ class BrowserHostCapability:
         result = session.cdp.command("Page.captureScreenshot", params)
         data = str(result.get("data") or "")
         try:
-            base64.b64decode(data, validate=True)
+            raw = base64.b64decode(data, validate=True)
         except Exception as exc:
             raise HostCapabilityError("Browser screenshot 返回无效数据。") from exc
-        return {"session_id": session.session_id, "mime_type": "image/png", "data_base64": data}
+        width = int.from_bytes(raw[16:20], "big") if len(raw) >= 24 and raw.startswith(b"\x89PNG") else 0
+        height = int.from_bytes(raw[20:24], "big") if len(raw) >= 24 and raw.startswith(b"\x89PNG") else 0
+        viewport = self._evaluate(
+            session,
+            "({width:window.innerWidth,height:window.innerHeight,device_scale_factor:window.devicePixelRatio||1,scroll_x:window.scrollX,scroll_y:window.scrollY})",
+        )
+        return {
+            "session_id": session.session_id,
+            "mime_type": "image/png",
+            "data_base64": data,
+            "image": {"width": width, "height": height},
+            "viewport": viewport if isinstance(viewport, dict) else {},
+            "coordinate_space": "css_pixels",
+        }
 
     @staticmethod
     def _status(session: _BrowserSession) -> dict[str, Any]:

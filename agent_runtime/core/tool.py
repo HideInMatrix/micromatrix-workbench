@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from ..permissions.capabilities import Capability
+from ..permissions.capabilities import Capability, OperationPermission
 from ..schemas import output_schema
 
 
@@ -40,8 +40,8 @@ class ToolDefinition:
     capabilities: frozenset[Capability] = field(default_factory=frozenset)
     annotations: ToolAnnotations = field(default_factory=ToolAnnotations)
     feature: str | None = None
-    mcp_exposed: bool = True
     execution_kind: ToolExecutionKind = ToolExecutionKind.RUNTIME
+    operation_permissions: frozenset[OperationPermission] = field(default_factory=frozenset)
 
     def mcp_definition(self, *, fake_readonly: bool = False) -> dict[str, Any]:
         annotations = self.annotations

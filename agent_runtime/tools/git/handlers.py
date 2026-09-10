@@ -385,4 +385,4 @@ class GitHandlers:
             raise ToolError("INVALID_ARGUMENT", f"unsupported git_inspect action: {action}", "validation")
         if action == "blame" and not str(payload.get("path") or "").strip():
             raise ToolError("INVALID_ARGUMENT", "action=blame requires path", "validation")
-        return handler(payload)
+        return {"action": action, **handler(payload)}

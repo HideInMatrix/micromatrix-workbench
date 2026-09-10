@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
 from ...core.tool import ToolAnnotations, ToolDefinition
 from ...permissions.capabilities import Capability
 from ...schemas import I, S, obj
@@ -437,7 +435,6 @@ _WORKBENCH_MCP_FACADES = (
 # the workflow_manage facade without consuming another public tool slot.
 WORKBENCH_TOOLS = tuple(
     tool
-    if tool.name in {"capability_catalog", "capability_get"}
-    else replace(tool, mcp_exposed=False)
     for tool in _WORKBENCH_FINE_GRAINED_TOOLS
+    if tool.name in {"capability_catalog", "capability_get"}
 ) + _WORKBENCH_MCP_FACADES

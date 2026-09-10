@@ -15,6 +15,7 @@ class EffectiveTool:
     required_capabilities: tuple[str, ...] = ()
     required_operation_permissions: tuple[str, ...] = ()
     annotations: dict[str, bool] = field(default_factory=dict)
+    execution_kind: str = "runtime"
     connection_id: str = ""
     connection_name: str = ""
     connection_last_error: str = ""
@@ -36,6 +37,7 @@ class EffectiveTool:
             "required_capabilities": list(self.required_capabilities),
             "required_operation_permissions": list(self.required_operation_permissions),
             "annotations": dict(self.annotations),
+            "execution_kind": self.execution_kind,
         }
         if self.provider == "mcp":
             payload["connection_id"] = self.connection_id
@@ -57,6 +59,10 @@ def build_effective_tool_catalog(
                 description=str(definition.description),
                 input_schema=dict(definition.input_schema),
                 required_capabilities=tuple(sorted(item.value for item in definition.capabilities)),
+                required_operation_permissions=tuple(
+                    sorted(item.value for item in definition.operation_permissions)
+                ),
+                execution_kind=str(definition.execution_kind.value),
                 annotations={
                     "read_only": bool(definition.annotations.read_only),
                     "destructive": bool(definition.annotations.destructive),
@@ -84,6 +90,7 @@ def build_effective_tool_catalog(
                         if connection.transport == "http"
                         else ("privileged_executable",)
                     ),
+                    execution_kind="external_mcp",
                     annotations={
                         "read_only": bool(tool.annotations.get("readOnlyHint", False)),
                         "destructive": bool(tool.annotations.get("destructiveHint", False)),

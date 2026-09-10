@@ -180,6 +180,45 @@ class ProcessHandlers:
             None,
         )
         if existing is not None:
+            current_context = self.toolchains.project_context(
+                normalized,
+                (cwd or self.workspace.root).resolve(),
+            )
+            registered_context = existing.get("project_context")
+            registered_requirements = (
+                registered_context.get("requirements")
+                if isinstance(registered_context, dict)
+                else []
+            )
+            current_requirements = current_context.get("requirements")
+            if not isinstance(registered_requirements, list):
+                registered_requirements = []
+            if not isinstance(current_requirements, list):
+                current_requirements = []
+            if current_requirements and not registered_context:
+                raise ToolError(
+                    "TOOLCHAIN_REGISTRATION_STALE",
+                    f"已注册工具 {normalized} 缺少当前项目版本约束绑定，请重新发现并确认注册。",
+                    "process",
+                    False,
+                    {
+                        "program": normalized,
+                        "reason": "missing_project_context",
+                        "current_requirements": current_requirements,
+                    },
+                )
+            if registered_context and registered_requirements != current_requirements:
+                raise ToolError(
+                    "PROJECT_TOOLCHAIN_MISMATCH",
+                    f"项目对 {normalized} 的版本约束已变化，现有工具注册不再适用于当前项目。",
+                    "process",
+                    False,
+                    {
+                        "program": normalized,
+                        "registered_requirements": registered_requirements,
+                        "current_requirements": current_requirements,
+                    },
+                )
             resolved = self.toolchains.resolve_program(normalized)
             if resolved is None:
                 raise ToolError(
@@ -187,30 +226,17 @@ class ProcessHandlers:
                     f"已注册工具 {normalized} 当前不可执行，请重新确认注册。",
                     "process", False,
                 )
-            if self._host_tool_broker() is None:
-                return resolved
-            proposal = self._resolve_host_tool_proposal(normalized, cwd=cwd)
-            host_executable = os.path.normcase(os.path.abspath(str(proposal["executable"])))
-            if os.path.normcase(os.path.abspath(resolved)) == host_executable:
-                return resolved
-            return self._register_missing_toolchain(
-                normalized,
-                proposal=proposal,
-                replace_existing=True,
-            )
+            return resolved
         local = self.toolchains.resolve_program(normalized)
+        if local is not None:
+            return local
         if self._host_tool_broker() is None:
-            if local is not None:
-                return local
             raise ToolError(
                 "HOST_TOOL_RESOLUTION_REQUIRED",
-                "当前连接没有 Workbench Host 工具解析通道；无法确认真实用户环境会执行哪个工具。",
+                "当前 Runtime 允许的 PATH 中未找到该工具，且没有 Workbench Host 工具发现通道。",
                 "permission", False, {"program": normalized},
             )
         proposal = self._resolve_host_tool_proposal(normalized, cwd=cwd)
-        host_executable = os.path.normcase(os.path.abspath(str(proposal["executable"])))
-        if local is not None and os.path.normcase(os.path.abspath(local)) == host_executable:
-            return local
         return self._register_missing_toolchain(normalized, proposal=proposal)
 
     def _resolve_host_tool_proposal(
@@ -553,7 +579,7 @@ class ProcessHandlers:
                 },
             )
             return self._format_command_payload(payload, args)
-        status = self.commands.terminate(
+        self.commands.terminate(
             command_id,
             str(args.get("signal", "TERM")),
             wait_ms=int(args.get("wait_ms", 5_000)),
@@ -563,7 +589,6 @@ class ProcessHandlers:
         payload = command_payload(
             managed, int(args.get("max_output_bytes", 65_536))
         )
-        payload["status"] = status
         return self._format_command_payload(payload, args)
 
     def _format_command_payload(
@@ -592,11 +617,9 @@ class ProcessHandlers:
             )
         elapsed = float(payload.get("elapsed_ms") or 0) / 1000.0
         exit_code = payload.get("exit_code")
-        state = (
-            f"exit {exit_code}"
-            if exit_code is not None
-            else str(payload.get("status", "running"))
-        )
+        state = str(payload.get("status", "running"))
+        if exit_code is not None:
+            state += f" (exit {exit_code})"
         summary = f"{state} | {elapsed:.1f}s"
         compact = {
             key: value
@@ -667,15 +690,15 @@ class ProcessHandlers:
             command_id = str(args.get("command_id") or "").strip()
             if not command_id:
                 raise ToolError("INVALID_ARGUMENT", "action=write requires command_id", "validation")
-            return self.write_stdin({**args, "command_id": command_id})
+            return {"action": action, **self.write_stdin({**args, "command_id": command_id})}
         if action == "kill":
             command_id = str(args.get("command_id") or "").strip()
             if not command_id:
                 raise ToolError("INVALID_ARGUMENT", "action=kill requires command_id", "validation")
-            return self.kill_command({**args, "command_id": command_id})
+            return {"action": action, **self.kill_command({**args, "command_id": command_id})}
         if action == "read_output":
             output_ref = str(args.get("output_ref") or "").strip()
             if not output_ref:
                 raise ToolError("INVALID_ARGUMENT", "action=read_output requires output_ref", "validation")
-            return self.read_output({**args, "output_ref": output_ref})
+            return {"action": action, **self.read_output({**args, "output_ref": output_ref})}
         raise ToolError("INVALID_ARGUMENT", f"unsupported process_control action: {action}", "validation")

@@ -89,7 +89,14 @@ def build_capability_catalog(
                     ),
                 },
                 "execution": {
-                    "owner": "external_mcp" if tool.provider == "mcp" else "workbench_runtime",
+                    "owner": (
+                        "external_mcp"
+                        if tool.execution_kind == "external_mcp"
+                        else "desktop_host"
+                        if tool.execution_kind == "host_capability"
+                        else "workbench_runtime"
+                    ),
+                    "kind": tool.execution_kind,
                     "required_capabilities": list(tool.required_capabilities),
                     "required_operation_permissions": list(tool.required_operation_permissions),
                     "annotations": dict(tool.annotations),

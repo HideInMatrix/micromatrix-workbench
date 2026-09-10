@@ -26,11 +26,17 @@ def resolve_chromium_browser() -> HostApplication:
     try:
         candidates = resolve_url_scheme_applications("https")
     except HostApplicationResolutionError as exc:
-        raise HostCapabilityError(str(exc)) from exc
+        raise HostCapabilityError(
+            str(exc),
+            code="APP_RESOLUTION_FAILED",
+            stage="application_resolution",
+        ) from exc
     usable = [item for item in candidates if _is_chromium(item)]
     if not usable:
         raise HostCapabilityError(
-            "当前用户没有注册可用的 Chromium/CDP 浏览器；不会通过固定安装路径猜测浏览器位置。"
+            "当前用户没有注册可用的 Chromium/CDP 浏览器；不会通过固定安装路径猜测浏览器位置。",
+            code="APP_RESOLUTION_FAILED",
+            stage="application_resolution",
         )
     return next((item for item in usable if item.is_default), usable[0])
 

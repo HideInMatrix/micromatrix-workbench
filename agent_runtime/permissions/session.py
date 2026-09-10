@@ -161,8 +161,10 @@ class PermissionSession:
             "shell_expansion": "该操作需要启用受限制的 Shell 展开能力。",
             "inline_script": "该操作需要执行内联脚本。",
             "privileged_executable": "启动用户配置的外部 stdio MCP 进程；此授权不改变任务工具链的 PATH 或沙箱读取范围。",
+            "browser_observe": "观察由 Workbench Desktop Host 托管的隔离浏览器会话并读取页面截图/结构化页面信息；不会授予点击、输入或导航权限。",
             "browser_control": "启动并控制由 Workbench Desktop Host 托管的隔离浏览器会话；不会复用用户日常浏览器 Profile。",
             "host_identity_use": "允许当前完全相同的结构化进程调用使用 Desktop Host 用户身份上下文；Host 环境和凭据不会作为 Tool Result 返回给 AI。",
+            "host_manage": "允许重启 Workbench 自有的 Desktop Host Worker；不会操作任意系统进程或用户应用。",
         }
         try:
             rendered = json.dumps(

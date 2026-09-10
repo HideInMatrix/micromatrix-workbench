@@ -337,7 +337,7 @@ class HostIdentityProcessManager:
                 max_output_bytes=max(1, min(int(params.get("max_output_bytes") or 65_536), 1_048_576)),
             )
         if action == "kill":
-            status = self.commands.terminate(
+            self.commands.terminate(
                 command.internal_id,
                 str(params.get("signal") or "TERM"),
                 wait_ms=max(0, min(int(params.get("wait_ms") or 5_000), 30_000)),
@@ -347,7 +347,6 @@ class HostIdentityProcessManager:
                 command,
                 max_output_bytes=max(1, min(int(params.get("max_output_bytes") or 65_536), 1_048_576)),
             )
-            payload["status"] = status
             return payload
         if action == "read_output":
             stream = str(params.get("stream") or "stdout")

@@ -75,8 +75,17 @@ class ApprovalAPI:
                 list(proposal["read_roots"]),
             ) != displayed_fingerprint:
                 raise ValueError("工具在授权确认前已发生变化，请重新发起工具请求。")
-            record = register_toolchain(proposal["program"], proposal["executable"],
-                                        proposal["read_roots"], confirmed_roots=proposal["read_roots"])
+            record = register_toolchain(
+                proposal["program"],
+                proposal["executable"],
+                proposal["read_roots"],
+                confirmed_roots=proposal["read_roots"],
+                project_context=(
+                    proposal.get("project_context")
+                    if isinstance(proposal.get("project_context"), dict)
+                    else None
+                ),
+            )
             # Reload after fingerprinting so a concurrent profile edit cannot be overwritten.
             if gateway is None:
                 current = self.store.get(server_id)

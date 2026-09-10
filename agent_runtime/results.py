@@ -91,7 +91,17 @@ def _render_exec(payload: dict[str, Any]) -> str:
         parts.append(str(payload["summary"]))
     if payload.get("status") == "running" and payload.get("command_id"):
         parts.append(
-            f'Command still running; poll with write_stdin(command_id="{payload["command_id"]}", chars="", yield_time_ms=10000).'
+            "Command still running; poll with "
+            + _tool_call(
+                "process_control",
+                {
+                    "action": "write",
+                    "command_id": payload["command_id"],
+                    "chars": "",
+                    "yield_time_ms": 10000,
+                },
+            )
+            + "."
         )
     if payload.get("truncated"):
         refs = payload.get("output_refs") if isinstance(payload.get("output_refs"), dict) else {}
@@ -103,11 +113,11 @@ def _render_exec(payload: dict[str, Any]) -> str:
             omitted = payload.get(f"{stream}_omitted_bytes")
             if payload.get(f"{stream}_truncated") or (isinstance(omitted, int) and omitted > 0):
                 parts.append(
-                    f"{stream} output truncated; continue with {_tool_call('read_output', {'output_ref': ref, 'offset': 0})}."
+                    f"{stream} output truncated; continue with {_tool_call('process_control', {'action': 'read_output', 'output_ref': ref, 'offset': 0})}."
                 )
                 continuation_added = True
         if not continuation_added:
-            parts.append("Output truncated; use read_output with the returned output_ref to read more.")
+            parts.append("Output truncated; use process_control(action=read_output) with the returned output_ref to read more.")
     return "\n".join(parts)
 
 
@@ -181,76 +191,76 @@ def _render(name: str, payload: dict[str, Any]) -> str:
             f"(+{payload.get('additions', 0)} -{payload.get('removals', 0)})."
         )
         return text + (f"\n{summary}" if summary else "")
-    if name in {"exec_process", "exec_command", "write_stdin", "kill_command"}:
-        if name == "kill_command":
-            signal_sent = payload.get("signal_sent")
-            suffix = f" (signal {signal_sent})" if signal_sent else ""
-            return f"Command {payload.get('command_id', '')}: {payload.get('status', 'completed')}{suffix}."
+    if name in {"exec_process", "exec_command"}:
         return _render_exec(payload)
-    if name == "read_output":
-        content = str(payload.get("content", payload.get("data", "")))
-        if payload.get("next_offset") is not None:
-            continuation = _next_action(payload)
-            if not continuation:
-                continuation = _tool_call(
-                    "read_output",
+    if name == "process_control":
+        action = str(payload.get("action") or "")
+        if action == "read_output":
+            content = str(payload.get("content", payload.get("data", "")))
+            if payload.get("next_offset") is not None:
+                continuation = _next_action(payload) or _tool_call(
+                    "process_control",
                     {
+                        "action": "read_output",
                         "output_ref": payload.get("stream_output_ref") or payload.get("output_ref") or "",
                         "offset": payload.get("next_offset"),
                     },
                 )
-            return f"{content}\n[more: {continuation}]"
-        return content
-    if name == "git_status":
-        if not payload.get("is_repo", True):
-            return "Not a Git repository."
-        entries = payload.get("entries") if isinstance(payload.get("entries"), list) else []
-        lines = [f"## {payload.get('branch') or 'detached'}"]
-        for entry in entries:
-            if isinstance(entry, dict):
-                lines.append(
-                    f"{entry.get('index_status', ' ')}{entry.get('worktree_status', ' ')} {entry.get('path', '')}"
-                )
-        if not entries:
-            lines.append("Working tree clean.")
-        if payload.get("truncated"):
-            lines.append("… status entries truncated; narrow path or raise max_entries.")
-        return "\n".join(lines)
-    if name == "git_diff":
-        text = payload.get("diff") if isinstance(payload.get("diff"), str) else "No diff."
-        return text + ("\n… diff truncated; raise max_bytes or diff specific paths." if payload.get("truncated") else "")
-    if name == "git_show":
-        text = payload.get("content") if isinstance(payload.get("content"), str) else payload.get("output")
-        rendered = text if isinstance(text, str) and text else "No output."
-        return rendered + ("\n… output truncated; raise max_bytes or narrow paths." if payload.get("truncated") else "")
-    if name == "git_log":
-        commits = payload.get("commits") if isinstance(payload.get("commits"), list) else []
-        if not commits:
-            return "No commits found."
-        text = "\n".join(
-            f"{item.get('short_hash', '')} {item.get('subject', '')}"
-            for item in commits
-            if isinstance(item, dict)
-        )
-        if payload.get("truncated"):
-            continuation = _next_action(payload)
-            text += "\n… more commits available"
-            text += f"; continue with {continuation}." if continuation else "; raise max_count or use skip."
-        return text
-    if name == "git_blame":
-        lines_data = payload.get("lines") if isinstance(payload.get("lines"), list) else payload.get("entries")
-        if not isinstance(lines_data, list) or not lines_data:
-            return "No blame lines found."
-        text = "\n".join(
-            f"{item.get('line', '')} {item.get('commit', '')} {item.get('content', '')}"
-            for item in lines_data
-            if isinstance(item, dict)
-        )
-        if payload.get("truncated"):
-            continuation = _next_action(payload)
-            text += "\n… blame lines truncated"
-            text += f"; continue with {continuation}." if continuation else "; raise max_lines or advance start_line."
-        return text
+                return f"{content}\n[more: {continuation}]"
+            return content
+        return _render_exec(payload)
+    if name == "git_inspect":
+        action = str(payload.get("action") or "")
+        if action == "status":
+            if not payload.get("is_repo", True):
+                return "Not a Git repository."
+            entries = payload.get("entries") if isinstance(payload.get("entries"), list) else []
+            lines = [f"## {payload.get('branch') or 'detached'}"]
+            for entry in entries:
+                if isinstance(entry, dict):
+                    lines.append(
+                        f"{entry.get('index_status', ' ')}{entry.get('worktree_status', ' ')} {entry.get('path', '')}"
+                    )
+            if not entries:
+                lines.append("Working tree clean.")
+            if payload.get("truncated"):
+                lines.append("… status entries truncated; narrow path or raise max_entries.")
+            return "\n".join(lines)
+        if action == "diff":
+            text = payload.get("diff") if isinstance(payload.get("diff"), str) else "No diff."
+            return text + ("\n… diff truncated; raise max_bytes or diff specific paths." if payload.get("truncated") else "")
+        if action == "show":
+            text = payload.get("content") if isinstance(payload.get("content"), str) else payload.get("output")
+            rendered = text if isinstance(text, str) and text else "No output."
+            return rendered + ("\n… output truncated; raise max_bytes or narrow paths." if payload.get("truncated") else "")
+        if action == "log":
+            commits = payload.get("commits") if isinstance(payload.get("commits"), list) else []
+            if not commits:
+                return "No commits found."
+            text = "\n".join(
+                f"{item.get('short_hash', '')} {item.get('subject', '')}"
+                for item in commits
+                if isinstance(item, dict)
+            )
+            if payload.get("truncated"):
+                continuation = _next_action(payload)
+                text += "\n… more commits available"
+                text += f"; continue with {continuation}." if continuation else "; raise max_count or use skip."
+            return text
+        if action == "blame":
+            lines_data = payload.get("lines") if isinstance(payload.get("lines"), list) else payload.get("entries")
+            if not isinstance(lines_data, list) or not lines_data:
+                return "No blame lines found."
+            text = "\n".join(
+                f"{item.get('line', '')} {item.get('commit', '')} {item.get('content', '')}"
+                for item in lines_data
+                if isinstance(item, dict)
+            )
+            if payload.get("truncated"):
+                continuation = _next_action(payload)
+                text += "\n… blame lines truncated"
+                text += f"; continue with {continuation}." if continuation else "; raise max_lines or advance start_line."
+            return text
     if name == "server_info":
         return f"{payload.get('server')} {payload.get('version')}\nWorkspace: {payload.get('workspace')}"
     if name == "check_exec_environment":

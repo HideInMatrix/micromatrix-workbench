@@ -15,13 +15,18 @@ class HostCapabilityManager:
     def __init__(
         self,
         execution_root: Path,
+        *,
+        generation: str = "",
         providers: Iterable[HostCapabilityProvider] | None = None,
     ) -> None:
-        self._processes = HostProcessSupervisor(execution_root)
+        self._processes = HostProcessSupervisor(
+            execution_root,
+            generation=generation or "standalone",
+        )
         values = (
             tuple(providers)
             if providers is not None
-            else (BrowserHostCapability(self._processes),)
+            else (BrowserHostCapability(self._processes, generation=generation),)
         )
         self._providers = {provider.descriptor.name: provider for provider in values}
 

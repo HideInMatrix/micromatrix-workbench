@@ -36,13 +36,25 @@ class OperationPermission(StrEnum):
     INLINE_SCRIPT = "inline_script"
     PRIVILEGED_EXECUTABLE = "privileged_executable"
     WRITE_GENERATED_OR_IGNORED = "write_generated_or_ignored"
+    BROWSER_OBSERVE = "browser_observe"
     BROWSER_CONTROL = "browser_control"
     HOST_IDENTITY_USE = "host_identity_use"
+    HOST_MANAGE = "host_manage"
 
 
 PERMISSION_MODES = ("safe", "trusted", "dangerous")
 ELICITABLE_PERMISSIONS = frozenset(
     permission.value for permission in OperationPermission
+)
+SESSION_GRANTABLE_PERMISSIONS = frozenset(
+    permission.value
+    for permission in OperationPermission
+    if permission not in {
+        OperationPermission.BROWSER_OBSERVE,
+        OperationPermission.BROWSER_CONTROL,
+        OperationPermission.HOST_IDENTITY_USE,
+        OperationPermission.HOST_MANAGE,
+    }
 )
 
 
@@ -54,6 +66,23 @@ class PermissionProfile:
 
 
 _BASE_CAPABILITIES = frozenset(Capability)
+
+_DANGEROUS_AUTO_GRANTED_OPERATIONS = frozenset({
+    OperationPermission.NETWORK,
+    OperationPermission.DESTRUCTIVE_COMMAND,
+    OperationPermission.GIT_METADATA_WRITE,
+    OperationPermission.LONG_TIMEOUT,
+    OperationPermission.SENSITIVE_ENV,
+    OperationPermission.SANDBOX_ENV_OVERRIDE,
+    OperationPermission.SHELL_EXPANSION,
+    OperationPermission.INLINE_SCRIPT,
+    OperationPermission.PRIVILEGED_EXECUTABLE,
+    OperationPermission.WRITE_GENERATED_OR_IGNORED,
+    OperationPermission.BROWSER_OBSERVE,
+    OperationPermission.BROWSER_CONTROL,
+    OperationPermission.HOST_IDENTITY_USE,
+})
+
 
 _PROFILES = {
     "safe": PermissionProfile(
@@ -68,7 +97,7 @@ _PROFILES = {
     "dangerous": PermissionProfile(
         name="dangerous",
         capabilities=_BASE_CAPABILITIES,
-        auto_granted_operations=frozenset(OperationPermission),
+        auto_granted_operations=_DANGEROUS_AUTO_GRANTED_OPERATIONS,
     ),
 }
 

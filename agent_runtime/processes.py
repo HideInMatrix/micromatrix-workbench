@@ -90,6 +90,7 @@ class ManagedCommand:
     stderr: OutputBuffer = field(default_factory=OutputBuffer)
     readers: list[threading.Thread] = field(default_factory=list)
     timed_out: bool = False
+    cancelled: bool = False
     pty_master_fd: int | None = None
     stdin_closed: bool = False
 
@@ -336,6 +337,8 @@ class CommandManager:
         process = command.process
         if process.poll() is not None:
             return "exited"
+        if not command.timed_out:
+            command.cancelled = True
         sig = {"TERM": signal.SIGTERM, "INT": signal.SIGINT, "KILL": signal.SIGKILL}.get(signal_name, signal.SIGTERM)
         try:
             if os.name == "nt":
@@ -425,13 +428,29 @@ def command_payload(command: ManagedCommand, max_bytes: int) -> dict[str, object
     stdout, stdout_cut = bounded_text(stdout, max_bytes)
     stderr, stderr_cut = bounded_text(stderr, max_bytes)
     exit_code = command.process.poll()
-    status = "timeout" if command.timed_out else "running" if exit_code is None else "exited"
-    return {
+    if command.timed_out:
+        status = "timed_out"
+        process_success: bool | None = False
+    elif command.cancelled:
+        status = "cancelled" if exit_code is not None else "running"
+        process_success = False if exit_code is not None else None
+    elif exit_code is None:
+        status = "running"
+        process_success = None
+    elif exit_code == 0:
+        status = "succeeded"
+        process_success = True
+    else:
+        status = "failed"
+        process_success = False
+    payload: dict[str, object] = {
         "command_id": command.command_id,
         "status": status,
         "exit_code": exit_code,
+        "process_success": process_success,
         "elapsed_ms": command.elapsed_ms(),
         "timed_out": command.timed_out,
+        "cancelled": command.cancelled,
         "stdout": stdout,
         "stderr": stderr,
         "stdout_ref": f"command:{command.command_id}:stdout",
@@ -440,3 +459,25 @@ def command_payload(command: ManagedCommand, max_bytes: int) -> dict[str, object
         "stderr_evicted_bytes": stderr_evicted,
         "truncated": stdout_cut or stderr_cut or bool(stdout_evicted or stderr_evicted),
     }
+    if status in {"failed", "timed_out", "cancelled", "lost"}:
+        messages = {
+            "failed": "Process exited with a non-zero status.",
+            "timed_out": "Process exceeded its execution timeout.",
+            "cancelled": "Process was cancelled before successful completion.",
+            "lost": "Process state was lost before completion could be confirmed.",
+        }
+        payload["ok"] = False
+        payload["error"] = {
+            "code": f"PROCESS_{status.upper()}",
+            "message": messages[status],
+            "category": "process",
+            "retryable": status == "lost",
+            "details": {
+                "command_id": command.command_id,
+                "status": status,
+                "exit_code": exit_code,
+            },
+        }
+    else:
+        payload["ok"] = True
+    return payload

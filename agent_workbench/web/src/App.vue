@@ -1,87 +1,27 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ChevronDown } from '@lucide/vue'
 import { RouterView } from 'vue-router'
 import { Button } from '@/components/ui/button'
-import { desktopApi } from './api/desktop'
 import AppSidebar from './components/AppSidebar.vue'
 import UpdateInstallDialog from './components/UpdateInstallDialog.vue'
 import { provideAppUpdates } from './composables/useAppUpdates'
-import type { PermissionRequestDto } from './types'
+import { usePermissionRequests } from './composables/usePermissionRequests'
 
-const errorMessage = ref('')
 const { updateAvailable, installImpact, installing, cancelInstall, confirmInstall } = provideAppUpdates()
-const permissionRequests = ref<PermissionRequestDto[]>([])
-const permissionResponding = ref(false)
-const permissionMenuOpen = ref(false)
-let pollTimer = 0
-
-const activePermissionRequest = computed(() => permissionRequests.value[0] || null)
-const isToolchainRegistration = computed(() => activePermissionRequest.value?.permission === 'toolchain_registration')
-const isBrowserControl = computed(() => activePermissionRequest.value?.permission === 'browser_control')
-const isHostIdentityUse = computed(() => activePermissionRequest.value?.permission === 'host_identity_use')
-const permissionArguments = computed(() => {
-  const request = activePermissionRequest.value
-  if (!request) return ''
-  try {
-    return JSON.stringify(request.arguments, null, 2)
-  } catch {
-    return String(request.arguments)
-  }
-})
-
-async function refreshPermissionRequests(surfaceError = false) {
-  try {
-    permissionRequests.value = await desktopApi.listPermissionRequests()
-    if (!permissionRequests.value.length) permissionMenuOpen.value = false
-    if (surfaceError) errorMessage.value = ''
-  } catch (error) {
-    if (surfaceError) errorMessage.value = error instanceof Error ? error.message : String(error)
-  }
-}
-
-function permissionLabel(permission: string) {
-  return ({
-    network: '访问网络',
-    destructive_command: '执行破坏性命令',
-    git_metadata_write: '写入 Git 元数据',
-    long_timeout: '延长执行时间',
-    sensitive_env: '传入敏感环境变量',
-    sandbox_env_override: '覆盖沙箱环境变量',
-    shell_expansion: '使用 Shell 展开',
-    inline_script: '执行内联脚本',
-    privileged_executable: '启动外部 stdio MCP',
-    browser_control: '控制隔离浏览器会话',
-    host_identity_use: '使用宿主身份执行',
-    toolchain_registration: '自动发现工具 · 确认并记住',
-    write_generated_or_ignored: '写入生成或忽略文件',
-  } as Record<string, string>)[permission] || permission
-}
-
-async function respondPermission(decision: 'deny' | 'once' | 'session' | 'remember') {
-  const request = activePermissionRequest.value
-  if (!request || permissionResponding.value) return
-
-  permissionResponding.value = true
-  permissionMenuOpen.value = false
-  try {
-    const accepted = await desktopApi.respondPermissionRequest(request.request_id, decision)
-    if (!accepted) errorMessage.value = '授权请求已过期或不再有效。'
-    else if (decision === 'remember') window.dispatchEvent(new CustomEvent('toolchain-registered', { detail: request.server_id }))
-    await refreshPermissionRequests(false)
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error)
-  } finally {
-    permissionResponding.value = false
-  }
-}
-
-onMounted(async () => {
-  await refreshPermissionRequests(true)
-  pollTimer = window.setInterval(() => void refreshPermissionRequests(false), 900)
-})
-
-onBeforeUnmount(() => window.clearInterval(pollTimer))
+const {
+  errorMessage,
+  permissionResponding,
+  permissionMenuOpen,
+  activePermissionRequest,
+  isToolchainRegistration,
+  isBrowserControl,
+  isBrowserObserve,
+  isHostIdentityUse,
+  isHostManage,
+  permissionArguments,
+  permissionLabel,
+  respondPermission,
+} = usePermissionRequests()
 </script>
 
 <template>
@@ -143,13 +83,15 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
 
       <p v-if="isToolchainRegistration" class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">此授权会保存到当前 Profile，供后续调用及重启后使用。注册阶段不会执行该工具，只冻结程序路径、只读范围和文件指纹；文件或路径变化后需重新确认。可在服务设置中移除注册。</p>
       <p v-else-if="isBrowserControl" class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">Workbench Desktop Host 会创建独立临时浏览器 Profile，并通过本机 CDP 控制该 Session；不会复用你的日常浏览器 Cookie、扩展或登录 Profile。Session 关闭或 MCP Server 停止后会自动回收。</p>
+      <p v-else-if="isBrowserObserve" class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">此权限只允许读取 Workbench 隔离浏览器 Session 的截图与结构化页面信息，不授予导航、点击、输入、Host Identity 或 Host 管理权限。</p>
       <p v-else-if="isHostIdentityUse" class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">Workbench Desktop Host 将在宿主用户身份上下文中执行这一条完全相同的已注册程序调用。不会把宿主环境或凭据作为 Tool Result 返回给 AI；授权只绑定当前 executable、参数、Workspace 与调用。</p>
+      <p v-else-if="isHostManage" class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">此权限只允许重启 Workbench 自有 Host Worker。它不能指定任意 PID、应用或系统服务，也不会继承 Browser 控制权限。</p>
       <p v-else class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">“仅允许本次”只作用于当前调用；“本次服务会话全部允许”在当前 MCP Server 停止或重启前，对同一已认证客户端自动放行可临时授权的权限。Workspace 边界和不可临时提升的系统限制仍然生效。</p>
 
       <footer class="mt-4 flex justify-end gap-2">
         <Button variant="outline" size="sm" class="min-w-[88px]" :disabled="permissionResponding" @click="respondPermission('deny')">拒绝</Button>
         <Button v-if="isToolchainRegistration" size="sm" :disabled="permissionResponding" @click="respondPermission('remember')">允许并记住此 Profile</Button>
-        <Button v-else-if="isHostIdentityUse" class="min-w-[104px]" size="sm" :disabled="permissionResponding" @click="respondPermission('once')">仅允许本次</Button>
+        <Button v-else-if="isHostIdentityUse || isHostManage || isBrowserControl || isBrowserObserve" class="min-w-[104px]" size="sm" :disabled="permissionResponding" @click="respondPermission('once')">仅允许本次</Button>
         <div v-else class="relative inline-flex">
           <Button class="min-w-[104px] !rounded-r-none !rounded-l-[7px]" size="sm" :disabled="permissionResponding" @click="respondPermission('once')">仅允许本次</Button>
           <Button

@@ -30,6 +30,7 @@ RUN_STATUSES = frozenset(
         "running",
         "waiting_model",
         "waiting_approval",
+        "waiting_process",
         "succeeded",
         "failed",
         "cancelled",
@@ -497,7 +498,108 @@ class WorkflowRunManager:
                     "the decision must come from the Desktop signed broker"
                 )
             return self._consume_approval_response(run, context=context)
+        if run.status == "waiting_process":
+            if node_id or outcome or output is not None:
+                raise ValueError(
+                    "waiting_process does not accept node_id/outcome/output; "
+                    "the process state is polled from the Runtime"
+                )
+            return self._continue_process(run, context=context)
         raise ValueError(f"workflow run cannot continue from status: {run.status}")
+
+    def _continue_process(
+        self,
+        run: WorkflowRun,
+        *,
+        context: RequestContext | None,
+    ) -> WorkflowRun:
+        pending = run.pending_action or {}
+        node_id = str(pending.get("node_id") or "")
+        command_id = str(pending.get("command_id") or "")
+        if not node_id or not command_id:
+            return self._fail(
+                run,
+                node_id=node_id,
+                message="Workflow waiting_process state is missing command identity",
+                retry_state=run.retry_state,
+            )
+        result = self.engine.runtime.call_tool(
+            "process_control",
+            {
+                "action": "write",
+                "command_id": command_id,
+                "chars": "",
+                "yield_time_ms": 10_000,
+            },
+            context=context,
+        )
+        structured = result.get("structuredContent") if isinstance(result, dict) else None
+        if not isinstance(structured, dict):
+            return self._fail(
+                run,
+                node_id=node_id,
+                message="Workflow process poll returned no structured process state",
+                retry_state=run.retry_state,
+            )
+        status = str(structured.get("status") or "")
+        if status == "running":
+            return self._save(
+                run,
+                status="waiting_process",
+                pending_action={
+                    **pending,
+                    "last_status": status,
+                    "last_polled_at": int(time.time()),
+                },
+                node_states=self._node_states(
+                    run,
+                    node_id,
+                    status="running",
+                    process_status=status,
+                    updated_at=int(time.time()),
+                ),
+            )
+        if status not in {"succeeded", "failed", "timed_out", "cancelled", "lost"}:
+            return self._fail(
+                run,
+                node_id=node_id,
+                message=f"Workflow process returned unsupported status: {status or 'unknown'}",
+                retry_state=run.retry_state,
+            )
+        workflow = self._workflow(run)
+        node = self._node(workflow, node_id)
+        outcome = "success" if status == "succeeded" and structured.get("process_success") is True else "failure"
+        next_state = self.engine.complete(
+            workflow,
+            run.engine_state,
+            node_id,
+            outcome=outcome,
+            output=result,
+        )
+        checkpoint = run.retry_state or run.engine_state
+        completed = self._save(
+            run,
+            status="running",
+            engine_state=next_state,
+            pending_action=None,
+            retry_state=(checkpoint if outcome == "failure" else None),
+            node_states=self._node_states(
+                run,
+                node_id,
+                status="succeeded" if outcome == "success" else "failed",
+                outcome=outcome,
+                process_status=status,
+                updated_at=int(time.time()),
+            ),
+        )
+        if outcome == "failure" and node.policy.on_error == "stop" and not self._has_edge(workflow, node.id, "failure"):
+            return self._fail(
+                completed,
+                node_id=node.id,
+                message=f"Workflow process node failed: {node.id} ({status})",
+                retry_state=checkpoint,
+            )
+        return self._drive(completed, context=context)
 
     def _consume_approval_response(
         self,
@@ -829,17 +931,37 @@ class WorkflowRunManager:
 
         run = self._save(
             run,
-            status="running",
+            status="waiting_process" if result.outcome == "pending" else "running",
             engine_state=result.state,
-            retry_state=(checkpoint if result.outcome == "failure" else None),
+            pending_action=(
+                {
+                    "type": "process",
+                    "node_id": node.id,
+                    "command_id": str(
+                        ((result.output or {}).get("structuredContent") or {}).get("command_id")
+                    ),
+                    "started_at": int(time.time()),
+                }
+                if result.outcome == "pending" and isinstance(result.output, dict)
+                else None
+            ),
+            retry_state=(checkpoint if result.outcome in {"failure", "pending"} else None),
             node_states=self._node_states(
                 run,
                 node.id,
-                status="failed" if result.outcome == "failure" else "succeeded",
-                outcome=result.outcome,
+                status=(
+                    "running"
+                    if result.outcome == "pending"
+                    else "failed"
+                    if result.outcome == "failure"
+                    else "succeeded"
+                ),
+                outcome=None if result.outcome == "pending" else result.outcome,
                 updated_at=int(time.time()),
             ),
         )
+        if result.outcome == "pending":
+            return run
         if (
             result.outcome == "failure"
             and node.policy.on_error == "stop"
