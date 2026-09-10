@@ -38,7 +38,7 @@ class DesktopPermissionBroker:
         except OSError:
             pass
         self.secret = secrets.token_bytes(32)
-        self.host_capabilities = HostCapabilityManager()
+        self.host_capabilities = HostCapabilityManager(self.directory / "host-execution")
         self.host_identity = HostIdentityProcessManager(self.directory / "host-identity")
         self._host_identity_inflight: set[str] = set()
         self._host_identity_inflight_lock = threading.RLock()

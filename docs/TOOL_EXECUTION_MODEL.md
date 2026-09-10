@@ -140,7 +140,7 @@ Browser Session 特性：
 - Runtime 不直接连接 CDP；CDP 控制也由 Desktop Host 执行。
 - `browser_close` 不要求再次授权，保证资源始终可回收。
 
-## 7. Browser Host Resolution
+## 7. Host Application Resolution
 
 禁止维护：
 
@@ -150,13 +150,13 @@ C:\Program Files\Google\Chrome\...
 /usr/bin/google-chrome
 ```
 
-Browser Provider 通过当前用户操作系统注册信息查询 HTTPS Handler；默认 Chromium Handler 优先，否则从当前用户已注册 Handler 中选择可用 Chromium/CDP Provider：
+Host Execution Plane 通过当前用户操作系统注册信息解析 URL Scheme Handler，不把这套机制放在 Browser Provider 内：
 
 - macOS：LaunchServices
 - Windows：URL Association
-- Linux：XDG default-web-browser / Desktop Entry
+- Linux：XDG MIME / GIO / Desktop Entry
 
-解析出的应用身份属于 Host 内部信息。首版 Browser Provider 是 Chromium/CDP Provider；如果系统没有注册可用 Chromium family，会在启动前明确返回 unsupported，不用 Chromium 参数误启动 Safari/Firefox，也不扫描固定安装目录。
+解析结果是通用 `HostApplication(executable, identity, source, is_default)`。Browser/CDP 只是其中一个消费者：它从 HTTPS Handler 中选择与当前 CDP Provider 兼容的 Application；如果没有兼容项则明确返回 unsupported，不用 CDP 参数误启动不支持该协议的 Application，也不扫描固定安装目录。
 
 ## 8. 权限边界
 
@@ -183,9 +183,9 @@ Host Capability
 
 ## 9. Browser MVP 验收
 
-状态：**已验收 / 已封板（2026-09-09）**
+状态：**Host Execution Plane 重构后待重新验收（2026-09-10）**
 
-真实 Desktop Client Browser Gate 已通过。验收环境为 `safe + full isolation`，实际由 Desktop Host 通过 macOS LaunchServices 解析到 `com.google.Chrome`，使用 `desktop_chromium_cdp` Provider 创建独立临时 Profile，并完成同一 Session 内的 CDP 页面控制。
+2026-09-09 的旧实现曾通过真实 Desktop Client Browser Gate。验收环境为 `safe + full isolation`，实际由 Desktop Host 通过 macOS LaunchServices 解析到 `com.google.Chrome`，使用 `desktop_chromium_cdp` Provider 创建独立临时 Profile，并完成同一 Session 内的 CDP 页面控制。该记录只作为历史证据；2026-09-10 抽出统一 Host Execution Plane 后，必须重新执行完整 Gate，不能沿用旧封板结论。
 
 真实 Gate 结果：
 
@@ -206,6 +206,42 @@ Host Capability
 8. `browser_close` 删除临时 Profile。
 9. MCP Server stop/delete 后 Browser Session 自动回收。
 10. 非 Chromium 默认浏览器必须安全失败，不能退回普通 `exec_process`。
+
+### Host Execution Plane
+
+Browser 不是独立的进程执行系统。Desktop Host 中所有需要启动宿主 Application / Process 的 Host Capability 共享同一套 Host Execution Plane：
+
+```text
+Host Capability
+  -> Host Application Resolution
+  -> Host Process Supervisor
+  -> Host user/session environment
+  -> exact executable + argv
+  -> retained stdout/stderr + lifecycle diagnostics
+  -> capability protocol/session
+```
+
+边界约束：
+
+- `Host Application Resolution` 只根据操作系统真实注册状态解析 Application。macOS 使用 LaunchServices，Windows 使用 URL Association，Linux 使用 XDG/GIO；不维护产品安装路径候选表。
+- `Host Process Supervisor` 不识别任何具体产品或 Tool，只负责 Session root、宿主进程启动、真实用户/GUI Session 环境、stdout/stderr retention、退出诊断和回收。
+- Host Process 默认保留真实宿主 `HOME`、`TMPDIR` 和 GUI Session 环境；只移除 Workbench/Runtime 内部变量、代码注入变量和明显 secret 环境变量。Capability 不得自行制造另一套 Runtime 风格 fake HOME。
+- Capability 只负责自身协议。Browser/CDP Provider 可以构造 CDP 所需参数和隔离 Profile，但不能自己 `Popen`、管理 PID、实现 stderr 日志或进程树清理。
+- Application 启动失败时必须先由 Host Process Supervisor 读取并脱敏 stdout/stderr tail，再释放 Session root；不能先删除临时目录后丢失真实启动错误。
+- 新增 Host Capability 不应修改 Host Process Supervisor；只有出现新的标准交互协议时才新增协议实现。
+
+因此 Browser 的职责收敛为：
+
+```text
+https URL scheme
+  -> OS registered applications
+  -> select application compatible with CDP provider
+  -> Host Process Supervisor.launch(...)
+  -> CDP session
+  -> navigate / snapshot / click / fill / press / screenshot
+```
+
+这里 Chromium identity marker 只用于判断 Application 是否兼容当前 CDP Provider，不参与安装路径发现、进程执行、权限或环境构造。
 
 ## 10. Host Identity Execution
 

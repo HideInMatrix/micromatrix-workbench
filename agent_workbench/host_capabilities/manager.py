@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Iterable
+
+from agent_workbench.host_execution import HostProcessSupervisor
 
 from .base import HostCapabilityError, HostCapabilityProvider
 from .browser import BrowserHostCapability
@@ -9,8 +12,17 @@ from .browser import BrowserHostCapability
 class HostCapabilityManager:
     """Desktop-hosted capabilities that must never execute in Runtime sandbox."""
 
-    def __init__(self, providers: Iterable[HostCapabilityProvider] | None = None) -> None:
-        values = tuple(providers) if providers is not None else (BrowserHostCapability(),)
+    def __init__(
+        self,
+        execution_root: Path,
+        providers: Iterable[HostCapabilityProvider] | None = None,
+    ) -> None:
+        self._processes = HostProcessSupervisor(execution_root)
+        values = (
+            tuple(providers)
+            if providers is not None
+            else (BrowserHostCapability(self._processes),)
+        )
         self._providers = {provider.descriptor.name: provider for provider in values}
 
     def catalog(self) -> list[dict[str, Any]]:
@@ -40,7 +52,9 @@ class HostCapabilityManager:
     def close_server(self, server_id: str) -> None:
         for provider in self._providers.values():
             provider.close_server(server_id)
+        self._processes.close_server(server_id)
 
     def close(self) -> None:
         for provider in self._providers.values():
             provider.close()
+        self._processes.close()

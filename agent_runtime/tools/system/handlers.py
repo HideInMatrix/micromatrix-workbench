@@ -61,6 +61,9 @@ class SystemHandlers:
                     ),
                     "model": "desktop_host_session",
                     "runtime_process_launch": False,
+                    "execution_plane": "host_process_supervisor",
+                    "application_resolution": "os_registration",
+                    "tool_specific_process_adapters": False,
                 },
                 "host_identity_execution": {
                     "configured": callable(

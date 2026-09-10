@@ -2,12 +2,8 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import secrets
-import shutil
-import subprocess
 import sys
-import tempfile
 import threading
 import time
 import urllib.parse
@@ -15,6 +11,13 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from agent_workbench.host_execution import (
+    HostExecutionError,
+    HostExecutionRequest,
+    HostProcessHandle,
+    HostProcessSupervisor,
+)
 
 from .base import HostCapabilityDescriptor, HostCapabilityError
 from .browser_resolution import BrowserApplication, resolve_chromium_browser
@@ -71,40 +74,12 @@ class _CDPConnection:
 class _BrowserSession:
     session_id: str
     server_id: str
-    process: subprocess.Popen[bytes]
-    root: Path
+    process: HostProcessHandle
     profile: Path
-    log_path: Path
     port: int
     bundle_id: str
     cdp: _CDPConnection
     headless: bool
-
-
-def _safe_browser_env(root: Path) -> dict[str, str]:
-    allowed = {
-        "LANG", "LC_ALL", "PATH", "DISPLAY", "XAUTHORITY",
-        "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "SYSTEMROOT", "WINDIR",
-    }
-    env = {key: value for key, value in os.environ.items() if key.upper() in allowed}
-    home = root / "home"
-    config = root / "config"
-    cache = root / "cache"
-    tmp = root / "tmp"
-    for path in (home, config, cache, tmp):
-        path.mkdir(mode=0o700, exist_ok=True)
-    env.update({
-        "HOME": str(home),
-        "XDG_CONFIG_HOME": str(config),
-        "XDG_CACHE_HOME": str(cache),
-        "TMPDIR": str(tmp),
-        "TEMP": str(tmp),
-        "TMP": str(tmp),
-    })
-    if os.name == "nt":
-        env["APPDATA"] = str(config)
-        env["LOCALAPPDATA"] = str(cache)
-    return env
 
 
 def _http_json(port: int, path: str, *, method: str = "GET") -> Any:
@@ -117,7 +92,7 @@ def _http_json(port: int, path: str, *, method: str = "GET") -> Any:
         return json.loads(response.read().decode("utf-8"))
 
 
-def _wait_devtools(profile: Path, process: subprocess.Popen[bytes], timeout: float) -> tuple[int, str]:
+def _wait_devtools(profile: Path, process: HostProcessHandle, timeout: float) -> tuple[int, str]:
     marker = profile / "DevToolsActivePort"
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -162,7 +137,8 @@ class BrowserHostCapability:
         operations=("open", "navigate", "snapshot", "click", "fill", "press", "screenshot", "status", "close"),
     )
 
-    def __init__(self) -> None:
+    def __init__(self, process_supervisor: HostProcessSupervisor) -> None:
+        self._processes = process_supervisor
         self._sessions: dict[str, _BrowserSession] = {}
         self._lock = threading.RLock()
 
@@ -206,16 +182,18 @@ class BrowserHostCapability:
         application: BrowserApplication = resolve_chromium_browser()
         executable = application.executable
         bundle_id = application.identity
-        root = Path(tempfile.mkdtemp(prefix="micromatrix-browser-"))
-        profile = root / "profile"
-        profile.mkdir(mode=0o700)
-        log_path = root / "browser.log"
         headless = bool(parameters.get("headless", True))
         width = max(320, min(int(parameters.get("width", 1440)), 3840))
         height = max(240, min(int(parameters.get("height", 900)), 2160))
         url = self._validated_url(str(parameters.get("url") or "about:blank"))
+        execution = self._processes.prepare(server_id)
+        profile = execution.root / "profile"
+        try:
+            profile.mkdir(mode=0o700)
+        except OSError as exc:
+            self._processes.discard(execution)
+            raise HostCapabilityError("无法创建 Host Capability Session 数据目录。") from exc
         argv = [
-            str(executable),
             "--remote-debugging-address=127.0.0.1",
             "--remote-debugging-port=0",
             f"--user-data-dir={profile}",
@@ -233,43 +211,33 @@ class BrowserHostCapability:
         if headless:
             argv.append("--headless=new")
         argv.append(url)
-        log_handle = log_path.open("ab", buffering=0)
         try:
-            process = subprocess.Popen(
-                argv,
-                stdin=subprocess.DEVNULL,
-                stdout=log_handle,
-                stderr=subprocess.STDOUT,
-                env=_safe_browser_env(root),
-                start_new_session=True,
+            process = self._processes.launch(
+                execution,
+                HostExecutionRequest(
+                    executable=executable,
+                    argv=tuple(argv),
+                ),
             )
-        except OSError as exc:
-            log_handle.close()
-            shutil.rmtree(root, ignore_errors=True)
-            raise HostCapabilityError("Workbench Host 无法启动默认浏览器。") from exc
-        finally:
-            try:
-                log_handle.close()
-            except OSError:
-                pass
+        except HostExecutionError as exc:
+            raise HostCapabilityError(str(exc)) from exc
         try:
             port, _browser_ws = _wait_devtools(profile, process, 12)
             page_ws = _page_websocket(port)
             cdp = _CDPConnection(page_ws)
             cdp.command("Page.enable")
             cdp.command("Runtime.enable")
-        except Exception:
-            self._terminate_process(process)
-            shutil.rmtree(root, ignore_errors=True)
-            raise
+        except Exception as exc:
+            diagnostics = self._processes.diagnostics(process)
+            self._processes.release(process)
+            detail = self._diagnostic_message(diagnostics)
+            raise HostCapabilityError(f"{exc}{detail}") from exc
         session_id = secrets.token_urlsafe(18)
         session = _BrowserSession(
             session_id=session_id,
             server_id=server_id,
             process=process,
-            root=root,
             profile=profile,
-            log_path=log_path,
             port=port,
             bundle_id=bundle_id,
             cdp=cdp,
@@ -295,9 +263,32 @@ class BrowserHostCapability:
         if session is None or session.server_id != server_id:
             raise HostCapabilityError("Browser Session 不存在或不属于当前 MCP Server。")
         if session.process.poll() is not None:
+            diagnostics = self._processes.diagnostics(session.process)
             self._close_session(session)
-            raise HostCapabilityError("Browser Session 已退出。")
+            raise HostCapabilityError(
+                "Browser Session 已退出。" + self._diagnostic_message(diagnostics)
+            )
         return session
+
+    @staticmethod
+    def _diagnostic_message(diagnostics: dict[str, object]) -> str:
+        parts: list[str] = []
+        exit_code = diagnostics.get("exit_code")
+        signal_name = str(diagnostics.get("signal") or "")
+        elapsed_ms = diagnostics.get("elapsed_ms")
+        if exit_code is not None:
+            parts.append(f"exit_code={exit_code}")
+        if signal_name:
+            parts.append(f"signal={signal_name}")
+        if elapsed_ms is not None:
+            parts.append(f"elapsed_ms={elapsed_ms}")
+        stderr_tail = str(diagnostics.get("stderr_tail") or "").strip()
+        stdout_tail = str(diagnostics.get("stdout_tail") or "").strip()
+        if stderr_tail:
+            parts.append(f"stderr_tail={stderr_tail[-4000:]}")
+        elif stdout_tail:
+            parts.append(f"stdout_tail={stdout_tail[-4000:]}")
+        return f" Host process diagnostics: {'; '.join(parts)}" if parts else ""
 
     @staticmethod
     def _validated_url(value: str) -> str:
@@ -427,19 +418,6 @@ class BrowserHostCapability:
             "isolated_profile": True,
         }
 
-    @staticmethod
-    def _terminate_process(process: subprocess.Popen[bytes]) -> None:
-        if process.poll() is not None:
-            return
-        try:
-            process.terminate()
-            process.wait(timeout=3)
-        except Exception:
-            try:
-                process.kill()
-            except OSError:
-                pass
-
     def _close_session(self, session: _BrowserSession) -> None:
         with self._lock:
             self._sessions.pop(session.session_id, None)
@@ -448,8 +426,7 @@ class BrowserHostCapability:
         except Exception:
             pass
         session.cdp.close()
-        self._terminate_process(session.process)
-        shutil.rmtree(session.root, ignore_errors=True)
+        self._processes.release(session.process)
 
     def close_server(self, server_id: str) -> None:
         with self._lock:
