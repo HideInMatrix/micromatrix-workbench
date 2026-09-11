@@ -328,12 +328,13 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
         if not self._select_request_runtime():
             return
         self.send_response(204)
-        self.send_header("Allow", "GET, HEAD, POST, OPTIONS")
+        self.send_header("Allow", "GET, HEAD, POST, DELETE, OPTIONS")
         origin = self.headers.get("Origin")
         if origin and self.mcp_controller.allows_origin(origin):
             self.send_header("Access-Control-Allow-Origin", origin)
-            self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type, MCP-Protocol-Version, Mcp-Method, Mcp-Name")
-            self.send_header("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type, MCP-Protocol-Version, Mcp-Method, Mcp-Name, Mcp-Session-Id")
+            self.send_header("Access-Control-Expose-Headers", "Mcp-Session-Id")
+            self.send_header("Access-Control-Allow-Methods", "GET, HEAD, POST, DELETE, OPTIONS")
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802

@@ -16,8 +16,8 @@ class PermissionGrantStore:
         self._lock = threading.RLock()
         self._grants: dict[str, dict[str, Any]] = {}
         self._session_principals: set[str] = set()
-        self._desktop_session_permissions: dict[
-            tuple[str, str], set[str]
+        self._resource_session_permissions: dict[
+            tuple[str, str, str], set[str]
         ] = {}
 
     def store(
@@ -86,40 +86,53 @@ class PermissionGrantStore:
         with self._lock:
             self._session_principals.add(principal or "anonymous")
 
-    def grant_desktop_session(
+    def grant_resource_session(
         self,
         principal: str,
+        tool_name: str,
         session_id: str,
         permission: str,
     ) -> None:
         normalized_principal = principal or "anonymous"
+        normalized_tool = str(tool_name or "").strip()
         normalized_session = str(session_id or "").strip()
-        if not normalized_session or permission not in ELICITABLE_PERMISSIONS:
+        if not normalized_tool or not normalized_session or permission not in ELICITABLE_PERMISSIONS:
             return
         with self._lock:
-            key = (normalized_principal, normalized_session)
-            self._desktop_session_permissions.setdefault(key, set()).add(permission)
+            key = (normalized_principal, normalized_tool, normalized_session)
+            self._resource_session_permissions.setdefault(key, set()).add(permission)
 
-    def desktop_session_permissions(
+    def resource_session_permissions(
         self,
         principal: str,
+        tool_name: str,
         session_id: str,
     ) -> frozenset[str]:
+        normalized_tool = str(tool_name or "").strip()
         normalized_session = str(session_id or "").strip()
-        if not normalized_session:
+        if not normalized_tool or not normalized_session:
             return frozenset()
         with self._lock:
             return frozenset(
-                self._desktop_session_permissions.get(
-                    (principal or "anonymous", normalized_session),
+                self._resource_session_permissions.get(
+                    (principal or "anonymous", normalized_tool, normalized_session),
                     set(),
                 )
             )
 
-    def revoke_desktop_session(self, principal: str, session_id: str) -> None:
+    def revoke_resource_session(
+        self,
+        principal: str,
+        tool_name: str,
+        session_id: str,
+    ) -> None:
         with self._lock:
-            self._desktop_session_permissions.pop(
-                (principal or "anonymous", str(session_id or "").strip()),
+            self._resource_session_permissions.pop(
+                (
+                    principal or "anonymous",
+                    str(tool_name or "").strip(),
+                    str(session_id or "").strip(),
+                ),
                 None,
             )
 

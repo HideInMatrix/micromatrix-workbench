@@ -26,6 +26,7 @@ META_PROTOCOL_VERSION = "io.modelcontextprotocol/protocolVersion"
 META_CLIENT_CAPABILITIES = "io.modelcontextprotocol/clientCapabilities"
 META_CLIENT_INFO = "io.modelcontextprotocol/clientInfo"
 META_SERVER_INFO = "io.modelcontextprotocol/serverInfo"
+META_TOOL_CONTRACT_REVISION = "com.micromatrix.workbench/toolContractRevision"
 HEADER_MISMATCH = -32020
 UNSUPPORTED_PROTOCOL_VERSION = -32022
 BASE64_SENTINEL_PREFIX = "=?base64?"
@@ -159,6 +160,7 @@ def _shape_modern(method: str, result: dict[str, Any], runtime: Any) -> dict[str
     raw_meta = shaped.get("_meta")
     meta = dict(raw_meta) if isinstance(raw_meta, dict) else {}
     meta[META_SERVER_INFO] = runtime.server_identity()
+    meta[META_TOOL_CONTRACT_REVISION] = runtime.tool_contract_revision
     shaped["_meta"] = meta
     if method in {"server/discover", "tools/list"}:
         shaped["ttlMs"] = 0
@@ -298,6 +300,9 @@ def _dispatch_modern(runtime: Any, method: str, params: dict[str, Any], context:
         return {
             "supportedVersions": list(MODERN_PROTOCOL_VERSIONS),
             "capabilities": {
+                # Public MCP tools stay fixed for one Runtime lifetime.
+                # Dynamic Workbench assets change capability_catalog revisions
+                # instead of mutating tools/list in-place.
                 "tools": {"listChanged": False},
             },
             "instructions": runtime.server_instructions(),
@@ -330,9 +335,14 @@ def _dispatch_legacy(
         return {
             "protocolVersion": requested,
             "capabilities": {
+                # Version upgrades require a new Runtime/initialize cycle;
+                # they are not modeled as hot tools/list mutations.
                 "tools": {"listChanged": False},
             },
             "serverInfo": runtime.server_identity(),
+            "_meta": {
+                META_TOOL_CONTRACT_REVISION: runtime.tool_contract_revision,
+            },
             "instructions": runtime.server_instructions(),
         }
     if method in {"notifications/initialized", "notifications/cancelled"}:

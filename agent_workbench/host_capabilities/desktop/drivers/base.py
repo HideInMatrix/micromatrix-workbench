@@ -32,18 +32,36 @@ class DesktopTarget:
     onscreen: bool
     application_id: str = ""
     application_identity_fingerprint: str = ""
-    persistent_authorization_supported: bool = False
+    application_identity_verified: bool = False
     owner_window_id: int = 0
     relationship: str = "top_level"
-    control_protected_reason: str = ""
 
     @property
     def identity(self) -> tuple[int, int, str]:
         return (
             self.window_id,
             self.owner_pid,
-            self.application_id or self.application_name,
+            self.application_id or f"pid:{self.owner_pid}",
         )
+
+    @property
+    def persistent_authorization_supported(self) -> bool:
+        return bool(
+            self.application_identity_verified
+            and self.application_id
+            and self.application_identity_fingerprint
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class DesktopControlDecision:
+    """Normalized platform control decision for one desktop target."""
+
+    allowed: bool | None
+    boundary: str = "unknown"
+    code: str = ""
+    stage: str = "system_permission"
+    message: str = ""
 
 
 class DesktopDriver(Protocol):
@@ -60,7 +78,7 @@ class DesktopDriver(Protocol):
 
     def check_control_permission(self) -> bool | None: ...
 
-    def check_target_control_permission(self, target: DesktopTarget) -> bool | None: ...
+    def control_decision(self, target: DesktopTarget) -> DesktopControlDecision: ...
 
     def capture(self, target: DesktopTarget) -> dict[str, Any]: ...
 
@@ -142,8 +160,14 @@ class UnsupportedDesktopDriver:
     def check_control_permission(self) -> bool | None:
         return None
 
-    def check_target_control_permission(self, target: DesktopTarget) -> bool | None:
-        return None
+    def control_decision(self, target: DesktopTarget) -> DesktopControlDecision:
+        return DesktopControlDecision(
+            False,
+            boundary="unsupported_platform",
+            code="DESKTOP_PLATFORM_UNSUPPORTED",
+            stage="preflight",
+            message=f"当前平台 {self.platform} 尚未提供 Desktop Computer Use 驱动。",
+        )
 
     def capture(self, target: DesktopTarget) -> dict[str, Any]:
         self._unsupported()
@@ -176,4 +200,10 @@ class UnsupportedDesktopDriver:
         }
 
 
-__all__ = ["DesktopDriver", "DesktopTarget", "UnsupportedDesktopDriver", "WindowBounds"]
+__all__ = [
+    "DesktopControlDecision",
+    "DesktopDriver",
+    "DesktopTarget",
+    "UnsupportedDesktopDriver",
+    "WindowBounds",
+]

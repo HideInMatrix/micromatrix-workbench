@@ -7,7 +7,7 @@ from typing import Any
 
 from ..base import HostCapabilityDescriptor, HostCapabilityError
 from .drivers import build_desktop_driver
-from .drivers.base import DesktopDriver, DesktopTarget, WindowBounds
+from .drivers.base import DesktopControlDecision, DesktopDriver, DesktopTarget, WindowBounds
 from .sessions import DesktopSession
 
 
@@ -195,7 +195,7 @@ class DesktopHostCapability:
                         "title_exposed": False,
                         "relationship": target.relationship,
                         "related_target_id": target_tokens.get(target.owner_window_id),
-                        "control_eligible": self._target_control_permission(target) is not False,
+                        "control_eligible": self._control_decision(target).allowed is not False,
                     },
                 }
                 for target in targets
@@ -209,33 +209,16 @@ class DesktopHostCapability:
             "control": self._permission_status(self._driver.check_control_permission()),
         }
 
-    def _target_control_permission(self, target: DesktopTarget) -> bool | None:
-        if target.control_protected_reason:
-            return False
-        checker = getattr(self._driver, "check_target_control_permission", None)
-        if callable(checker):
-            return checker(target)
-        return self._driver.check_control_permission()
+    def _control_decision(self, target: DesktopTarget) -> DesktopControlDecision:
+        return self._driver.control_decision(target)
 
     def _ensure_target_control_allowed(self, target: DesktopTarget) -> None:
-        if target.control_protected_reason:
+        decision = self._control_decision(target)
+        if decision.allowed is False:
             raise HostCapabilityError(
-                "该窗口属于受保护的系统/Workbench 授权界面，Desktop Computer Use 不允许对其执行输入。",
-                code="DESKTOP_PROTECTED_TARGET",
-                stage="authorization",
-            )
-        global_status = self._driver.check_control_permission()
-        if global_status is False and getattr(self._driver, "platform", "") == "darwin":
-            raise HostCapabilityError(
-                "macOS 尚未授予 Workbench 桌面控制所需的辅助功能权限。",
-                code="DESKTOP_ACCESSIBILITY_PERMISSION_REQUIRED",
-                stage="system_permission",
-            )
-        if self._target_control_permission(target) is False:
-            raise HostCapabilityError(
-                "当前 Desktop Host 无法安全控制该目标窗口；目标可能位于更高完整性级别或安全桌面。",
-                code="DESKTOP_TARGET_CONTROL_BLOCKED",
-                stage="system_permission",
+                decision.message or "当前 Desktop Host 无法安全控制该目标窗口。",
+                code=decision.code or "DESKTOP_TARGET_CONTROL_BLOCKED",
+                stage=decision.stage,
             )
 
     def _preflight(
@@ -425,7 +408,7 @@ class DesktopHostCapability:
                 "visibility": "unknown",
                 "occlusion": "unknown",
                 "relationship": target.relationship,
-                "control_eligible": self._target_control_permission(target) is not False,
+                "control_eligible": self._control_decision(target).allowed is not False,
             },
         }
 

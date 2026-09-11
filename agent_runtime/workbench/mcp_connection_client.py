@@ -124,6 +124,10 @@ def _http_rpc(
     *,
     modern: bool,
     timeout: float,
+    session_id: str = "",
+    protocol_version: str = "",
+    session_capture: list[str] | None = None,
+    expect_response: bool = True,
 ) -> dict[str, Any]:
     headers = {
         "Content-Type": "application/json",
@@ -140,6 +144,10 @@ def _http_rpc(
                 tool_name = str(raw_params.get("name") or "").strip()
                 if tool_name:
                     headers["Mcp-Name"] = tool_name
+    elif protocol_version:
+        headers["MCP-Protocol-Version"] = protocol_version
+    if session_id:
+        headers["Mcp-Session-Id"] = session_id
     body = json.dumps(request, ensure_ascii=False).encode("utf-8")
     raw_request = urllib.request.Request(
         definition.endpoint,
@@ -153,6 +161,7 @@ def _http_rpc(
     try:
         with urllib.request.urlopen(raw_request, **open_options) as response:
             content_type = str(response.headers.get("Content-Type") or "")
+            response_session_id = str(response.headers.get("Mcp-Session-Id") or "").strip()
             payload = response.read(2 * 1024 * 1024)
     except urllib.error.HTTPError as exc:
         try:
@@ -169,6 +178,12 @@ def _http_rpc(
         raise RuntimeError(f"HTTP {exc.code}: {detail or exc.reason}") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"MCP HTTP connection failed: {exc.reason}") from exc
+    if session_capture is not None and response_session_id:
+        session_capture[:] = [response_session_id]
+    if not payload:
+        if expect_response:
+            raise RuntimeError("MCP HTTP response body is empty")
+        return {}
     if "text/event-stream" in content_type:
         for line in payload.decode("utf-8", errors="replace").splitlines():
             if line.startswith("data:"):
@@ -180,6 +195,80 @@ def _http_rpc(
     if not isinstance(value, dict):
         raise RuntimeError("MCP HTTP response must be a JSON object")
     return value
+
+
+def _legacy_http_initialize(
+    definition: MCPConnectionDefinition,
+    *,
+    timeout: float,
+) -> tuple[dict[str, Any], str, str]:
+    initialize = _request(
+        "initialize",
+        {
+            "protocolVersion": LEGACY_PROTOCOL_VERSION,
+            "capabilities": {},
+            "clientInfo": {"name": "micromatrix-workbench", "version": "1"},
+        },
+        1,
+    )
+    captured: list[str] = []
+    initialized = _result(
+        _http_rpc(
+            definition,
+            initialize,
+            modern=False,
+            timeout=timeout,
+            session_capture=captured,
+        )
+    )
+    protocol = str(initialized.get("protocolVersion") or LEGACY_PROTOCOL_VERSION)
+    session_id = captured[0] if captured else ""
+    _http_rpc(
+        definition,
+        {
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized",
+            "params": {},
+        },
+        modern=False,
+        timeout=timeout,
+        session_id=session_id,
+        protocol_version=protocol,
+        expect_response=False,
+    )
+    return initialized, session_id, protocol
+
+
+def _close_legacy_http_session(
+    definition: MCPConnectionDefinition,
+    session_id: str,
+    *,
+    protocol_version: str,
+    timeout: float,
+) -> None:
+    if not session_id:
+        return
+    headers = {
+        "Accept": "application/json, text/event-stream",
+        "Mcp-Session-Id": session_id,
+        "MCP-Protocol-Version": protocol_version,
+        **resolved_headers(definition),
+    }
+    request = urllib.request.Request(
+        definition.endpoint,
+        headers=headers,
+        method="DELETE",
+    )
+    open_options: dict[str, Any] = {"timeout": timeout}
+    if definition.endpoint.lower().startswith("https://"):
+        open_options["context"] = _https_context()
+    try:
+        with urllib.request.urlopen(request, **open_options) as response:
+            response.read(8192)
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError):
+        # Session cleanup is best-effort. The primary probe/tool result has
+        # already completed, and remote servers may expire sessions themselves.
+        return
 
 
 def _stdio_roundtrip(
@@ -305,37 +394,38 @@ def probe_connection(
                     elapsed_ms=int((time.monotonic() - started) * 1000),
                 )
             except Exception:
-                initialize = _request(
-                    "initialize",
-                    {
-                        "protocolVersion": LEGACY_PROTOCOL_VERSION,
-                        "capabilities": {},
-                        "clientInfo": {"name": "micromatrix-workbench", "version": "1"},
-                    },
-                    1,
+                initialized, session_id, protocol = _legacy_http_initialize(
+                    definition,
+                    timeout=timeout,
                 )
-                initialized = _result(
-                    _http_rpc(definition, initialize, modern=False, timeout=timeout)
-                )
-                protocol = str(initialized.get("protocolVersion") or LEGACY_PROTOCOL_VERSION)
-                tools = ()
-                if discover_tools:
-                    tools = _tools_from_result(
-                        _result(
-                            _http_rpc(
-                                definition,
-                                _request("tools/list", {}, 2),
-                                modern=False,
-                                timeout=timeout,
+                try:
+                    tools = ()
+                    if discover_tools:
+                        tools = _tools_from_result(
+                            _result(
+                                _http_rpc(
+                                    definition,
+                                    _request("tools/list", {}, 2),
+                                    modern=False,
+                                    timeout=timeout,
+                                    session_id=session_id,
+                                    protocol_version=protocol,
+                                )
                             )
                         )
+                    return MCPConnectionProbe(
+                        True,
+                        protocol_version=protocol,
+                        tools=tools,
+                        elapsed_ms=int((time.monotonic() - started) * 1000),
                     )
-                return MCPConnectionProbe(
-                    True,
-                    protocol_version=protocol,
-                    tools=tools,
-                    elapsed_ms=int((time.monotonic() - started) * 1000),
-                )
+                finally:
+                    _close_legacy_http_session(
+                        definition,
+                        session_id,
+                        protocol_version=protocol,
+                        timeout=timeout,
+                    )
 
         initialize = _request(
             "initialize",
@@ -395,31 +485,32 @@ def call_connection_tool(
                 )
             )
         except Exception:
-            initialize = _request(
-                "initialize",
-                {
-                    "protocolVersion": LEGACY_PROTOCOL_VERSION,
-                    "capabilities": {},
-                    "clientInfo": {
-                        "name": "micromatrix-workbench",
-                        "version": "1",
-                    },
-                },
-                1,
+            _initialized, session_id, protocol = _legacy_http_initialize(
+                definition,
+                timeout=timeout,
             )
-            _result(_http_rpc(definition, initialize, modern=False, timeout=timeout))
-            return _result(
-                _http_rpc(
+            try:
+                return _result(
+                    _http_rpc(
+                        definition,
+                        _request(
+                            "tools/call",
+                            {"name": name, "arguments": tool_arguments},
+                            2,
+                        ),
+                        modern=False,
+                        timeout=timeout,
+                        session_id=session_id,
+                        protocol_version=protocol,
+                    )
+                )
+            finally:
+                _close_legacy_http_session(
                     definition,
-                    _request(
-                        "tools/call",
-                        {"name": name, "arguments": tool_arguments},
-                        2,
-                    ),
-                    modern=False,
+                    session_id,
+                    protocol_version=protocol,
                     timeout=timeout,
                 )
-            )
 
         modern_params = {
             **_modern_params(),

@@ -1119,7 +1119,7 @@ class LocalPermissionBrokerClient:
                 raw_scope = str(raw.get("scope") or "once")
                 scope = (
                     raw_scope
-                    if raw_scope in {"session", "desktop_session", "remember_app"}
+                    if raw_scope in {"session", "resource_session", "remember_resource"}
                     else "once"
                 )
                 if permission == "toolchain_registration" and raw.get("scope") == "remember":

@@ -32,7 +32,7 @@ from agent_runtime.local_permission_broker import (
     sign_payload,
     verify_payload,
 )
-from .desktop_authorizations import DesktopAuthorizationStore
+from .resource_authorizations import ResourceAuthorizationStore
 from .process import hidden_process_kwargs
 
 
@@ -56,7 +56,7 @@ class DesktopPermissionBroker:
         self._host_lock = threading.RLock()
         self._host_supervisor_stop = threading.Event()
         self._supervisor_events: deque[dict[str, Any]] = deque(maxlen=32)
-        self.desktop_authorizations = DesktopAuthorizationStore()
+        self.resource_authorizations = ResourceAuthorizationStore()
         self._start_host_worker()
         if not self._wait_for_worker_ready(timeout=3.0):
             self._record_supervisor_event("initial_worker_ready_timeout")
@@ -246,7 +246,7 @@ class DesktopPermissionBroker:
 
     def _host_supervisor_loop(self) -> None:
         while not self._host_supervisor_stop.wait(0.1):
-            self._auto_respond_desktop_authorizations()
+            self._auto_respond_resource_authorizations()
             for path in tuple(self.directory.glob("*.host-control.request.json")):
                 try:
                     self._respond_host_control_request(path)
@@ -272,7 +272,7 @@ class DesktopPermissionBroker:
                 continue
             self._restart_host_worker(automatic=True)
 
-    def _auto_respond_desktop_authorizations(self) -> None:
+    def _auto_respond_resource_authorizations(self) -> None:
         now = int(time.time())
         for path in tuple(self.directory.glob("*.request.json")):
             if path.name.endswith(
@@ -301,8 +301,23 @@ class DesktopPermissionBroker:
                 or int(raw.get("expires_at", 0)) <= now
             ):
                 continue
-            if self.desktop_authorizations.match(raw) is not None:
+            if self.resource_authorizations.match(raw) is not None:
                 self.respond(request_id, "once")
+
+    @staticmethod
+    def _session_authorization_available(request: dict[str, Any]) -> bool:
+        arguments = request.get("arguments")
+        if not isinstance(arguments, dict):
+            return False
+        requested_session = str(arguments.get("session_id") or "").strip()
+        trusted = arguments.get("_trusted_context")
+        if not requested_session or not isinstance(trusted, dict):
+            return False
+        authorization_session = trusted.get("authorization_session")
+        if not isinstance(authorization_session, dict):
+            return False
+        trusted_session = str(authorization_session.get("id") or "").strip()
+        return bool(trusted_session and trusted_session == requested_session)
 
     def _prepare_automatic_restart(self, event: str) -> bool:
         if self._host_circuit_open:
@@ -460,8 +475,9 @@ class DesktopPermissionBroker:
                     "created_at": int(raw.get("created_at", 0)),
                     "expires_at": expires_at,
                     "persistent_authorization_available": (
-                        self.desktop_authorizations.persistent_context(raw) is not None
+                        self.resource_authorizations.persistent_context(raw) is not None
                     ),
+                    "session_authorization_available": self._session_authorization_available(raw),
                 }
             )
         return result
@@ -520,8 +536,8 @@ class DesktopPermissionBroker:
             "deny",
             "once",
             "session",
-            "desktop_session",
-            "remember_app",
+            "resource_session",
+            "remember_resource",
             "remember",
         }:
             return False
@@ -537,13 +553,6 @@ class DesktopPermissionBroker:
             return False
         is_registration = raw.get("permission") == "toolchain_registration"
         is_host_identity = raw.get("permission") == "host_identity_use"
-        is_desktop_permission = raw.get("permission") in {
-            "desktop_observe",
-            "desktop_control",
-        }
-        is_desktop_tool = raw.get("tool_name") == "desktop"
-        arguments = raw.get("arguments") if isinstance(raw.get("arguments"), dict) else {}
-        has_desktop_session = bool(str(arguments.get("session_id") or "").strip())
         if is_registration:
             if normalized_decision not in {"deny", "remember"}:
                 return False
@@ -551,14 +560,10 @@ class DesktopPermissionBroker:
                 return False
         elif is_host_identity and normalized_decision == "session":
             return False
-        elif normalized_decision == "desktop_session" and not (
-            is_desktop_permission and is_desktop_tool and has_desktop_session
-        ):
+        elif normalized_decision == "resource_session" and not self._session_authorization_available(raw):
             return False
-        elif normalized_decision == "remember_app":
-            if not (is_desktop_permission and is_desktop_tool):
-                return False
-            if self.desktop_authorizations.remember(raw) is None:
+        elif normalized_decision == "remember_resource":
+            if self.resource_authorizations.remember(raw) is None:
                 return False
         elif normalized_decision == "remember" or registration is not None:
             return False
@@ -574,8 +579,8 @@ class DesktopPermissionBroker:
                 normalized_decision
                 if normalized_decision in {
                     "session",
-                    "desktop_session",
-                    "remember_app",
+                    "resource_session",
+                    "remember_resource",
                     "remember",
                 }
                 else "once"

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ...base import HostCapabilityError
-from .base import DesktopTarget, WindowBounds
+from .base import DesktopControlDecision, DesktopTarget, WindowBounds
 
 
 _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
@@ -44,15 +44,6 @@ _CCHDEVICENAME = 32
 _DEFAULT_DPI = 96
 _UOI_NAME = 2
 _DESKTOP_READOBJECTS = 0x0001
-_PROTECTED_CONTROL_EXECUTABLES = frozenset(
-    {
-        "consent.exe",
-        "credentialuibroker.exe",
-        "credprovhost.exe",
-        "logonui.exe",
-        "lockapp.exe",
-    }
-)
 
 
 class _MONITORINFOEXW(ctypes.Structure):
@@ -536,12 +527,6 @@ class WindowsDesktopDriver:
         if owner_pid <= 0 or owner_pid in self._excluded_pids:
             return None
         app_id, fingerprint, persistent, app_name = self._process_identity(owner_pid)
-        executable_name = Path(app_id).name.casefold() if app_id else app_name.casefold()
-        protected_reason = (
-            "system_authorization_surface"
-            if executable_name in _PROTECTED_CONTROL_EXECUTABLES
-            else ""
-        )
         return DesktopTarget(
             window_id=int(hwnd),
             owner_pid=owner_pid,
@@ -551,10 +536,9 @@ class WindowsDesktopDriver:
             onscreen=not bool(self._user32.IsIconic(hwnd)),
             application_id=app_id,
             application_identity_fingerprint=fingerprint,
-            persistent_authorization_supported=(persistent and not protected_reason),
+            application_identity_verified=persistent,
             owner_window_id=owner_window_id,
             relationship="owned_dialog" if owner_window_id else "top_level",
-            control_protected_reason=protected_reason,
         )
 
     def list_targets(self, *, max_results: int) -> list[DesktopTarget]:
@@ -606,24 +590,36 @@ class WindowsDesktopDriver:
         # reported as unknown instead of globally granted.
         return None
 
-    def check_target_control_permission(self, target: DesktopTarget) -> bool | None:
-        if target.control_protected_reason:
-            return False
-        global_status = self.check_control_permission()
-        if global_status is False:
-            return False
+    def control_decision(self, target: DesktopTarget) -> DesktopControlDecision:
+        desktop_name = self._input_desktop_name()
+        if desktop_name and desktop_name.casefold() != "default":
+            return DesktopControlDecision(
+                False,
+                boundary="secure_desktop",
+                code="DESKTOP_TARGET_CONTROL_BLOCKED",
+                stage="system_permission",
+                message="Windows 当前输入桌面不是普通用户桌面，Desktop 输入已被阻止。",
+            )
         target_rid = self._integrity_rid_for_process(target.owner_pid)
         current_rid = self._current_integrity_rid
         if target_rid is None or current_rid is None:
-            return None
-        return target_rid <= current_rid
+            return DesktopControlDecision(None, boundary="integrity_unknown")
+        if target_rid > current_rid:
+            return DesktopControlDecision(
+                False,
+                boundary="higher_integrity",
+                code="DESKTOP_TARGET_CONTROL_BLOCKED",
+                stage="system_permission",
+                message="Windows 目标进程完整性级别高于 Desktop Host，系统拒绝跨 UIPI 边界输入。",
+            )
+        return DesktopControlDecision(True, boundary="standard")
 
     def _ensure_target_control(self, target: DesktopTarget) -> None:
-        status = self.check_target_control_permission(target)
-        if status is False:
+        decision = self.control_decision(target)
+        if decision.allowed is False:
             raise HostCapabilityError(
-                "Windows 拒绝向该目标发送 Desktop 输入；目标可能位于更高完整性级别、安全桌面或系统授权界面。",
-                code="DESKTOP_TARGET_CONTROL_BLOCKED",
+                decision.message or "Windows 拒绝向该目标发送 Desktop 输入。",
+                code=decision.code or "DESKTOP_TARGET_CONTROL_BLOCKED",
                 stage="input",
             )
 

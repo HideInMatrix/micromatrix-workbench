@@ -46,14 +46,11 @@ function createPermissionState() {
     activePermissionRequest.value?.permission === 'desktop_observe'
     || activePermissionRequest.value?.permission === 'desktop_control'
   ))
-  const hasDesktopSession = computed(() => {
-    if (!isDesktopPermission.value) return false
-    const args = activePermissionRequest.value?.arguments
-    return Boolean(args && !Array.isArray(args) && typeof args.session_id === 'string' && args.session_id)
-  })
-  const canRememberDesktopApplication = computed(() => (
-    isDesktopPermission.value
-    && activePermissionRequest.value?.persistent_authorization_available === true
+  const hasResourceSession = computed(() => (
+    activePermissionRequest.value?.session_authorization_available === true
+  ))
+  const canRememberResource = computed(() => (
+    activePermissionRequest.value?.persistent_authorization_available === true
   ))
   return {
     errorMessage,
@@ -67,8 +64,8 @@ function createPermissionState() {
     isDesktopControl: permissionIs('desktop_control'),
     isDesktopObserve: permissionIs('desktop_observe'),
     isDesktopPermission,
-    hasDesktopSession,
-    canRememberDesktopApplication,
+    hasResourceSession,
+    canRememberResource,
     isHostIdentityUse: permissionIs('host_identity_use'),
     isHostManage: permissionIs('host_manage'),
     permissionArguments: computed(() => stringifyPermissionArguments(activePermissionRequest.value)),
@@ -88,7 +85,7 @@ function createPermissionActions(state: ReturnType<typeof createPermissionState>
     }
   }
 
-  async function respondPermission(decision: 'deny' | 'once' | 'session' | 'desktop_session' | 'remember_app' | 'remember') {
+  async function respondPermission(decision: 'deny' | 'once' | 'session' | 'resource_session' | 'remember_resource' | 'remember') {
     const request = activePermissionRequest.value
     if (!request || permissionResponding.value) return
 

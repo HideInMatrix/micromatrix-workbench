@@ -387,6 +387,18 @@ tools/call
 ping
 ```
 
+Legacy `2025-11-25 / 2025-06-18` 在 Streamable HTTP 上使用标准会话生命周期：
+
+```text
+initialize
+  -> HTTP response: Mcp-Session-Id
+notifications/initialized + Mcp-Session-Id
+后续 tools/list / tools/call / ping + Mcp-Session-Id
+DELETE /mcp + Mcp-Session-Id -> 释放会话
+```
+
+会话只存在于创建它的具体 Runtime 内存中，不持久化、不跨 Runtime 迁移。Profile 停止、Server 重启或应用升级产生新 Runtime 后，旧 Session ID 必须返回 `404 session_not_found`，客户端重新 `initialize`。没有 Session ID 的非 initialize Legacy HTTP 请求返回 `400 session_required`。
+
 Modern `2026-07-28` 请求可以通过 `_meta` 携带：
 
 ```text
@@ -395,11 +407,14 @@ io.modelcontextprotocol/clientCapabilities
 io.modelcontextprotocol/clientInfo
 ```
 
+`2026-07-28` 是无 initialize、无 `Mcp-Session-Id` 的 stateless 协议路径，不为了工具刷新重新引入传输会话。
+
 modern 成功返回额外带：
 
 ```text
 resultType = complete
 _meta.io.modelcontextprotocol/serverInfo
+_meta.com.micromatrix.workbench/toolContractRevision
 ```
 
 `tools/list` 和 `server/discover` 使用保守缓存字段：
@@ -408,6 +423,8 @@ _meta.io.modelcontextprotocol/serverInfo
 ttlMs = 0
 cacheScope = private
 ```
+
+公共 `tools/list` 在一个 Runtime 生命周期内保持不可变，`capabilities.tools.listChanged=false`。Skill、Workflow、外部 MCP 等动态内容只改变 `capability_catalog.revision`，不热增删顶层 MCP Tool。`toolContractRevision` 对当前完整公共 Tool Contract 做稳定哈希；版本/构建改变 Tool schema 后 revision 随新 Runtime 改变，现代客户端可据此重新发现，但 Server 不通过私有 header 或伪 session 强迫 2026 客户端刷新本地 schema 缓存。
 
 ## 8. Workspace 边界
 
@@ -667,7 +684,7 @@ tools/call
 
 “仅允许本次”不是提前写入并立刻消费的单权限 grant，而是沿着同一次逻辑工具调用的重试链累积 permission。例如一次命令先触发 `long_timeout`、后触发 `network` 时，第二轮重试会同时携带前两项批准，不会在两个弹窗之间循环。
 
-“本次服务会话全部允许”以当前 Runtime + OAuth principal 为边界，将 `ELICITABLE_PERMISSIONS` 在该 Runtime 生命周期内视为已批准；Server 停止/重启即清空。由于当前 Streamable HTTP 实现不创建 `Mcp-Session-Id`，这个范围不能宣称为“单个 ChatGPT 对话”，同一 OAuth principal 在该 Server 运行期间会共享该授权。
+“本次服务会话全部允许”以当前 Runtime + OAuth principal 为边界，将 `ELICITABLE_PERMISSIONS` 在该 Runtime 生命周期内视为已批准；Server 停止/重启即清空。它不绑定传输层 Session ID：Legacy HTTP 虽然有 `Mcp-Session-Id`，Modern `2026-07-28` 则完全 stateless，因此这个授权范围不能宣称为“单个 ChatGPT 对话”，同一 OAuth principal 在该 Server 运行期间会共享该授权。
 
 如果以 headless/CLI 方式运行、没有桌面 Permission Broker，则仍然 fail-closed：原操作保持阻止，显式 `request_permissions` 返回 `ELICITATION_UNSUPPORTED`，不会伪造 grant。
 

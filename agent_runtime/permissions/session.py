@@ -84,36 +84,36 @@ class PermissionSession:
         principal = context.principal if context and context.principal else "anonymous"
         self.grants.grant_session(principal)
 
-    def grant_desktop_session_permission(
+    def grant_resource_session_permission(
         self,
         context: RequestContext | None,
+        name: str,
         session_id: str,
         permission: str,
     ) -> None:
         principal = context.principal if context and context.principal else "anonymous"
-        self.grants.grant_desktop_session(principal, session_id, permission)
+        self.grants.grant_resource_session(principal, name, session_id, permission)
 
-    def desktop_session_permissions_for_call(
+    def resource_session_permissions_for_call(
         self,
         name: str,
         arguments: dict[str, Any],
         context: RequestContext | None,
     ) -> frozenset[str]:
-        if name != "desktop":
-            return frozenset()
         session_id = str(arguments.get("session_id") or "").strip()
         if not session_id:
             return frozenset()
         principal = context.principal if context and context.principal else "anonymous"
-        return self.grants.desktop_session_permissions(principal, session_id)
+        return self.grants.resource_session_permissions(principal, name, session_id)
 
-    def revoke_desktop_session_permissions(
+    def revoke_resource_session_permissions(
         self,
         context: RequestContext | None,
+        name: str,
         session_id: str,
     ) -> None:
         principal = context.principal if context and context.principal else "anonymous"
-        self.grants.revoke_desktop_session(principal, session_id)
+        self.grants.revoke_resource_session(principal, name, session_id)
 
     def permission_round(
         self,

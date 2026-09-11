@@ -14,22 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ...base import HostCapabilityError
-from .base import DesktopTarget, WindowBounds
-
-
-_PROTECTED_CONTROL_BUNDLE_IDS = frozenset(
-    {
-        "com.apple.systempreferences",
-        "com.apple.securityagent",
-        "com.apple.coreservicesuiagent",
-    }
-)
-_PROTECTED_CONTROL_APP_NAMES = frozenset(
-    {
-        "securityagent",
-        "coreservicesuiagent",
-    }
-)
+from .base import DesktopControlDecision, DesktopTarget, WindowBounds
 
 
 _UTF8 = 0x08000100
@@ -374,7 +359,6 @@ class MacOSDesktopDriver:
                 title = self._cf_string(self._dict_value(raw, "kCGWindowName")).strip()
                 onscreen = self._cf_bool(self._dict_value(raw, "kCGWindowIsOnscreen"))
                 application_id, identity_fingerprint, persistent_supported = self._process_identity(owner_pid)
-                protected_reason = self._control_protected_reason(application_id, owner_name)
                 result.append(
                     DesktopTarget(
                         window_id=window_id,
@@ -385,10 +369,7 @@ class MacOSDesktopDriver:
                         onscreen=onscreen,
                         application_id=application_id,
                         application_identity_fingerprint=identity_fingerprint,
-                        persistent_authorization_supported=(
-                            persistent_supported and not protected_reason
-                        ),
-                        control_protected_reason=protected_reason,
+                        application_identity_verified=persistent_supported,
                     )
                 )
             return result
@@ -441,18 +422,20 @@ class MacOSDesktopDriver:
             return None
         return bool(fn())
 
-    @staticmethod
-    def _control_protected_reason(application_id: str, application_name: str) -> str:
-        if application_id.strip().casefold() in _PROTECTED_CONTROL_BUNDLE_IDS:
-            return "system_authorization_surface"
-        if application_name.strip().casefold() in _PROTECTED_CONTROL_APP_NAMES:
-            return "system_authorization_surface"
-        return ""
-
-    def check_target_control_permission(self, target: DesktopTarget) -> bool | None:
-        if target.control_protected_reason:
-            return False
-        return self.check_control_permission()
+    def control_decision(self, target: DesktopTarget) -> DesktopControlDecision:
+        control = self.check_control_permission()
+        if control is False:
+            return DesktopControlDecision(
+                False,
+                boundary="accessibility_permission",
+                code="DESKTOP_ACCESSIBILITY_PERMISSION_REQUIRED",
+                stage="system_permission",
+                message="macOS 尚未授予 Workbench 桌面控制所需的辅助功能权限。",
+            )
+        return DesktopControlDecision(
+            control,
+            boundary="accessibility_permission" if control is None else "standard",
+        )
 
     def _encode_image(self, image: int) -> bytes:
         data = self._cf.CFDataCreateMutable(None, 0)

@@ -19,8 +19,8 @@ const {
   isDesktopControl,
   isDesktopObserve,
   isDesktopPermission,
-  hasDesktopSession,
-  canRememberDesktopApplication,
+  hasResourceSession,
+  canRememberResource,
   isHostIdentityUse,
   isHostManage,
   permissionArguments,
@@ -98,10 +98,14 @@ const {
       <footer class="mt-4 flex justify-end gap-2">
         <Button variant="outline" size="sm" class="min-w-[88px]" :disabled="permissionResponding" @click="respondPermission('deny')">拒绝</Button>
         <Button v-if="isToolchainRegistration" size="sm" :disabled="permissionResponding" @click="respondPermission('remember')">允许并记住此 Profile</Button>
-        <div v-else-if="isDesktopPermission" class="flex gap-2">
+        <div v-else-if="hasResourceSession || canRememberResource" class="flex gap-2">
           <Button variant="outline" class="min-w-[104px]" size="sm" :disabled="permissionResponding" @click="respondPermission('once')">仅允许本次</Button>
-          <Button v-if="hasDesktopSession" class="min-w-[128px]" size="sm" :disabled="permissionResponding" @click="respondPermission('desktop_session')">允许本次桌面会话</Button>
-          <Button v-if="canRememberDesktopApplication" class="min-w-[128px]" size="sm" :disabled="permissionResponding" @click="respondPermission('remember_app')">始终允许此应用</Button>
+          <Button v-if="hasResourceSession" class="min-w-[128px]" size="sm" :disabled="permissionResponding" @click="respondPermission('resource_session')">
+            {{ isDesktopPermission ? '允许本次桌面会话' : '允许本次资源会话' }}
+          </Button>
+          <Button v-if="canRememberResource" class="min-w-[128px]" size="sm" :disabled="permissionResponding" @click="respondPermission('remember_resource')">
+            {{ isDesktopPermission ? '始终允许此应用' : '始终允许此资源' }}
+          </Button>
         </div>
         <Button v-else-if="isHostIdentityUse || isHostManage || isBrowserControl || isBrowserObserve" class="min-w-[104px]" size="sm" :disabled="permissionResponding" @click="respondPermission('once')">仅允许本次</Button>
         <div v-else class="relative inline-flex">

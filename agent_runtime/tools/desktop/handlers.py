@@ -124,6 +124,29 @@ class DesktopHandlers:
         payload["_image"] = ("image/png", encoded)
         return payload
 
+    @staticmethod
+    def _attach_authorization_resource(payload: dict[str, Any]) -> dict[str, Any]:
+        target = payload.get("target")
+        if not isinstance(target, dict):
+            return payload
+        application = target.get("application")
+        if not isinstance(application, dict):
+            return payload
+        application_id = str(application.get("id") or "").strip()
+        fingerprint = str(application.get("identity_fingerprint") or "").strip()
+        if not application_id or not fingerprint:
+            return payload
+        payload["authorization_resource"] = {
+            "type": "application",
+            "id": application_id,
+            "name": str(application.get("name") or application_id),
+            "identity_fingerprint": fingerprint,
+            "persistent_authorization_supported": (
+                application.get("persistent_authorization_supported") is True
+            ),
+        }
+        return payload
+
     def desktop_preflight(self, args: dict[str, Any]) -> dict[str, Any]:
         action = str(args["action"])
         if action in {DesktopAction.TARGETS.value, DesktopAction.DETACH.value}:
@@ -135,11 +158,17 @@ class DesktopHandlers:
             if key not in {"action", "session_id"}
         }
         parameters["_preflight"] = True
-        return self._desktop_call(
+        payload = self._desktop_call(
             action,
             session_id=session_id,
             parameters=parameters,
         )
+        if session_id:
+            payload["authorization_session"] = {
+                "type": "host_capability_session",
+                "id": session_id,
+            }
+        return self._attach_authorization_resource(payload)
 
     def desktop(self, args: dict[str, Any]) -> dict[str, Any]:
         action = str(args["action"])
@@ -155,8 +184,9 @@ class DesktopHandlers:
             parameters=parameters,
         )
         if action == DesktopAction.DETACH.value and bool(payload.get("detached")):
-            self.permission_session.revoke_desktop_session_permissions(
+            self.permission_session.revoke_resource_session_permissions(
                 current_request_context(),
+                "desktop",
                 session_id,
             )
         if action == DesktopAction.OBSERVE.value or action in self._MUTATING_ACTIONS:

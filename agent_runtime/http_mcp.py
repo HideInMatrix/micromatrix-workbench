@@ -7,7 +7,10 @@ import json
 import logging
 import os
 import secrets
+import threading
+import time
 import urllib.parse
+import weakref
 from typing import Any, Protocol
 
 from .core.constants import ENDPOINT_PATH
@@ -24,6 +27,95 @@ from .protocol import (
 
 MAX_HTTP_BODY_BYTES = 1_048_576
 LOGGER = logging.getLogger(__name__)
+MCP_SESSION_HEADER = "Mcp-Session-Id"
+LEGACY_SESSION_TTL_SECONDS = 12 * 60 * 60
+MAX_LEGACY_SESSIONS_PER_RUNTIME = 1024
+
+
+class _LegacyHTTPSessionStore:
+    """Stateful Streamable HTTP sessions for pre-2026 MCP clients only.
+
+    Sessions are deliberately keyed by the concrete Runtime object. A Runtime
+    replacement (application/profile restart or version upgrade) therefore
+    invalidates every old session without persistence or migration.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._sessions: weakref.WeakKeyDictionary[Any, dict[str, dict[str, Any]]] = (
+            weakref.WeakKeyDictionary()
+        )
+
+    @staticmethod
+    def _expired(record: dict[str, Any], now: float) -> bool:
+        return now - float(record.get("last_seen", 0.0)) > LEGACY_SESSION_TTL_SECONDS
+
+    def _runtime_sessions(self, runtime: Any) -> dict[str, dict[str, Any]]:
+        sessions = self._sessions.get(runtime)
+        if sessions is None:
+            sessions = {}
+            self._sessions[runtime] = sessions
+        return sessions
+
+    def _prune(self, sessions: dict[str, dict[str, Any]], now: float) -> None:
+        for session_id, record in tuple(sessions.items()):
+            if self._expired(record, now):
+                sessions.pop(session_id, None)
+        if len(sessions) <= MAX_LEGACY_SESSIONS_PER_RUNTIME:
+            return
+        oldest = sorted(
+            sessions.items(),
+            key=lambda item: float(item[1].get("last_seen", 0.0)),
+        )
+        for session_id, _record in oldest[: len(sessions) - MAX_LEGACY_SESSIONS_PER_RUNTIME]:
+            sessions.pop(session_id, None)
+
+    def create(self, runtime: Any, *, principal: str, protocol_version: str) -> str:
+        now = time.monotonic()
+        with self._lock:
+            sessions = self._runtime_sessions(runtime)
+            self._prune(sessions, now)
+            session_id = secrets.token_urlsafe(24)
+            sessions[session_id] = {
+                "principal": principal,
+                "protocol_version": protocol_version,
+                "last_seen": now,
+            }
+            return session_id
+
+    def validate(
+        self,
+        runtime: Any,
+        session_id: str,
+        *,
+        principal: str,
+        protocol_version: str | None,
+    ) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            sessions = self._sessions.get(runtime)
+            if sessions is None:
+                return False
+            self._prune(sessions, now)
+            record = sessions.get(session_id)
+            if record is None or str(record.get("principal") or "") != principal:
+                return False
+            negotiated = str(record.get("protocol_version") or "")
+            if protocol_version and negotiated and protocol_version != negotiated:
+                return False
+            record["last_seen"] = now
+            return True
+
+    def revoke(self, runtime: Any, session_id: str, *, principal: str) -> bool:
+        with self._lock:
+            sessions = self._sessions.get(runtime)
+            if sessions is None:
+                return False
+            record = sessions.get(session_id)
+            if record is None or str(record.get("principal") or "") != principal:
+                return False
+            sessions.pop(session_id, None)
+            return True
 
 
 class MCPHTTPContext(Protocol):
@@ -83,6 +175,9 @@ def _allowed_origin(origin: str) -> bool:
 class MCPHTTPController:
     """Own MCP authentication, transport validation and JSON-RPC dispatch."""
 
+    def __init__(self) -> None:
+        self._legacy_sessions = _LegacyHTTPSessionStore()
+
     @staticmethod
     def allows_origin(origin: str) -> bool:
         return _allowed_origin(origin)
@@ -111,11 +206,12 @@ class MCPHTTPController:
             endpoint = f"{prefix}{ENDPOINT_PATH}" if prefix else ENDPOINT_PATH
         return {
             "server": handler.runtime.server_identity(),
+            "toolContractRevision": handler.runtime.tool_contract_revision,
             "supportedProtocolVersions": list(KNOWN_PROTOCOL_VERSIONS),
             "transport": {
                 "type": "streamable_http",
                 "endpoint": endpoint,
-                "methods": ["POST", "OPTIONS"],
+                "methods": ["POST", "DELETE", "OPTIONS"],
             },
             "auth": auth,
             "capabilities": {"tools": {"listChanged": False}},
@@ -145,6 +241,30 @@ class MCPHTTPController:
         if auth_error is not None:
             self._unauthorized(handler, invalid_token=auth_error == "invalid_token")
             return
+        session_id = str(handler.headers.get(MCP_SESSION_HEADER) or "").strip()
+        if session_id:
+            if not self._legacy_sessions.revoke(
+                handler.runtime,
+                session_id,
+                principal=self._principal(handler),
+            ):
+                handler._json(
+                    404,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": None,
+                        "error": {
+                            "code": -32001,
+                            "message": "MCP session not found or expired",
+                            "data": {"reason": "session_not_found"},
+                        },
+                    },
+                )
+                return
+            handler.send_response(204)
+            handler.send_header("Content-Length", "0")
+            handler.end_headers()
+            return
         handler._json(
             405,
             {
@@ -173,7 +293,75 @@ class MCPHTTPController:
         protocol_version = self._transport_protocol(handler, request)
         if protocol_version is False:
             return
-        self._dispatch(handler, request, protocol_version)
+        principal = self._principal(handler)
+        params = request.get("params")
+        meta = params.get("_meta") if isinstance(params, dict) else None
+        is_modern = isinstance(meta, dict) and "io.modelcontextprotocol/protocolVersion" in meta
+        method = str(request.get("method") or "")
+        issue_legacy_session = False
+        if not is_modern:
+            if method == "initialize":
+                if handler.headers.get(MCP_SESSION_HEADER):
+                    handler._json(
+                        400,
+                        {
+                            "jsonrpc": "2.0",
+                            "id": request.get("id"),
+                            "error": {
+                                "code": -32600,
+                                "message": "initialize must not reuse an existing MCP session",
+                                "data": {"reason": "initialize_with_session"},
+                            },
+                        },
+                    )
+                    return
+                issue_legacy_session = True
+            else:
+                session_id = str(handler.headers.get(MCP_SESSION_HEADER) or "").strip()
+                if not session_id:
+                    handler._json(
+                        400,
+                        {
+                            "jsonrpc": "2.0",
+                            "id": request.get("id"),
+                            "error": {
+                                "code": -32001,
+                                "message": "Mcp-Session-Id is required; initialize a new MCP session",
+                                "data": {"reason": "session_required"},
+                            },
+                        },
+                    )
+                    return
+                if not self._legacy_sessions.validate(
+                    handler.runtime,
+                    session_id,
+                    principal=principal,
+                    protocol_version=(
+                        protocol_version
+                        if isinstance(protocol_version, str) and protocol_version in LEGACY_PROTOCOL_VERSIONS
+                        else None
+                    ),
+                ):
+                    handler._json(
+                        404,
+                        {
+                            "jsonrpc": "2.0",
+                            "id": request.get("id"),
+                            "error": {
+                                "code": -32001,
+                                "message": "MCP session not found or expired; initialize again",
+                                "data": {"reason": "session_not_found"},
+                            },
+                        },
+                    )
+                    return
+        self._dispatch(
+            handler,
+            request,
+            protocol_version,
+            principal=principal,
+            issue_legacy_session=issue_legacy_session,
+        )
 
     def _bearer(self, handler: MCPHTTPContext) -> str | None:
         value = handler.headers.get("Authorization", "")
@@ -254,7 +442,12 @@ class MCPHTTPController:
 
     @staticmethod
     def _duplicate_mirror_header(handler: MCPHTTPContext) -> str | None:
-        for header in ("MCP-Protocol-Version", "Mcp-Method", "Mcp-Name"):
+        for header in (
+            "MCP-Protocol-Version",
+            "Mcp-Method",
+            "Mcp-Name",
+            MCP_SESSION_HEADER,
+        ):
             if len(handler.headers.get_all(header) or ()) > 1:
                 return header
         return None
@@ -404,6 +597,9 @@ class MCPHTTPController:
         handler: MCPHTTPContext,
         request: dict[str, Any],
         protocol_version: str | None,
+        *,
+        principal: str,
+        issue_legacy_session: bool = False,
     ) -> None:
         try:
             response = dispatch(
@@ -414,7 +610,7 @@ class MCPHTTPController:
                     if protocol_version in LEGACY_PROTOCOL_VERSIONS
                     else None
                 ),
-                principal=self._principal(handler),
+                principal=principal,
             )
         except Exception as exc:
             LOGGER.exception("Unhandled MCP dispatch failure")
@@ -436,7 +632,16 @@ class MCPHTTPController:
             handler.send_header("Content-Length", "0")
             handler.end_headers()
             return
-        handler._json(rpc_response_status(request, response), response)
+        headers: dict[str, str] = {}
+        if issue_legacy_session and isinstance(response.get("result"), dict):
+            negotiated = str(response["result"].get("protocolVersion") or "")
+            if negotiated in LEGACY_PROTOCOL_VERSIONS:
+                headers[MCP_SESSION_HEADER] = self._legacy_sessions.create(
+                    handler.runtime,
+                    principal=principal,
+                    protocol_version=negotiated,
+                )
+        handler._json(rpc_response_status(request, response), response, headers or None)
 
 
 __all__ = ["MCPHTTPController", "protected_resource_metadata_url"]

@@ -12,6 +12,10 @@ from ..schemas import output_schema
 
 
 OperationPermissionResolver = Callable[[dict[str, Any]], frozenset[OperationPermission]]
+OperationPermissionVariant = tuple[
+    dict[str, Any],
+    tuple[OperationPermission, ...],
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,9 +52,7 @@ class ToolDefinition:
     preflight_handler_name: str | None = None
     operation_permissions: frozenset[OperationPermission] = field(default_factory=frozenset)
     operation_permission_resolver: OperationPermissionResolver | None = None
-    operation_permission_variants: tuple[
-        tuple[str, tuple[OperationPermission, ...]], ...
-    ] = ()
+    operation_permission_variants: tuple[OperationPermissionVariant, ...] = ()
 
     def required_operation_permissions(
         self,

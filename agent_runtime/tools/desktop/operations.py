@@ -241,26 +241,46 @@ def desktop_permissions(arguments: dict[str, Any]) -> frozenset[OperationPermiss
 
 
 def desktop_permission_variants() -> tuple[
-    tuple[str, tuple[OperationPermission, ...]], ...
+    tuple[dict[str, Any], tuple[OperationPermission, ...]], ...
 ]:
-    values: list[tuple[str, tuple[OperationPermission, ...]]] = []
+    values: list[tuple[dict[str, Any], tuple[OperationPermission, ...]]] = []
     for spec in DESKTOP_OPERATIONS:
-        permissions = set(spec.permissions)
         if spec.action == DesktopAction.ATTACH:
-            permissions.update(
-                {
-                    OperationPermission.DESKTOP_OBSERVE,
-                    OperationPermission.DESKTOP_CONTROL,
-                }
+            values.extend(
+                (
+                    (
+                        {"action": spec.action.value, "mode": DesktopMode.OBSERVE.value},
+                        (OperationPermission.DESKTOP_OBSERVE,),
+                    ),
+                    (
+                        {"action": spec.action.value, "mode": DesktopMode.CONTROL.value},
+                        (OperationPermission.DESKTOP_CONTROL,),
+                    ),
+                )
             )
+            continue
+        base_permissions = tuple(sorted(spec.permissions, key=lambda item: item.value))
         if spec.post_observe:
-            permissions.add(OperationPermission.DESKTOP_OBSERVE)
-        values.append(
-            (
-                spec.action.value,
-                tuple(sorted(permissions, key=lambda item: item.value)),
+            with_observe = tuple(
+                sorted(
+                    {*spec.permissions, OperationPermission.DESKTOP_OBSERVE},
+                    key=lambda item: item.value,
+                )
             )
-        )
+            values.extend(
+                (
+                    (
+                        {"action": spec.action.value, "observe_after": False},
+                        base_permissions,
+                    ),
+                    (
+                        {"action": spec.action.value, "observe_after": True},
+                        with_observe,
+                    ),
+                )
+            )
+            continue
+        values.append(({"action": spec.action.value}, base_permissions))
     return tuple(values)
 
 

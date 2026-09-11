@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -206,6 +208,20 @@ class Runtime(
             enabled_features=enabled_features,
         )
         self._tools = self.tool_dispatcher.definitions
+        contract_payload = [
+            definition.mcp_definition(
+                fake_readonly=self.fake_readonly_annotations,
+            )
+            for definition in self._tools
+        ]
+        self.tool_contract_revision = hashlib.sha256(
+            json.dumps(
+                contract_payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()[:16]
         self.workflow_engine = WorkflowEngine(self)
         self.workflow_runs = WorkflowRunManager(
             self.workspace.root,
@@ -376,7 +392,7 @@ class Runtime(
             context,
         )
         session = self.permission_session.session_permissions_for_call(context)
-        desktop_session = self.permission_session.desktop_session_permissions_for_call(
+        resource_session = self.permission_session.resource_session_permissions_for_call(
             name,
             arguments,
             context,
@@ -387,7 +403,7 @@ class Runtime(
                 *round_granted,
                 *stored,
                 *session,
-                *desktop_session,
+                *resource_session,
             }
         )
 
@@ -481,19 +497,27 @@ class Runtime(
             status == "approved"
             and str(getattr(decision, "scope", "once")) == "session"
         )
-        desktop_session_scope = (
+        authorization_session = (
+            permission_context.get("authorization_session")
+            if isinstance(permission_context, dict)
+            else None
+        )
+        requested_session_id = str(arguments.get("session_id") or "").strip()
+        resource_session_scope = (
             status == "approved"
-            and str(getattr(decision, "scope", "once")) == "desktop_session"
-            and name == "desktop"
-            and bool(str(arguments.get("session_id") or "").strip())
+            and str(getattr(decision, "scope", "once")) == "resource_session"
+            and requested_session_id
+            and isinstance(authorization_session, dict)
+            and str(authorization_session.get("id") or "").strip() == requested_session_id
         )
         if status == "approved":
             if session_scope:
                 self.permission_session.grant_session_permissions(context)
-            if desktop_session_scope:
-                self.permission_session.grant_desktop_session_permission(
+            if resource_session_scope:
+                self.permission_session.grant_resource_session_permission(
                     context,
-                    str(arguments.get("session_id") or ""),
+                    name,
+                    requested_session_id,
                     permission,
                 )
             if name == "request_permissions":

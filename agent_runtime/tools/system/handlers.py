@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import os
 from typing import Any
 
@@ -19,20 +17,6 @@ class SystemHandlers:
     def _host_client(self) -> Any | None:
         broker = self.local_permission_broker
         return broker if broker is not None else None
-
-    def _tool_contract_revision(self) -> str:
-        payload = json.dumps(
-            [
-                definition.mcp_definition(
-                    fake_readonly=self.fake_readonly_annotations,
-                )
-                for definition in self._tools
-            ],
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return hashlib.sha256(payload).hexdigest()[:16]
 
     def host_status(self, _args: dict[str, Any]) -> dict[str, Any]:
         client = self._host_client()
@@ -120,7 +104,7 @@ class SystemHandlers:
             "title": SERVER_TITLE,
             "version": __version__,
             "contract_version": 2,
-            "contract_revision": self._tool_contract_revision(),
+            "contract_revision": self.tool_contract_revision,
             "workspace": str(self.workspace.root),
             "permission_mode": self.permission_mode,
             "auth_enabled": self.auth_enabled(),

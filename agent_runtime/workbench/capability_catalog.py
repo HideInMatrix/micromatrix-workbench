@@ -121,10 +121,13 @@ def build_capability_catalog(
                     "action_variants": (
                         [
                             {
-                                "action": str(item.get("action") or ""),
+                                "action": str(
+                                    dict(item.get("when") or {}).get("action") or ""
+                                ),
+                                "when": dict(item.get("when") or {}),
                                 "mcp_tool": tool.tool_name,
                                 "arguments": {
-                                    "action": str(item.get("action") or ""),
+                                    **dict(item.get("when") or {}),
                                     "...": "<action-specific input>",
                                 },
                                 "required_operation_permissions": list(

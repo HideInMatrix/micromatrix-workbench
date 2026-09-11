@@ -3,11 +3,11 @@ import { onMounted, ref } from 'vue'
 import {
   Info,
   KeyRound,
-  MonitorCog,
   PanelLeftClose,
   PanelLeftOpen,
   ScrollText,
   Server,
+  ShieldCheck,
   Sparkles,
   Workflow,
 } from '@lucide/vue'
@@ -158,12 +158,12 @@ function subNavClass(name: AppRouteName): string[] {
       <Button
         variant="ghost"
         size="sm"
-        :class="navClass('desktop-authorizations')"
-        :title="collapsed ? '桌面授权' : undefined"
-        @click="router.push({ name: 'desktop-authorizations' })"
+        :class="navClass('resource-authorizations')"
+        :title="collapsed ? '持久授权' : undefined"
+        @click="router.push({ name: 'resource-authorizations' })"
       >
-        <MonitorCog class="flex-none" :size="16" :stroke-width="1.8" />
-        <span v-if="!collapsed" class="leading-none">桌面授权</span>
+        <ShieldCheck class="flex-none" :size="16" :stroke-width="1.8" />
+        <span v-if="!collapsed" class="leading-none">持久授权</span>
       </Button>
       <Button
         variant="ghost"

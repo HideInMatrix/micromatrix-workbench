@@ -194,7 +194,7 @@ Workbench 弹窗示例：“允许客户端 X 通过公司开发环境观察并�
 - [x] Windows 控制能力按当前 input desktop 与目标进程 integrity level/UIPI 边界逐目标复核，不再把 Windows control 全局硬编码为 granted。
 - [x] Windows 鼠标点击、组合键、滚轮和拖拽按键阶段统一使用可检查返回值的 `SendInput`；注入不完整时返回结构化输入失败，不再把无返回值的旧输入 API 当成成功。
 - [x] Windows owned dialog/modal 不再被 `GW_OWNER` 一刀切过滤；目标列表通过临时 `target_id` 暴露可信 owner 关联，不泄漏原生 HWND。
-- [x] macOS/Windows 对 Workbench/系统授权界面增加 protected-target 控制禁令，并在每次实际输入前重新复核，AI 不能通过 Desktop Computer Use 完成自授权。
+- [x] Desktop Provider 只消费统一 `control_decision`，不按平台名、应用名或进程名写控制分支；Workbench 自身授权界面通过 Host/父进程排除保持不可选，Windows Secure Desktop/UIPI 与 macOS Accessibility 等系统边界由平台 Driver 真实报告并在每次输入前复核。
 - 实现坐标/元素点击、文本输入、按键、滚动、拖拽及动作后观察。
 - 完成输入互斥、焦点检查、旧观察失效、窗口变化、弹窗和停止控制。
 - Canvas 自绘界面走视觉和系统输入；不为每个页面添加 JS 或应用名分支。
@@ -208,7 +208,7 @@ Workbench 弹窗示例：“允许客户端 X 通过公司开发环境观察并�
 
 ### D4：UI、打包与真实跨应用验收
 
-- [x] Workbench 授权 UI 已支持“仅本次 / 本次桌面会话 / 始终允许此应用”，并提供持久规则查看、撤销和本地“立即停止桌面输入”。
+- [x] Workbench 授权 UI 复用统一资源授权模型：`once / resource_session / remember_resource`；Desktop 只提供经过 Host 验证的应用资源 identity，不维护独立授权数据库。持久规则统一查看/撤销，同时保留本地“立即停止桌面输入”。
 - [ ] 对应平台的签名/安装包真实 Browser、Blender、Figma、系统弹窗及系统权限流程仍需逐平台验收；源码自动化不能替代这项门槛。
 - 复用现有授权弹窗和 composable，补充目标范围、本次调用/桌面会话/持久授权、撤销管理、系统权限状态与停止控制。
 - 平台依赖、helper 身份、安装升级和权限重授予流程在实际安装包中验证。
@@ -229,18 +229,20 @@ PyInstaller 桌面包、GitHub Desktop Release 或桌面应用内更新。后续
 
 - Target token 与 Desktop Session 同时绑定 Host generation、Profile/server ID 和已认证 principal 的内部哈希；同一 Profile 下另一个 MCP 主体不能复用已知 token/session。
 - `desktop_observe` 与 `desktop_control` 独立；Dangerous 模式和普通 Server session-all 不自动扩大 Desktop 权限。
-- 持久授权规则只保存 principal、Profile、可信应用身份指纹和权限范围，不保存窗口 ID、坐标、observation 或 generation；应用身份变化后旧规则不会命中。
+- 持久授权由 Permission Broker 的通用 `ResourceAuthorizationStore` 管理，统一绑定 principal、Profile、tool、permission、resource type/id 与可信身份指纹。规则不保存窗口 ID、坐标、observation 或 generation，资源身份变化后旧规则不会命中。
 - Host 可行性预检发生在 Workbench 审批之前；目标已消失、系统能力明确缺失或旧 observation 无效时不会先弹无效授权。
 - 本地“立即停止桌面输入”同时在 Host Worker 队列截止时间和 Provider 输入 epoch 两层失效排队动作；`detach` 只释放控制，不关闭用户应用。
 - 持久应用授权身份使用真实可执行文件 SHA-256（按路径/文件状态缓存）参与指纹；二进制变化后旧持久规则不会继续命中。
-- Windows Secure Desktop / 非默认 input desktop 与高于 Workbench Host Worker 的 integrity level 会阻断控制；macOS 系统授权界面和 Windows 授权进程均不能建立 control session。
+- Desktop target 的持久授权资格由通用身份规则派生：必须同时具备已验证 identity、稳定 application ID 与 fingerprint，平台 Driver 不再各自维护“可持久授权应用”名单。
+- Windows Secure Desktop / 非默认 input desktop 与高于 Workbench Host Worker 的 integrity level 会阻断控制；macOS 控制只依赖真实 Accessibility 系统授权。OS 自身的安全授权表面不再通过应用名/进程名黑名单识别，必须依赖操作系统安全边界并在签名安装包真实流程中继续验收。
 
 ### 8.3 当前自动化验收记录
 
 - `python -m compileall -q agent_runtime agent_workbench`：PASS。
 - Desktop + Permission Broker 专项：`32` tests PASS，`2` 个其他平台/桌面上下文 smoke 按当前 macOS 环境跳过。
 - 核心 MCP/Desktop/API/Broker 回归：`168` tests PASS，`5` skipped。
-- Python 全仓回归：`457` tests PASS，`7` skipped。
+- Python 全仓回归按普通 30 秒执行窗口拆分运行：`246 + 216 = 462` tests PASS，`7` skipped；单进程全量因本机执行策略超出 30 秒被终止，不计作测试失败。
+- MCP Transport 回归覆盖 Legacy HTTP `Mcp-Session-Id` 创建/回传/DELETE、Runtime 替换后旧 Session `404 session_not_found`、Modern `2026-07-28` stateless 路径与统一 Tool Contract revision。
 - 前端 `tsc --noEmit`、`vue-tsc --noEmit`：PASS。
 - 前端 production build（含 code standards）：PASS。
 - macOS arm64 临时隔离构建环境：`pywebview 6.2.1`、`PyInstaller 6.22.2` 前置检查 PASS；实际 `dist/MicroMatrix Workbench.app` 构建 PASS。

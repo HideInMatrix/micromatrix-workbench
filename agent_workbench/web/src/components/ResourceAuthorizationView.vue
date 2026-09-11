@@ -2,9 +2,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { desktopApi } from '@/api/desktop'
 import { Button } from '@/components/ui/button'
-import type { DesktopAuthorizationDto } from '@/types'
+import type { ResourceAuthorizationDto } from '@/types'
 
-const rules = ref<DesktopAuthorizationDto[]>([])
+const rules = ref<ResourceAuthorizationDto[]>([])
 const loading = ref(false)
 const errorMessage = ref('')
 const revokingId = ref('')
@@ -13,8 +13,10 @@ const stopMessage = ref('')
 
 const empty = computed(() => !loading.value && rules.value.length === 0)
 
-function permissionLabel(permission: DesktopAuthorizationDto['permission']) {
-  return permission === 'desktop_control' ? '观察并控制' : '仅观察'
+function permissionLabel(permission: string) {
+  if (permission === 'desktop_control') return '观察并控制'
+  if (permission === 'desktop_observe') return '仅观察'
+  return permission
 }
 
 function formatTime(value: number) {
@@ -26,7 +28,7 @@ async function refresh() {
   loading.value = true
   errorMessage.value = ''
   try {
-    rules.value = await desktopApi.listDesktopAuthorizations()
+    rules.value = await desktopApi.listResourceAuthorizations()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error)
   } finally {
@@ -34,12 +36,12 @@ async function refresh() {
   }
 }
 
-async function revoke(rule: DesktopAuthorizationDto) {
+async function revoke(rule: ResourceAuthorizationDto) {
   if (revokingId.value) return
   revokingId.value = rule.id
   errorMessage.value = ''
   try {
-    const removed = await desktopApi.revokeDesktopAuthorization(rule.id)
+    const removed = await desktopApi.revokeResourceAuthorization(rule.id)
     if (!removed) errorMessage.value = '该授权规则已不存在或已被撤销。'
     await refresh()
   } catch (error) {
@@ -73,9 +75,9 @@ onMounted(() => void refresh())
   <section class="mx-auto w-full max-w-5xl">
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h1 class="m-0 text-xl font-semibold text-foreground">桌面应用授权</h1>
+        <h1 class="m-0 text-xl font-semibold text-foreground">持久资源授权</h1>
         <p class="mt-1.5 mb-0 max-w-3xl text-xs leading-5 text-muted-foreground">
-          管理“始终允许此应用”的 Workbench 授权。规则只匹配同一客户端主体、Profile、应用身份和权限范围；系统屏幕访问或辅助功能权限仍由操作系统独立控制。
+          管理 Workbench 的持久资源授权。规则统一绑定客户端主体、Profile、工具、权限、资源身份与指纹；Desktop 应用只是其中一种资源类型，系统级权限仍由操作系统独立控制。
         </p>
       </div>
       <div class="flex gap-2">
@@ -94,11 +96,11 @@ onMounted(() => void refresh())
     </div>
 
     <div v-if="loading && !rules.length" class="mt-5 rounded-lg border border-border bg-card px-4 py-6 text-xs text-muted-foreground">
-      正在读取桌面授权规则…
+      正在读取持久授权规则…
     </div>
 
     <div v-else-if="empty" class="mt-5 rounded-lg border border-dashed border-border px-4 py-8 text-center text-xs text-muted-foreground">
-      当前没有持久桌面应用授权。首次桌面访问时可在授权弹窗中选择“始终允许此应用”。
+      当前没有持久资源授权。支持持久授权的资源会在权限弹窗中提供“始终允许此资源”。
     </div>
 
     <div v-else class="mt-5 grid gap-3">
@@ -106,12 +108,13 @@ onMounted(() => void refresh())
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-2">
-              <strong class="truncate text-sm font-semibold text-foreground">{{ rule.application_name || rule.application_id }}</strong>
+              <strong class="truncate text-sm font-semibold text-foreground">{{ rule.resource_name || rule.resource_id }}</strong>
               <span class="rounded-full bg-secondary px-2 py-0.5 text-[10px] text-muted-foreground">{{ permissionLabel(rule.permission) }}</span>
             </div>
             <div class="mt-2 grid gap-1 text-[11px] leading-4 text-muted-foreground">
               <span>Profile：{{ rule.server_name }}</span>
-              <span class="break-all font-mono">应用身份：{{ rule.application_id }}</span>
+              <span>工具：{{ rule.tool_name }} · 资源类型：{{ rule.resource_type }}</span>
+              <span class="break-all font-mono">资源身份：{{ rule.resource_id }}</span>
               <span class="break-all font-mono">指纹：{{ rule.identity_fingerprint }}</span>
               <span>创建：{{ formatTime(rule.created_at) }} · 最近使用：{{ formatTime(rule.last_used_at) }}</span>
             </div>

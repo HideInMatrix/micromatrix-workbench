@@ -68,12 +68,12 @@ def build_effective_tool_catalog(
                 ),
                 operation_permission_variants=tuple(
                     {
-                        "action": action,
+                        "when": dict(condition),
                         "required_operation_permissions": [
                             permission.value for permission in permissions
                         ],
                     }
-                    for action, permissions in definition.operation_permission_variants
+                    for condition, permissions in definition.operation_permission_variants
                 ),
                 execution_kind=str(definition.execution_kind.value),
                 annotations={
