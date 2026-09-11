@@ -46,6 +46,10 @@ function createPermissionState() {
     activePermissionRequest.value?.permission === 'desktop_observe'
     || activePermissionRequest.value?.permission === 'desktop_control'
   ))
+  const isBrowserPermission = computed(() => (
+    activePermissionRequest.value?.permission === 'browser_observe'
+    || activePermissionRequest.value?.permission === 'browser_control'
+  ))
   const hasResourceSession = computed(() => (
     activePermissionRequest.value?.session_authorization_available === true
   ))
@@ -64,6 +68,7 @@ function createPermissionState() {
     isDesktopControl: permissionIs('desktop_control'),
     isDesktopObserve: permissionIs('desktop_observe'),
     isDesktopPermission,
+    isBrowserPermission,
     hasResourceSession,
     canRememberResource,
     isHostIdentityUse: permissionIs('host_identity_use'),

@@ -208,7 +208,7 @@ Workbench 弹窗示例：“允许客户端 X 通过公司开发环境观察并�
 
 ### D4：UI、打包与真实跨应用验收
 
-- [x] Workbench 授权 UI 复用统一资源授权模型：`once / resource_session / remember_resource`；Desktop 只提供经过 Host 验证的应用资源 identity，不维护独立授权数据库。持久规则统一查看/撤销，同时保留本地“立即停止桌面输入”。
+- [x] Workbench 授权 UI 复用统一资源授权模型：`once / resource_session / remember_resource`；资源会话 grant 统一绑定 `principal + resource_type + resource_id + permission`，不再绑定发起请求的 MCP tool name。Desktop 提供经过 Host 验证的 `desktop_session`/应用 identity；Browser 提供经过 Host 验证的 `browser_session`，同一 Browser Session 的 observe/control 授权可跨原子 Browser 工具复用。持久规则统一查看/撤销，同时保留本地“立即停止桌面输入”。
 - [ ] 对应平台的签名/安装包真实 Browser、Blender、Figma、系统弹窗及系统权限流程仍需逐平台验收；源码自动化不能替代这项门槛。
 - 复用现有授权弹窗和 composable，补充目标范围、本次调用/桌面会话/持久授权、撤销管理、系统权限状态与停止控制。
 - 平台依赖、helper 身份、安装升级和权限重授予流程在实际安装包中验证。

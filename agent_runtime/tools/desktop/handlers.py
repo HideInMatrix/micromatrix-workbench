@@ -165,7 +165,7 @@ class DesktopHandlers:
         )
         if session_id:
             payload["authorization_session"] = {
-                "type": "host_capability_session",
+                "type": "desktop_session",
                 "id": session_id,
             }
         return self._attach_authorization_resource(payload)
@@ -186,7 +186,7 @@ class DesktopHandlers:
         if action == DesktopAction.DETACH.value and bool(payload.get("detached")):
             self.permission_session.revoke_resource_session_permissions(
                 current_request_context(),
-                "desktop",
+                "desktop_session",
                 session_id,
             )
         if action == DesktopAction.OBSERVE.value or action in self._MUTATING_ACTIONS:

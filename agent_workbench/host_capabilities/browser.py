@@ -79,6 +79,7 @@ class _BrowserSession:
     profile: Path
     port: int
     bundle_id: str
+    target_id: str
     cdp: _CDPConnection
     headless: bool
     last_observation_id: str = ""
@@ -112,15 +113,26 @@ def _wait_devtools(profile: Path, process: HostProcessHandle, timeout: float) ->
     raise HostCapabilityError("等待浏览器 CDP 端口超时；默认浏览器可能不支持 Chromium CDP。")
 
 
-def _page_websocket(port: int) -> str:
+def _page_target(port: int, *, create_if_missing: bool = True) -> tuple[str, str]:
     targets = _http_json(port, "/json/list")
     if isinstance(targets, list):
         for target in targets:
-            if isinstance(target, dict) and target.get("type") == "page" and target.get("webSocketDebuggerUrl"):
-                return str(target["webSocketDebuggerUrl"])
-    created = _http_json(port, "/json/new?about%3Ablank", method="PUT")
-    if isinstance(created, dict) and created.get("webSocketDebuggerUrl"):
-        return str(created["webSocketDebuggerUrl"])
+            if (
+                isinstance(target, dict)
+                and target.get("type") == "page"
+                and target.get("webSocketDebuggerUrl")
+            ):
+                return (
+                    str(target.get("id") or ""),
+                    str(target["webSocketDebuggerUrl"]),
+                )
+    if create_if_missing:
+        created = _http_json(port, "/json/new?about%3Ablank", method="PUT")
+        if isinstance(created, dict) and created.get("webSocketDebuggerUrl"):
+            return (
+                str(created.get("id") or ""),
+                str(created["webSocketDebuggerUrl"]),
+            )
     raise HostCapabilityError("浏览器没有可用的 CDP Page Target。")
 
 
@@ -281,7 +293,12 @@ class BrowserHostCapability:
             argv.append("--use-mock-keychain")
         if headless:
             argv.append("--headless=new")
-        argv.append(url)
+        # Always start from a deterministic about:blank target and navigate only
+        # after the CDP page connection is established. Passing the requested URL
+        # on Chrome's command line lets navigation race the first observation:
+        # DOM metadata may still describe about:blank while the screenshot has
+        # already advanced to the requested page.
+        argv.append("about:blank")
         try:
             process = self._processes.launch(
                 execution,
@@ -298,7 +315,7 @@ class BrowserHostCapability:
             ) from exc
         try:
             port, _browser_ws = _wait_devtools(profile, process, 12)
-            page_ws = _page_websocket(port)
+            target_id, page_ws = _page_target(port)
             cdp = _CDPConnection(page_ws)
             cdp.command("Page.enable")
             cdp.command("Runtime.enable")
@@ -320,11 +337,20 @@ class BrowserHostCapability:
             profile=profile,
             port=port,
             bundle_id=bundle_id,
+            target_id=target_id,
             cdp=cdp,
             headless=headless,
         )
         with self._lock:
             self._sessions[session_id] = session
+        try:
+            if url != "about:blank":
+                self._navigate(session, {"url": url})
+            else:
+                self._wait_ready(session)
+        except Exception:
+            self._close_session(session)
+            raise
         return {
             "session_id": session_id,
             "provider": self.descriptor.provider,
@@ -395,22 +421,85 @@ class BrowserHostCapability:
 
     def _navigate(self, session: _BrowserSession, parameters: dict[str, Any]) -> dict[str, Any]:
         url = self._validated_url(str(parameters.get("url") or ""))
+        previous_url = self._location(session)
         session.cdp.command("Page.navigate", {"url": url})
-        self._wait_ready(session)
+        self._wait_ready(
+            session,
+            previous_url=previous_url,
+            require_url_change=(url != previous_url),
+        )
         return {"session_id": session.session_id, "url": self._location(session)}
 
-    def _wait_ready(self, session: _BrowserSession) -> None:
-        deadline = time.monotonic() + 12
+    def _rebind_page_target(self, session: _BrowserSession, *, timeout: float = 2.0) -> None:
+        """Reconnect observation commands to the current page target.
+
+        A Chromium navigation can replace the page target or execution context.
+        Rebinding is only used after an action has already been dispatched; the
+        action itself is never replayed, avoiding duplicate user input.
+        """
+
+        deadline = time.monotonic() + max(0.1, timeout)
+        last_error: Exception | None = None
         while time.monotonic() < deadline:
-            result = session.cdp.command("Runtime.evaluate", {
-                "expression": "document.readyState",
-                "returnByValue": True,
-            })
-            value = ((result.get("result") or {}).get("value")
-                     if isinstance(result.get("result"), dict) else None)
-            if value in {"interactive", "complete"}:
-                return
+            try:
+                target_id, websocket_url = _page_target(
+                    session.port,
+                    create_if_missing=False,
+                )
+                replacement = _CDPConnection(websocket_url)
+                replacement.command("Page.enable")
+                replacement.command("Runtime.enable")
+            except Exception as exc:
+                last_error = exc
+                time.sleep(0.05)
+                continue
+            previous = session.cdp
+            session.cdp = replacement
+            session.target_id = target_id
+            session.last_observation_id = ""
+            previous.close()
+            return
+        raise HostCapabilityError(
+            f"浏览器页面 Target 已变化且无法重新连接: {last_error or 'unknown error'}",
+            code="BROWSER_TARGET_REBIND_FAILED",
+            stage="navigation",
+        )
+
+    def _wait_ready(
+        self,
+        session: _BrowserSession,
+        *,
+        previous_url: str = "",
+        require_url_change: bool = False,
+    ) -> None:
+        deadline = time.monotonic() + 12
+        last_error: Exception | None = None
+        while time.monotonic() < deadline:
+            try:
+                value = self._evaluate(
+                    session,
+                    "({ready:document.readyState,url:location.href})",
+                )
+            except Exception as exc:
+                last_error = exc
+                try:
+                    self._rebind_page_target(session)
+                except HostCapabilityError as rebind_exc:
+                    last_error = rebind_exc
+                    time.sleep(0.05)
+                continue
+            if isinstance(value, dict):
+                ready = str(value.get("ready") or "")
+                current_url = str(value.get("url") or "")
+                changed = not require_url_change or current_url != previous_url
+                if ready in {"interactive", "complete"} and changed:
+                    return
             time.sleep(0.1)
+        raise HostCapabilityError(
+            f"等待浏览器页面就绪超时{': ' + str(last_error) if last_error else ''}",
+            code="BROWSER_NAVIGATION_TIMEOUT",
+            stage="navigation",
+        )
 
     @staticmethod
     def _evaluate(session: _BrowserSession, expression: str) -> Any:
@@ -423,7 +512,11 @@ class BrowserHostCapability:
         return remote.get("value") if isinstance(remote, dict) else None
 
     def _location(self, session: _BrowserSession) -> str:
-        return str(self._evaluate(session, "location.href") or "")
+        try:
+            return str(self._evaluate(session, "location.href") or "")
+        except Exception:
+            self._rebind_page_target(session)
+            return str(self._evaluate(session, "location.href") or "")
 
     def _snapshot(self, session: _BrowserSession, parameters: dict[str, Any]) -> dict[str, Any]:
         max_text = max(500, min(int(parameters.get("max_text", 12000)), 50_000))
@@ -470,14 +563,74 @@ class BrowserHostCapability:
                 stage="validation",
             )
         target = _target_expression(ref, selector, observation_id)
-        result = self._evaluate(session, f"""(() => {{ const el={target}; if(!el) return false; el.scrollIntoView({{block:'center'}}); el.click(); return true; }})()""")
-        if result is not True:
+        previous_url = self._location(session)
+        point = self._evaluate(
+            session,
+            f"""(() => {{
+              const el={target};
+              if(!el) return null;
+              el.scrollIntoView({{block:'center',inline:'center',behavior:'instant'}});
+              const r=el.getBoundingClientRect();
+              return {{x:r.left+r.width/2,y:r.top+r.height/2}};
+            }})()""",
+        )
+        if not isinstance(point, dict):
             raise HostCapabilityError(
                 "Browser click 目标不存在。",
                 code="BROWSER_TARGET_NOT_FOUND",
                 stage="action",
             )
-        time.sleep(0.05)
+        x = float(point.get("x", 0.0))
+        y = float(point.get("y", 0.0))
+        target_before_action = session.target_id
+        try:
+            session.cdp.command(
+                "Input.dispatchMouseEvent",
+                {"type": "mouseMoved", "x": x, "y": y},
+            )
+            session.cdp.command(
+                "Input.dispatchMouseEvent",
+                {
+                    "type": "mousePressed",
+                    "x": x,
+                    "y": y,
+                    "button": "left",
+                    "clickCount": 1,
+                },
+            )
+            session.cdp.command(
+                "Input.dispatchMouseEvent",
+                {
+                    "type": "mouseReleased",
+                    "x": x,
+                    "y": y,
+                    "button": "left",
+                    "clickCount": 1,
+                },
+            )
+        except Exception as dispatch_exc:
+            try:
+                self._rebind_page_target(session)
+                self._wait_ready(session)
+                current_url = self._location(session)
+            except Exception as recovery_exc:
+                raise HostCapabilityError(
+                    f"Browser click dispatch 失败: {dispatch_exc}; recovery: {recovery_exc}",
+                    code="BROWSER_CLICK_DISPATCH_FAILED",
+                    stage="action",
+                ) from dispatch_exc
+            if session.target_id != target_before_action or current_url != previous_url:
+                return {
+                    "session_id": session.session_id,
+                    "clicked": True,
+                    "url": current_url,
+                }
+            raise HostCapabilityError(
+                f"Browser click dispatch 失败: {dispatch_exc}",
+                code="BROWSER_CLICK_DISPATCH_FAILED",
+                stage="action",
+            ) from dispatch_exc
+        time.sleep(0.08)
         self._wait_ready(session)
         return {"session_id": session.session_id, "clicked": True, "url": self._location(session)}
 

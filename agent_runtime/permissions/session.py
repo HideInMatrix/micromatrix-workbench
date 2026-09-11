@@ -87,33 +87,71 @@ class PermissionSession:
     def grant_resource_session_permission(
         self,
         context: RequestContext | None,
-        name: str,
-        session_id: str,
+        resource_type: str,
+        resource_id: str,
         permission: str,
     ) -> None:
         principal = context.principal if context and context.principal else "anonymous"
-        self.grants.grant_resource_session(principal, name, session_id, permission)
+        self.grants.grant_resource_session(
+            principal,
+            resource_type,
+            resource_id,
+            permission,
+        )
+
+    @staticmethod
+    def authorization_session_identity(
+        permission_context: dict[str, Any] | None,
+    ) -> tuple[str, str] | None:
+        if not isinstance(permission_context, dict):
+            return None
+        authorization_session = permission_context.get("authorization_session")
+        if not isinstance(authorization_session, dict):
+            return None
+        resource_type = str(authorization_session.get("type") or "").strip()
+        resource_id = str(authorization_session.get("id") or "").strip()
+        if not resource_type or not resource_id:
+            return None
+        return resource_type, resource_id
+
+    @staticmethod
+    def authorization_session_creation_type(
+        permission_context: dict[str, Any] | None,
+    ) -> str | None:
+        if not isinstance(permission_context, dict):
+            return None
+        authorization_session = permission_context.get("authorization_session")
+        if not isinstance(authorization_session, dict):
+            return None
+        if authorization_session.get("create") is not True:
+            return None
+        resource_type = str(authorization_session.get("type") or "").strip()
+        return resource_type or None
 
     def resource_session_permissions_for_call(
         self,
-        name: str,
-        arguments: dict[str, Any],
+        permission_context: dict[str, Any] | None,
         context: RequestContext | None,
     ) -> frozenset[str]:
-        session_id = str(arguments.get("session_id") or "").strip()
-        if not session_id:
+        identity = self.authorization_session_identity(permission_context)
+        if identity is None:
             return frozenset()
+        resource_type, resource_id = identity
         principal = context.principal if context and context.principal else "anonymous"
-        return self.grants.resource_session_permissions(principal, name, session_id)
+        return self.grants.resource_session_permissions(
+            principal,
+            resource_type,
+            resource_id,
+        )
 
     def revoke_resource_session_permissions(
         self,
         context: RequestContext | None,
-        name: str,
-        session_id: str,
+        resource_type: str,
+        resource_id: str,
     ) -> None:
         principal = context.principal if context and context.principal else "anonymous"
-        self.grants.revoke_resource_session(principal, name, session_id)
+        self.grants.revoke_resource_session(principal, resource_type, resource_id)
 
     def permission_round(
         self,

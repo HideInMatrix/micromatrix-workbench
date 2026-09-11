@@ -28,7 +28,10 @@ from .permissions.capabilities import (
     PERMISSION_MODES,
     permission_profile,
 )
-from .permissions.context import ACTIVE_PERMISSIONS
+from .permissions.context import (
+    ACTIVE_PERMISSIONS,
+    ACTIVE_RESOURCE_SESSION_CREATION,
+)
 from .permissions.policy import PermissionPolicy
 from .permissions.session import PermissionSession
 from .permissions.state import arguments_digest
@@ -385,6 +388,7 @@ class Runtime(
         arguments: dict[str, Any],
         context: RequestContext | None,
         round_granted: frozenset[str],
+        permission_context: dict[str, Any] | None = None,
     ) -> frozenset[str]:
         stored = self.permission_session.stored_permissions_for_call(
             name,
@@ -393,8 +397,7 @@ class Runtime(
         )
         session = self.permission_session.session_permissions_for_call(context)
         resource_session = self.permission_session.resource_session_permissions_for_call(
-            name,
-            arguments,
+            permission_context,
             context,
         )
         return frozenset(
@@ -497,29 +500,34 @@ class Runtime(
             status == "approved"
             and str(getattr(decision, "scope", "once")) == "session"
         )
-        authorization_session = (
-            permission_context.get("authorization_session")
-            if isinstance(permission_context, dict)
-            else None
+        authorization_session = self.permission_session.authorization_session_identity(
+            permission_context
         )
-        requested_session_id = str(arguments.get("session_id") or "").strip()
+        authorization_session_creation_type = (
+            self.permission_session.authorization_session_creation_type(
+                permission_context
+            )
+        )
         resource_session_scope = (
             status == "approved"
             and str(getattr(decision, "scope", "once")) == "resource_session"
-            and requested_session_id
-            and isinstance(authorization_session, dict)
-            and str(authorization_session.get("id") or "").strip() == requested_session_id
+            and (
+                authorization_session is not None
+                or authorization_session_creation_type is not None
+            )
         )
         if status == "approved":
             if session_scope:
                 self.permission_session.grant_session_permissions(context)
             if resource_session_scope:
-                self.permission_session.grant_resource_session_permission(
-                    context,
-                    name,
-                    requested_session_id,
-                    permission,
-                )
+                if authorization_session is not None:
+                    resource_type, resource_id = authorization_session
+                    self.permission_session.grant_resource_session_permission(
+                        context,
+                        resource_type,
+                        resource_id,
+                        permission,
+                    )
             if name == "request_permissions":
                 scope = "session" if session_scope else str(arguments.get("scope") or "once")
                 return self._store_permission_result(
@@ -542,9 +550,16 @@ class Runtime(
                 else frozenset({*granted, permission})
             )
             retry_token = ACTIVE_PERMISSIONS.set(retry_permissions)
+            creation_token = None
+            if resource_session_scope and authorization_session_creation_type:
+                creation_token = ACTIVE_RESOURCE_SESSION_CREATION.set(
+                    (authorization_session_creation_type, permission)
+                )
             try:
                 return self.call_tool(name, arguments, context=context)
             finally:
+                if creation_token is not None:
+                    ACTIVE_RESOURCE_SESSION_CREATION.reset(creation_token)
                 ACTIVE_PERMISSIONS.reset(retry_token)
 
         if status == "denied":
@@ -678,6 +693,7 @@ class Runtime(
             arguments,
             context,
             round_granted,
+            permission_context,
         )
         if name == "request_permissions":
             requested_permission = str(arguments.get("permission") or "")
@@ -732,6 +748,29 @@ class Runtime(
             try:
                 payload = handler(arguments)
                 payload.setdefault("ok", True)
+                created_authorization_session = payload.pop(
+                    "_authorization_session",
+                    None,
+                )
+                pending_creation = ACTIVE_RESOURCE_SESSION_CREATION.get()
+                if (
+                    pending_creation is not None
+                    and isinstance(created_authorization_session, dict)
+                ):
+                    expected_type, creation_permission = pending_creation
+                    created_type = str(
+                        created_authorization_session.get("type") or ""
+                    ).strip()
+                    created_id = str(
+                        created_authorization_session.get("id") or ""
+                    ).strip()
+                    if created_type == expected_type and created_id:
+                        self.permission_session.grant_resource_session_permission(
+                            context,
+                            created_type,
+                            created_id,
+                            creation_permission,
+                        )
                 image_value = payload.pop("_image", None)
                 if isinstance(image_value, tuple) and len(image_value) == 2:
                     image = (str(image_value[0]), str(image_value[1]))

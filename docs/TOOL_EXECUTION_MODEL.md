@@ -171,6 +171,7 @@ Runtime Tool
   ...
 
 Host Capability
+  browser_observe
   browser_control
   future: screen_capture
   future: microphone_access
@@ -197,7 +198,7 @@ Host Capability
 - 整条链路未使用 Runtime `exec_process`、`privileged_executable`、`sandbox_env_override` 或固定 Chrome 安装路径。
 
 1. `server_info` 能区分 Runtime Tool 与 Host Capability。
-2. 首次 `browser_open` 弹 `browser_control`，而不是 `privileged_executable`。
+2. 首次 `browser_open` 弹 `browser_control`，而不是 `privileged_executable`；用户可将该授权绑定到本次 Browser Session。只有 Host 真正创建出 Session 后才落 session grant。
 3. 用户批准后 Desktop Host 启动独立 Chromium/CDP Session。
 4. 浏览器 Profile 不位于用户正常 Profile 目录。
 5. Runtime 不需要 `/Applications` readable root。
@@ -206,6 +207,12 @@ Host Capability
 8. `browser_close` 删除临时 Profile。
 9. MCP Server stop/delete 后 Browser Session 自动回收。
 10. 非 Chromium 默认浏览器必须安全失败，不能退回普通 `exec_process`。
+
+Browser 的公共 MCP 工具保持原子化，便于保留各自的 schema 与 annotations；授权身份不再使用 MCP tool name。Host 预检把同一 `br_*` 解析为可信 `browser_session` 资源，同一 principal 下的 `browser_observe` 或 `browser_control` grant 可跨 `browser_snapshot / browser_screenshot` 或 `browser_navigate / browser_click / browser_fill / browser_press` 复用。`browser_close` 始终允许清理并立即撤销该 Browser Session 的全部资源会话 grant。Browser Session 是临时资源，不提供永久授权。
+
+通用资源会话授权键为 `principal + resource_type + resource_id + permission`。`tool_name` 只是请求来源，不能成为资源身份的一部分；否则一个逻辑资源由多个公共 MCP 工具操作时会产生重复授权。
+
+Browser Host 的导航/观察还遵守两条一致性约束：`browser_open` 先建立 `about:blank` CDP Page Target，再通过 CDP 导航到请求 URL，只有导航后的文档进入 ready 状态后才允许生成首个 observation，避免 DOM metadata 仍是 `about:blank` 而截图已经进入目标页；输入动作不会因导航销毁旧 execution context 而被重放，`browser_click` 使用 CDP 输入事件派发，若导航替换 Page Target，则只重绑定后续观察通道。只有存在 successor target / URL 变化等可验证成功证据时，丢失最终 action ACK 才可判定为成功，否则必须显式失败。
 
 ### Host Execution Plane
 

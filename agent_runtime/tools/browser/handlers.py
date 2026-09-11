@@ -4,6 +4,7 @@ from typing import Any
 
 from ...errors import ToolError
 from ...permissions.capabilities import Capability
+from ...protocol import current_request_context
 from .._shared import attach_png_image, decode_png_base64
 
 
@@ -140,6 +141,37 @@ class BrowserHandlers:
         payload["_image"] = ("image/png", encoded)
         return payload
 
+    def browser_preflight(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Resolve a trusted Browser resource session before authorization.
+
+        Public ``session_id`` values are not authorization identities by
+        themselves. The Host must confirm the session still exists in the
+        current generation before Runtime may reuse a resource-session grant.
+        """
+
+        session_id = str(args.get("session_id") or "").strip()
+        if not session_id:
+            return {
+                "authorization_session": {
+                    "type": "browser_session",
+                    "create": True,
+                }
+            }
+        status = self._browser_call(
+            "status",
+            session_id=session_id,
+            permission=None,
+        )
+        trusted_session_id = str(status.get("session_id") or "").strip()
+        if trusted_session_id != session_id or status.get("alive") is not True:
+            return {}
+        return {
+            "authorization_session": {
+                "type": "browser_session",
+                "id": trusted_session_id,
+            }
+        }
+
     def browser_open(self, args: dict[str, Any]) -> dict[str, Any]:
         payload = self._browser_call("open", parameters={
             "url": str(args.get("url") or "about:blank"),
@@ -148,6 +180,12 @@ class BrowserHandlers:
             "height": int(args.get("height", 900)),
             **self._post_observe_parameters(args),
         })
+        session_id = str(payload.get("session_id") or "").strip()
+        if session_id:
+            payload["_authorization_session"] = {
+                "type": "browser_session",
+                "id": session_id,
+            }
         return self._attach_post_observation_image(payload)
 
     def browser_navigate(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -252,8 +290,16 @@ class BrowserHandlers:
     def browser_close(self, args: dict[str, Any]) -> dict[str, Any]:
         # Closing an already-created Host session is always allowed so users are
         # never forced to grant a new permission just to clean up resources.
-        return self._browser_call(
+        session_id = str(args["session_id"])
+        payload = self._browser_call(
             "close",
-            session_id=str(args["session_id"]),
+            session_id=session_id,
             permission=None,
         )
+        if bool(payload.get("closed")):
+            self.permission_session.revoke_resource_session_permissions(
+                current_request_context(),
+                "browser_session",
+                session_id,
+            )
+        return payload

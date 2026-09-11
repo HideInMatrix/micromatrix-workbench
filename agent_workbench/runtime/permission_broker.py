@@ -309,15 +309,16 @@ class DesktopPermissionBroker:
         arguments = request.get("arguments")
         if not isinstance(arguments, dict):
             return False
-        requested_session = str(arguments.get("session_id") or "").strip()
         trusted = arguments.get("_trusted_context")
-        if not requested_session or not isinstance(trusted, dict):
+        if not isinstance(trusted, dict):
             return False
         authorization_session = trusted.get("authorization_session")
         if not isinstance(authorization_session, dict):
             return False
+        resource_type = str(authorization_session.get("type") or "").strip()
         trusted_session = str(authorization_session.get("id") or "").strip()
-        return bool(trusted_session and trusted_session == requested_session)
+        creates_session = authorization_session.get("create") is True
+        return bool(resource_type and (trusted_session or creates_session))
 
     def _prepare_automatic_restart(self, event: str) -> bool:
         if self._host_circuit_open:

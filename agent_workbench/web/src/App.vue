@@ -19,6 +19,7 @@ const {
   isDesktopControl,
   isDesktopObserve,
   isDesktopPermission,
+  isBrowserPermission,
   hasResourceSession,
   canRememberResource,
   isHostIdentityUse,
@@ -101,7 +102,7 @@ const {
         <div v-else-if="hasResourceSession || canRememberResource" class="flex gap-2">
           <Button variant="outline" class="min-w-[104px]" size="sm" :disabled="permissionResponding" @click="respondPermission('once')">仅允许本次</Button>
           <Button v-if="hasResourceSession" class="min-w-[128px]" size="sm" :disabled="permissionResponding" @click="respondPermission('resource_session')">
-            {{ isDesktopPermission ? '允许本次桌面会话' : '允许本次资源会话' }}
+            {{ isDesktopPermission ? '允许本次桌面会话' : (isBrowserPermission ? '允许本次浏览器会话' : '允许本次资源会话') }}
           </Button>
           <Button v-if="canRememberResource" class="min-w-[128px]" size="sm" :disabled="permissionResponding" @click="respondPermission('remember_resource')">
             {{ isDesktopPermission ? '始终允许此应用' : '始终允许此资源' }}

@@ -16,6 +16,11 @@ class PermissionGrantStore:
         self._lock = threading.RLock()
         self._grants: dict[str, dict[str, Any]] = {}
         self._session_principals: set[str] = set()
+        # Resource-session grants are intentionally independent from the MCP
+        # tool that requested them. One logical resource (for example one
+        # Browser or Desktop Host session) may be operated by multiple public
+        # tools, so tool_name must never become part of its authorization
+        # identity.
         self._resource_session_permissions: dict[
             tuple[str, str, str], set[str]
         ] = {}
@@ -89,33 +94,33 @@ class PermissionGrantStore:
     def grant_resource_session(
         self,
         principal: str,
-        tool_name: str,
-        session_id: str,
+        resource_type: str,
+        resource_id: str,
         permission: str,
     ) -> None:
         normalized_principal = principal or "anonymous"
-        normalized_tool = str(tool_name or "").strip()
-        normalized_session = str(session_id or "").strip()
-        if not normalized_tool or not normalized_session or permission not in ELICITABLE_PERMISSIONS:
+        normalized_type = str(resource_type or "").strip()
+        normalized_id = str(resource_id or "").strip()
+        if not normalized_type or not normalized_id or permission not in ELICITABLE_PERMISSIONS:
             return
         with self._lock:
-            key = (normalized_principal, normalized_tool, normalized_session)
+            key = (normalized_principal, normalized_type, normalized_id)
             self._resource_session_permissions.setdefault(key, set()).add(permission)
 
     def resource_session_permissions(
         self,
         principal: str,
-        tool_name: str,
-        session_id: str,
+        resource_type: str,
+        resource_id: str,
     ) -> frozenset[str]:
-        normalized_tool = str(tool_name or "").strip()
-        normalized_session = str(session_id or "").strip()
-        if not normalized_tool or not normalized_session:
+        normalized_type = str(resource_type or "").strip()
+        normalized_id = str(resource_id or "").strip()
+        if not normalized_type or not normalized_id:
             return frozenset()
         with self._lock:
             return frozenset(
                 self._resource_session_permissions.get(
-                    (principal or "anonymous", normalized_tool, normalized_session),
+                    (principal or "anonymous", normalized_type, normalized_id),
                     set(),
                 )
             )
@@ -123,15 +128,15 @@ class PermissionGrantStore:
     def revoke_resource_session(
         self,
         principal: str,
-        tool_name: str,
-        session_id: str,
+        resource_type: str,
+        resource_id: str,
     ) -> None:
         with self._lock:
             self._resource_session_permissions.pop(
                 (
                     principal or "anonymous",
-                    str(tool_name or "").strip(),
-                    str(session_id or "").strip(),
+                    str(resource_type or "").strip(),
+                    str(resource_id or "").strip(),
                 ),
                 None,
             )
