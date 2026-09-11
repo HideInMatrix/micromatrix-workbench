@@ -113,27 +113,62 @@ def _wait_devtools(profile: Path, process: HostProcessHandle, timeout: float) ->
     raise HostCapabilityError("等待浏览器 CDP 端口超时；默认浏览器可能不支持 Chromium CDP。")
 
 
-def _page_target(port: int, *, create_if_missing: bool = True) -> tuple[str, str]:
+def _page_target_info(
+    port: int,
+    *,
+    create_if_missing: bool = True,
+    preferred_target_id: str = "",
+) -> tuple[str, str, str]:
     targets = _http_json(port, "/json/list")
     if isinstance(targets, list):
-        for target in targets:
+        pages = [
+            target
+            for target in targets
             if (
                 isinstance(target, dict)
                 and target.get("type") == "page"
                 and target.get("webSocketDebuggerUrl")
-            ):
+            )
+        ]
+        if preferred_target_id:
+            preferred = next(
+                (
+                    target
+                    for target in pages
+                    if str(target.get("id") or "") == preferred_target_id
+                ),
+                None,
+            )
+            if preferred is not None:
                 return (
-                    str(target.get("id") or ""),
-                    str(target["webSocketDebuggerUrl"]),
+                    str(preferred.get("id") or ""),
+                    str(preferred["webSocketDebuggerUrl"]),
+                    str(preferred.get("url") or ""),
                 )
+        if pages:
+            target = pages[0]
+            return (
+                str(target.get("id") or ""),
+                str(target["webSocketDebuggerUrl"]),
+                str(target.get("url") or ""),
+            )
     if create_if_missing:
         created = _http_json(port, "/json/new?about%3Ablank", method="PUT")
         if isinstance(created, dict) and created.get("webSocketDebuggerUrl"):
             return (
                 str(created.get("id") or ""),
                 str(created["webSocketDebuggerUrl"]),
+                str(created.get("url") or "about:blank"),
             )
     raise HostCapabilityError("浏览器没有可用的 CDP Page Target。")
+
+
+def _page_target(port: int, *, create_if_missing: bool = True) -> tuple[str, str]:
+    target_id, websocket_url, _url = _page_target_info(
+        port,
+        create_if_missing=create_if_missing,
+    )
+    return target_id, websocket_url
 
 
 def _target_expression(ref: str, selector: str, observation_id: str = "") -> str:
@@ -442,9 +477,10 @@ class BrowserHostCapability:
         last_error: Exception | None = None
         while time.monotonic() < deadline:
             try:
-                target_id, websocket_url = _page_target(
+                target_id, websocket_url, _target_url = _page_target_info(
                     session.port,
                     create_if_missing=False,
+                    preferred_target_id=session.target_id,
                 )
                 replacement = _CDPConnection(websocket_url)
                 replacement.command("Page.enable")
@@ -464,6 +500,55 @@ class BrowserHostCapability:
             code="BROWSER_TARGET_REBIND_FAILED",
             stage="navigation",
         )
+
+    def _page_state(self, session: _BrowserSession) -> tuple[str, str]:
+        target_id, _websocket_url, url = _page_target_info(
+            session.port,
+            create_if_missing=False,
+            preferred_target_id=session.target_id,
+        )
+        return target_id, url
+
+    def _refresh_after_action(
+        self,
+        session: _BrowserSession,
+        *,
+        previous_url: str,
+        previous_target_id: str,
+        wait_for_transition: bool,
+    ) -> tuple[str, bool]:
+        """Best-effort refresh of the observation channel after user input.
+
+        A successfully acknowledged input action must never be converted into an
+        action failure merely because the page is still navigating. DevTools'
+        HTTP target list remains usable while the old page websocket/execution
+        context is being replaced, so it is the source of transition evidence.
+        """
+
+        deadline = time.monotonic() + (1.25 if wait_for_transition else 0.0)
+        current_url = previous_url
+        while True:
+            try:
+                target_id, target_url = self._page_state(session)
+            except Exception:
+                return current_url, False
+            if target_url:
+                current_url = target_url
+            changed = (
+                target_id != previous_target_id
+                or bool(target_url and target_url != previous_url)
+            )
+            if changed:
+                try:
+                    self._rebind_page_target(session, timeout=1.0)
+                except HostCapabilityError:
+                    # Input has already been acknowledged. Any observation
+                    # refresh failure belongs to post-observe, not action state.
+                    pass
+                return current_url, True
+            if not wait_for_transition or time.monotonic() >= deadline:
+                return current_url, False
+            time.sleep(0.05)
 
     def _wait_ready(
         self,
@@ -610,16 +695,18 @@ class BrowserHostCapability:
             )
         except Exception as dispatch_exc:
             try:
-                self._rebind_page_target(session)
-                self._wait_ready(session)
-                current_url = self._location(session)
+                current_target_id, current_url = self._page_state(session)
             except Exception as recovery_exc:
                 raise HostCapabilityError(
                     f"Browser click dispatch 失败: {dispatch_exc}; recovery: {recovery_exc}",
                     code="BROWSER_CLICK_DISPATCH_FAILED",
                     stage="action",
                 ) from dispatch_exc
-            if session.target_id != target_before_action or current_url != previous_url:
+            if current_target_id != target_before_action or current_url != previous_url:
+                try:
+                    self._rebind_page_target(session, timeout=1.0)
+                except HostCapabilityError:
+                    pass
                 return {
                     "session_id": session.session_id,
                     "clicked": True,
@@ -631,8 +718,17 @@ class BrowserHostCapability:
                 stage="action",
             ) from dispatch_exc
         time.sleep(0.08)
-        self._wait_ready(session)
-        return {"session_id": session.session_id, "clicked": True, "url": self._location(session)}
+        current_url, _changed = self._refresh_after_action(
+            session,
+            previous_url=previous_url,
+            previous_target_id=target_before_action,
+            wait_for_transition=bool(parameters.get("observe_after", True)),
+        )
+        return {
+            "session_id": session.session_id,
+            "clicked": True,
+            "url": current_url,
+        }
 
     def _fill(self, session: _BrowserSession, parameters: dict[str, Any]) -> dict[str, Any]:
         ref = str(parameters.get("ref") or "").strip()
