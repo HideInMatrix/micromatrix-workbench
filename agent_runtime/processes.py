@@ -26,6 +26,7 @@ MAX_ACTIVE_COMMANDS = 16
 MAX_RETAINED_COMMANDS = 32
 STREAM_LIMIT_BYTES = 512 * 1024
 STREAM_HEAD_BYTES = 64 * 1024
+READER_DRAIN_TIMEOUT_SECONDS = 0.5
 
 
 class OutputBuffer:
@@ -310,6 +311,25 @@ class CommandManager:
             self.terminate(command.command_id, "TERM", wait_ms=500, kill_wait_ms=500)
         if command.process.poll() is not None:
             self.close_stdin(command)
+            self._drain_readers(command)
+
+    @staticmethod
+    def _drain_readers(command: ManagedCommand) -> None:
+        """Give pipe reader threads a bounded chance to consume process tail output.
+
+        ``Popen.wait()`` only guarantees that the child process exited. The
+        background stdout/stderr reader threads may still be between EOF/read
+        and ``OutputBuffer.append()``, which can make a successful short-lived
+        command transiently report empty output. Keep the wait bounded because
+        descendants can inherit pipe handles even after the direct child exits.
+        """
+
+        deadline = time.monotonic() + READER_DRAIN_TIMEOUT_SECONDS
+        for reader in command.readers:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            reader.join(timeout=remaining)
 
     def write(self, command_id: str, chars: str) -> ManagedCommand:
         command = self.get(command_id)
@@ -352,6 +372,7 @@ class CommandManager:
             pass
         try:
             process.wait(timeout=max(0, wait_ms) / 1000)
+            self._drain_readers(command)
             return "terminated"
         except subprocess.TimeoutExpired:
             if signal_name != "KILL":
@@ -364,6 +385,7 @@ class CommandManager:
                     pass
                 try:
                     process.wait(timeout=max(0, kill_wait_ms) / 1000)
+                    self._drain_readers(command)
                     return "killed"
                 except subprocess.TimeoutExpired:
                     return "terminating"

@@ -213,6 +213,19 @@ export interface PermissionRequestDto {
   arguments: Record<string, unknown> | unknown[]
   created_at: number
   expires_at: number
+  persistent_authorization_available?: boolean
+}
+
+export interface DesktopAuthorizationDto {
+  id: string
+  server_id: string
+  server_name: string
+  permission: 'desktop_observe' | 'desktop_control'
+  application_id: string
+  application_name: string
+  identity_fingerprint: string
+  created_at: number
+  last_used_at: number
 }
 
 export type WorkflowNodeKind =
@@ -516,7 +529,10 @@ export interface DesktopBridge {
   revoke_gateway_oauth_client(gatewayId: string, serverId: string, clientId: string): Promise<boolean>
   revoke_all_gateway_oauth_clients(gatewayId: string, serverId: string): Promise<number>
   list_permission_requests(): Promise<PermissionRequestDto[]>
-  respond_permission_request(requestId: string, decision: 'deny' | 'once' | 'session' | 'remember'): Promise<boolean>
+  respond_permission_request(requestId: string, decision: 'deny' | 'once' | 'session' | 'desktop_session' | 'remember_app' | 'remember'): Promise<boolean>
+  list_desktop_authorizations(): Promise<DesktopAuthorizationDto[]>
+  revoke_desktop_authorization(ruleId: string): Promise<boolean>
+  stop_all_desktop_input(): Promise<{ requested: number; stopped: number; results: Record<string, boolean> }>
   list_workflow_approvals(): Promise<WorkflowApprovalDto[]>
   respond_workflow_approval(requestId: string, approved: boolean): Promise<boolean>
   list_workbench_targets(): Promise<WorkbenchTargetDto[]>

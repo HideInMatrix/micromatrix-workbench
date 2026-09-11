@@ -16,6 +16,9 @@ class PermissionGrantStore:
         self._lock = threading.RLock()
         self._grants: dict[str, dict[str, Any]] = {}
         self._session_principals: set[str] = set()
+        self._desktop_session_permissions: dict[
+            tuple[str, str], set[str]
+        ] = {}
 
     def store(
         self,
@@ -82,4 +85,41 @@ class PermissionGrantStore:
     def grant_session(self, principal: str) -> None:
         with self._lock:
             self._session_principals.add(principal or "anonymous")
+
+    def grant_desktop_session(
+        self,
+        principal: str,
+        session_id: str,
+        permission: str,
+    ) -> None:
+        normalized_principal = principal or "anonymous"
+        normalized_session = str(session_id or "").strip()
+        if not normalized_session or permission not in ELICITABLE_PERMISSIONS:
+            return
+        with self._lock:
+            key = (normalized_principal, normalized_session)
+            self._desktop_session_permissions.setdefault(key, set()).add(permission)
+
+    def desktop_session_permissions(
+        self,
+        principal: str,
+        session_id: str,
+    ) -> frozenset[str]:
+        normalized_session = str(session_id or "").strip()
+        if not normalized_session:
+            return frozenset()
+        with self._lock:
+            return frozenset(
+                self._desktop_session_permissions.get(
+                    (principal or "anonymous", normalized_session),
+                    set(),
+                )
+            )
+
+    def revoke_desktop_session(self, principal: str, session_id: str) -> None:
+        with self._lock:
+            self._desktop_session_permissions.pop(
+                (principal or "anonymous", str(session_id or "").strip()),
+                None,
+            )
 

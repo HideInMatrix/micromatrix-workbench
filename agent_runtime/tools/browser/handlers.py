@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import base64
-import binascii
 from typing import Any
 
 from ...errors import ToolError
 from ...permissions.capabilities import Capability
+from .._shared import attach_png_image, decode_png_base64
 
 
 class BrowserHandlers:
@@ -132,9 +131,10 @@ class BrowserHandlers:
         encoded = str(observation.pop("data_base64", "") or "")
         if not encoded:
             return payload
-        data = self._decode_image(encoded)
-        if len(data) > 25 * 1024 * 1024:
-            raise ToolError("OUTPUT_TOO_LARGE", "Browser observation screenshot 超过 25 MiB 限制。", "runtime")
+        data = decode_png_base64(
+            encoded,
+            label="Browser observation screenshot",
+        )
         observation.setdefault("mime_type", "image/png")
         observation["bytes"] = len(data)
         payload["_image"] = ("image/png", encoded)
@@ -230,7 +230,7 @@ class BrowserHandlers:
             "browser_screenshot",
             frozenset({Capability.FILESYSTEM_WRITE}),
         )
-        data = self._decode_image(encoded)
+        data = decode_png_base64(encoded, label="Browser screenshot")
         target = self.workspace.writable(path)
         if target.absolute.suffix.lower() != ".png":
             raise ToolError("INVALID_PATH", "Browser screenshot 仅支持 .png 输出。", "validation")
@@ -239,25 +239,8 @@ class BrowserHandlers:
         payload.update({"path": target.display, "bytes": len(data)})
         return payload
 
-    @staticmethod
-    def _decode_image(encoded: str) -> bytes:
-        try:
-            return base64.b64decode(encoded, validate=True)
-        except (binascii.Error, ValueError) as exc:
-            raise ToolError("HOST_CAPABILITY_ERROR", "Browser screenshot 数据无效。", "runtime") from exc
-
     def _attach_image(self, payload: dict[str, Any]) -> dict[str, Any]:
-        encoded = str(payload.pop("data_base64", "") or "")
-        data = self._decode_image(encoded)
-        if len(data) > 25 * 1024 * 1024:
-            raise ToolError("OUTPUT_TOO_LARGE", "Browser screenshot 超过 25 MiB 限制。", "runtime")
-        normalized = {
-            **payload,
-            "mime_type": "image/png",
-            "bytes": len(data),
-            "_image": ("image/png", encoded),
-        }
-        return normalized
+        return attach_png_image(payload, label="Browser screenshot")
 
     def browser_status(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._browser_call(

@@ -67,16 +67,6 @@ jobs:
             python_arch: arm64
             artifact: micromatrix-workbench-macos-arm64
 
-          - name: Linux x64
-            runner: ubuntu-24.04
-            python_arch: x64
-            artifact: micromatrix-workbench-linux-x64
-
-          - name: Linux ARM64
-            runner: ubuntu-24.04-arm
-            python_arch: arm64
-            artifact: micromatrix-workbench-linux-arm64
-
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
@@ -107,6 +97,9 @@ jobs:
 
       - name: Build desktop application
         run: python build_desktop.py --web-dist web-dist
+
+      - name: Smoke frozen Host Worker providers
+        run: python scripts/smoke_frozen_host_worker.py
 
       - name: Package release file
         run: python scripts/package_release.py

@@ -14,6 +14,7 @@ class EffectiveTool:
     input_schema: dict[str, Any]
     required_capabilities: tuple[str, ...] = ()
     required_operation_permissions: tuple[str, ...] = ()
+    operation_permission_variants: tuple[dict[str, Any], ...] = ()
     annotations: dict[str, bool] = field(default_factory=dict)
     execution_kind: str = "runtime"
     connection_id: str = ""
@@ -36,6 +37,9 @@ class EffectiveTool:
             "workflow_executable": True,
             "required_capabilities": list(self.required_capabilities),
             "required_operation_permissions": list(self.required_operation_permissions),
+            "operation_permission_variants": [
+                dict(item) for item in self.operation_permission_variants
+            ],
             "annotations": dict(self.annotations),
             "execution_kind": self.execution_kind,
         }
@@ -61,6 +65,15 @@ def build_effective_tool_catalog(
                 required_capabilities=tuple(sorted(item.value for item in definition.capabilities)),
                 required_operation_permissions=tuple(
                     sorted(item.value for item in definition.operation_permissions)
+                ),
+                operation_permission_variants=tuple(
+                    {
+                        "action": action,
+                        "required_operation_permissions": [
+                            permission.value for permission in permissions
+                        ],
+                    }
+                    for action, permissions in definition.operation_permission_variants
                 ),
                 execution_kind=str(definition.execution_kind.value),
                 annotations={

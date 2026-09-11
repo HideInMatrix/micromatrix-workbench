@@ -58,6 +58,31 @@ EXEC_COMMON = {
 
 
 def validate_value(value: Any, schema: dict[str, Any], path: str = "arguments") -> None:
+    if "const" in schema and value != schema["const"]:
+        raise ValueError(f"{path} must equal {schema['const']!r}")
+
+    one_of = schema.get("oneOf")
+    if isinstance(one_of, list):
+        matches = 0
+        errors: list[str] = []
+        for branch in one_of:
+            if not isinstance(branch, dict):
+                continue
+            try:
+                validate_value(value, branch, path)
+            except ValueError as exc:
+                errors.append(str(exc))
+            else:
+                matches += 1
+        if matches != 1:
+            if matches == 0 and errors:
+                raise ValueError(
+                    f"{path} does not match exactly one allowed shape: "
+                    + "; ".join(errors[:3])
+                )
+            raise ValueError(f"{path} must match exactly one allowed shape")
+        return
+
     expected = schema.get("type")
     if expected == "object":
         if not isinstance(value, dict):
@@ -80,6 +105,10 @@ def validate_value(value: Any, schema: dict[str, Any], path: str = "arguments") 
     if expected == "array":
         if not isinstance(value, list):
             raise ValueError(f"{path} must be an array")
+        if "minItems" in schema and len(value) < int(schema["minItems"]):
+            raise ValueError(f"{path} has too few items")
+        if "maxItems" in schema and len(value) > int(schema["maxItems"]):
+            raise ValueError(f"{path} has too many items")
         child = schema.get("items")
         if isinstance(child, dict):
             for index, item in enumerate(value):
@@ -90,6 +119,8 @@ def validate_value(value: Any, schema: dict[str, Any], path: str = "arguments") 
             raise ValueError(f"{path} must be a string")
         if len(value) < int(schema.get("minLength", 0)):
             raise ValueError(f"{path} is too short")
+        if "maxLength" in schema and len(value) > int(schema["maxLength"]):
+            raise ValueError(f"{path} is too long")
     elif expected == "integer":
         if not isinstance(value, int) or isinstance(value, bool):
             raise ValueError(f"{path} must be an integer")

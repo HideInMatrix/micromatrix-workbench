@@ -6,7 +6,8 @@
 - Docker Compose：使用无 GUI 的最小 Server 镜像，适合希望隔离依赖、快速迁移和标准化交付的场景。
 
 两种方式都运行同一个 `start.py` / `agent_workbench.cli` 入口，不维护独立的 Runtime 实现。
-GitHub Release 中的 Linux 压缩包是桌面应用，不是本文使用的 headless Server 包。
+Linux 当前不发布桌面应用或桌面更新包。本文描述的 headless Server/CLI 部署仍然受支持，
+并与 macOS/Windows 的桌面发布链相互独立。
 
 如果目标是让 AI 检查服务器安全、系统配置和运行环境，请重点阅读
 [第 4 节：服务器安全审计模式](#4-服务器安全审计模式)。该模式与普通项目 Workspace

@@ -9,9 +9,7 @@ vendor/cloudflared/
 ├── darwin-arm64/cloudflared
 ├── darwin-amd64/cloudflared
 ├── windows-amd64/cloudflared.exe
-├── windows-arm64/cloudflared.exe
-├── linux-amd64/cloudflared
-└── linux-arm64/cloudflared
+└── windows-arm64/cloudflared.exe
 ```
 
 开发环境允许回退到系统 `PATH` 中的 `cloudflared`；PyInstaller 打包后的正式桌面应用不会回退，确保最终用户无需自行安装 Cloudflare Tunnel。
@@ -22,4 +20,5 @@ vendor/cloudflared/
 python scripts/fetch_cloudflared.py
 ```
 
-该脚本只下载当前构建平台对应的官方 Release 资产。
+该脚本只下载当前受支持桌面构建平台（macOS / Windows）对应的官方 Release 资产。
+Linux 暂不提供桌面包，因此不会下载 Linux Desktop bundle 依赖。

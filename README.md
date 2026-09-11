@@ -57,7 +57,8 @@ MicroMatrix Workbench 主要面向以下用户：
 - 提供 pywebview + Vue 3.5 + TypeScript 7 桌面界面
 - 前端使用 UnoCSS Tailwind v4 preset、仓库内 shadcn-vue 风格组件和 Lucide Vue 图标
 - 提供 CLI 启动方式
-- 支持 macOS、Windows 和 Linux
+- 桌面版支持 macOS 和 Windows
+- Linux 暂不提供桌面版，仅保留无界面的 Server/CLI 部署支持
 
 ## 适合的使用场景
 
@@ -81,6 +82,8 @@ MicroMatrix Workbench 主要面向以下用户：
 
 ## 文档
 
+项目文档统一放在 `docs/` 下，需求、设计、整改计划和任务清单也按主题放在该目录内，不另建顶层 `spec` 或 `specs` 目录。
+
 第一次使用，建议按下面顺序阅读：
 
 1. [使用文档](docs/USER_GUIDE.md)
@@ -91,6 +94,12 @@ MicroMatrix Workbench 主要面向以下用户：
 
 - [NetworkProvider 架构与开发说明](docs/NETWORK_PROVIDERS.md)
 - [MCP Server 开发文档](docs/MCP_SERVER_DEVELOPMENT.md)
+
+架构与整改计划：
+
+- [0.4.x 通用桌面 Computer Use](docs/desktop-computer-use-04/README.md)
+- [Browser / Host 工具契约整改](docs/browser-host-contract-reset/README.md)
+- [Workbench 包结构重构设计](docs/agent-workbench-package-refactor/design.md)
 
 ## 当前支持的网络方案
 
@@ -111,6 +120,9 @@ MicroMatrix Workbench 主要面向以下用户：
 桌面展示层使用 `pywebview + Vue 3.5 + TypeScript 7 + Vite + UnoCSS`；
 shadcn-vue 组件源码直接维护在仓库内，CLI 只在新增组件时通过 `pnpm dlx` 按需运行，
 不作为正式构建的常驻依赖。
+
+当前桌面端只支持 macOS 和 Windows。Linux 不参与 Desktop Build / GitHub Release，
+如需在 Linux 上运行请使用 `start.py`、CLI、systemd 或 Docker 的无界面 Server 模式。
 
 开发/构建桌面端需要：
 

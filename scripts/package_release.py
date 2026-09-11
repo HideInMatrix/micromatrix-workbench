@@ -9,7 +9,6 @@ import platform
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 import time
 from pathlib import Path
@@ -66,8 +65,6 @@ def platform_label() -> str:
         return f"windows-{arch}"
     if system == "darwin":
         return f"macos-{arch}"
-    if system == "linux":
-        return f"linux-{arch}"
     raise SystemExit(f"Unsupported platform: {platform.system()} {platform.machine()}")
 
 
@@ -156,17 +153,6 @@ def package_windows(output_base: Path, *, version: str | None = None) -> list[Pa
     if not installer.is_file() or installer.stat().st_size <= 0:
         raise RuntimeError(f"Inno Setup did not produce installer: {installer}")
     return [installer]
-
-
-def package_linux(output_base: Path) -> Path:
-    source = DIST_DIR / APP_NAME
-    if not source.is_dir():
-        raise SystemExit(f"PyInstaller output not found: {source}")
-
-    archive = Path(f"{output_base}.tar.gz")
-    with tarfile.open(archive, "w:gz") as tar:
-        tar.add(source, arcname=APP_NAME)
-    return archive
 
 
 def _create_macos_dmg(
@@ -296,10 +282,11 @@ def main() -> int:
         packages = package_windows(output_base)
     elif system == "darwin":
         packages = package_macos(output_base)
-    elif system == "linux":
-        packages = [package_linux(output_base)]
     else:
-        raise SystemExit(f"Unsupported platform: {platform.system()}")
+        raise SystemExit(
+            f"Unsupported desktop release platform: {platform.system()}; "
+            "supported platforms are macOS and Windows."
+        )
 
     for package in packages:
         checksum = write_sha256(package)

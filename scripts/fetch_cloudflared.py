@@ -52,12 +52,6 @@ def target_candidates(
             f"windows-{arch}",
             "cloudflared.exe",
         )
-    if system == "linux":
-        return (
-            [f"cloudflared-linux-{arch}"],
-            f"linux-{arch}",
-            "cloudflared",
-        )
     raise SystemExit(f"Unsupported platform: {platform.system()} {machine}")
 
 

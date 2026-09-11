@@ -99,6 +99,9 @@ def build_capability_catalog(
                     "kind": tool.execution_kind,
                     "required_capabilities": list(tool.required_capabilities),
                     "required_operation_permissions": list(tool.required_operation_permissions),
+                    "operation_permission_variants": [
+                        dict(item) for item in tool.operation_permission_variants
+                    ],
                     "annotations": dict(tool.annotations),
                     "permission_boundary": "runtime_permission_profile",
                     "approval_boundary": "permission_broker_when_required",
@@ -114,6 +117,24 @@ def build_capability_catalog(
                         }
                         if tool.provider == "mcp"
                         else "<capability input>"
+                    ),
+                    "action_variants": (
+                        [
+                            {
+                                "action": str(item.get("action") or ""),
+                                "mcp_tool": tool.tool_name,
+                                "arguments": {
+                                    "action": str(item.get("action") or ""),
+                                    "...": "<action-specific input>",
+                                },
+                                "required_operation_permissions": list(
+                                    item.get("required_operation_permissions") or []
+                                ),
+                            }
+                            for item in tool.operation_permission_variants
+                        ]
+                        if tool.provider != "mcp" and tool.operation_permission_variants
+                        else []
                     ),
                 },
             }

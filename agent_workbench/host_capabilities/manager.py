@@ -7,6 +7,7 @@ from agent_workbench.host_execution import HostProcessSupervisor
 
 from .base import HostCapabilityError, HostCapabilityProvider
 from .browser import BrowserHostCapability
+from .desktop import DesktopHostCapability
 
 
 class HostCapabilityManager:
@@ -26,7 +27,10 @@ class HostCapabilityManager:
         values = (
             tuple(providers)
             if providers is not None
-            else (BrowserHostCapability(self._processes, generation=generation),)
+            else (
+                BrowserHostCapability(self._processes, generation=generation),
+                DesktopHostCapability(generation=generation),
+            )
         )
         self._providers = {provider.descriptor.name: provider for provider in values}
 
@@ -58,6 +62,17 @@ class HostCapabilityManager:
         for provider in self._providers.values():
             provider.close_server(server_id)
         self._processes.close_server(server_id)
+
+    def stop_desktop_input(self, server_id: str) -> dict[str, Any]:
+        provider = self._providers.get("desktop")
+        stop = getattr(provider, "stop_server_input", None) if provider is not None else None
+        if not callable(stop):
+            raise HostCapabilityError("Desktop Provider 不支持本地停止输入。")
+        result = stop(server_id)
+        return dict(result) if isinstance(result, dict) else {
+            "stopped": True,
+            "server_id": server_id,
+        }
 
     def close(self) -> None:
         for provider in self._providers.values():

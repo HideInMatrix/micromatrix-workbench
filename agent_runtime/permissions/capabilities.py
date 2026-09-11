@@ -38,6 +38,8 @@ class OperationPermission(StrEnum):
     WRITE_GENERATED_OR_IGNORED = "write_generated_or_ignored"
     BROWSER_OBSERVE = "browser_observe"
     BROWSER_CONTROL = "browser_control"
+    DESKTOP_OBSERVE = "desktop_observe"
+    DESKTOP_CONTROL = "desktop_control"
     HOST_IDENTITY_USE = "host_identity_use"
     HOST_MANAGE = "host_manage"
 
@@ -52,6 +54,8 @@ SESSION_GRANTABLE_PERMISSIONS = frozenset(
     if permission not in {
         OperationPermission.BROWSER_OBSERVE,
         OperationPermission.BROWSER_CONTROL,
+        OperationPermission.DESKTOP_OBSERVE,
+        OperationPermission.DESKTOP_CONTROL,
         OperationPermission.HOST_IDENTITY_USE,
         OperationPermission.HOST_MANAGE,
     }

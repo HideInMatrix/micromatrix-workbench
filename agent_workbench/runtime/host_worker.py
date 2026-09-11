@@ -86,6 +86,7 @@ class HostWorker:
         self._active_lock = threading.RLock()
         self._events: deque[dict[str, Any]] = deque(maxlen=MAX_WORKER_EVENTS)
         self._submitted: set[str] = set()
+        self._desktop_stop_at_ms: dict[str, int] = {}
         self._last_heartbeat = 0.0
 
     def _signed_write(self, path: Path, payload: dict[str, Any]) -> None:
@@ -322,11 +323,27 @@ class HostWorker:
         action = str(raw.get("action") or "")
         session_id = str(raw.get("session_id") or "")
         parameters = raw.get("parameters") if isinstance(raw.get("parameters"), dict) else {}
+        server_id = str(raw.get("server_id") or "")
+        if (
+            capability == "desktop"
+            and action in {"click", "type", "keypress", "scroll", "drag"}
+            and int(raw.get("queued_at_ms") or 0)
+            <= int(self._desktop_stop_at_ms.get(server_id, 0))
+        ):
+            self._write_error_response(
+                path,
+                raw,
+                kind=HOST_CAPABILITY_KIND,
+                error="本地用户已停止该 Profile 在停止指令之前排队的 Desktop 输入。",
+                cause_code="DESKTOP_INPUT_STOPPED",
+                stage="input",
+            )
+            return
         try:
             result = self.host_capabilities.invoke(
                 capability,
                 action,
-                server_id=str(raw.get("server_id") or ""),
+                server_id=server_id,
                 session_id=session_id,
                 parameters=parameters,
             )
@@ -391,7 +408,7 @@ class HostWorker:
     def _respond_worker_control(self, path: Path, raw: dict[str, Any]) -> None:
         action = str(raw.get("action") or "")
         server_id = str(raw.get("server_id") or "")
-        if action != "clear_server" or not server_id:
+        if action not in {"clear_server", "stop_desktop_input"} or not server_id:
             self._write_error_response(
                 path,
                 raw,
@@ -401,8 +418,14 @@ class HostWorker:
                 stage="preflight",
             )
             return
-        self.host_capabilities.close_server(server_id)
-        self.host_identity.close_server(server_id)
+        if action == "clear_server":
+            self._desktop_stop_at_ms[server_id] = int(time.time() * 1000)
+            self.host_capabilities.close_server(server_id)
+            self.host_identity.close_server(server_id)
+            result = {"server_id": server_id, "cleared": True}
+        else:
+            self._desktop_stop_at_ms[server_id] = int(time.time() * 1000)
+            result = self.host_capabilities.stop_desktop_input(server_id)
         response_path = self.directory / path.name.replace(".request.json", ".response.json")
         self._signed_write(
             response_path,
@@ -410,7 +433,7 @@ class HostWorker:
                 **self._base_response(raw, kind=HOST_WORKER_CONTROL_KIND),
                 "action": action,
                 "ok": True,
-                "result": {"server_id": server_id, "cleared": True},
+                "result": result,
                 "error": "",
                 "cause_code": "",
                 "stage": "completed",

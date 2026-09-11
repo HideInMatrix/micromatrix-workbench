@@ -84,6 +84,37 @@ class PermissionSession:
         principal = context.principal if context and context.principal else "anonymous"
         self.grants.grant_session(principal)
 
+    def grant_desktop_session_permission(
+        self,
+        context: RequestContext | None,
+        session_id: str,
+        permission: str,
+    ) -> None:
+        principal = context.principal if context and context.principal else "anonymous"
+        self.grants.grant_desktop_session(principal, session_id, permission)
+
+    def desktop_session_permissions_for_call(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        context: RequestContext | None,
+    ) -> frozenset[str]:
+        if name != "desktop":
+            return frozenset()
+        session_id = str(arguments.get("session_id") or "").strip()
+        if not session_id:
+            return frozenset()
+        principal = context.principal if context and context.principal else "anonymous"
+        return self.grants.desktop_session_permissions(principal, session_id)
+
+    def revoke_desktop_session_permissions(
+        self,
+        context: RequestContext | None,
+        session_id: str,
+    ) -> None:
+        principal = context.principal if context and context.principal else "anonymous"
+        self.grants.revoke_desktop_session(principal, session_id)
+
     def permission_round(
         self,
         name: str,
@@ -163,6 +194,8 @@ class PermissionSession:
             "privileged_executable": "启动用户配置的外部 stdio MCP 进程；此授权不改变任务工具链的 PATH 或沙箱读取范围。",
             "browser_observe": "观察由 Workbench Desktop Host 托管的隔离浏览器会话并读取页面截图/结构化页面信息；不会授予点击、输入或导航权限。",
             "browser_control": "启动并控制由 Workbench Desktop Host 托管的隔离浏览器会话；不会复用用户日常浏览器 Profile。",
+            "desktop_observe": "观察已明确绑定的桌面应用窗口并读取窗口截图/可用辅助功能信息；不会授予鼠标或键盘控制权限。",
+            "desktop_control": "控制已明确绑定的桌面应用窗口，包括鼠标、键盘、滚动或拖拽；不会授权其他未绑定应用或窗口。",
             "host_identity_use": "允许当前完全相同的结构化进程调用使用 Desktop Host 用户身份上下文；Host 环境和凭据不会作为 Tool Result 返回给 AI。",
             "host_manage": "允许重启 Workbench 自有的 Desktop Host Worker；不会操作任意系统进程或用户应用。",
         }
@@ -188,6 +221,7 @@ class PermissionSession:
         *,
         name: str,
         arguments: dict[str, Any],
+        display_arguments: dict[str, Any] | None = None,
         permission: str,
         message: str,
         context: RequestContext | None,
@@ -208,7 +242,7 @@ class PermissionSession:
                         "message": self.permission_message(
                             permission,
                             name,
-                            arguments,
+                            display_arguments or arguments,
                             message,
                         ),
                         "requestedSchema": {
@@ -240,6 +274,7 @@ class PermissionSession:
         *,
         name: str,
         arguments: dict[str, Any],
+        display_arguments: dict[str, Any] | None = None,
         permission: str,
         message: str,
         context: RequestContext | None,
@@ -249,6 +284,7 @@ class PermissionSession:
         return self.broker.request(
             name=name,
             arguments=arguments,
+            display_arguments=display_arguments,
             permission=permission,
             message=message,
             principal=context.principal if context else "anonymous",

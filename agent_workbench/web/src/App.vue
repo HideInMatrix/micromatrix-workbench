@@ -16,6 +16,11 @@ const {
   isToolchainRegistration,
   isBrowserControl,
   isBrowserObserve,
+  isDesktopControl,
+  isDesktopObserve,
+  isDesktopPermission,
+  hasDesktopSession,
+  canRememberDesktopApplication,
   isHostIdentityUse,
   isHostManage,
   permissionArguments,
@@ -82,6 +87,8 @@ const {
       </div>
 
       <p v-if="isToolchainRegistration" class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">此授权会保存到当前 Profile，供后续调用及重启后使用。注册阶段不会执行该工具，只冻结程序路径、只读范围和文件指纹；文件或路径变化后需重新确认。可在服务设置中移除注册。</p>
+      <p v-else-if="isDesktopControl" class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">此权限只针对当前 desktop 调用中已明确选择的目标窗口，用于鼠标、键盘、滚动或拖拽。Workbench 的应用授权与 macOS 辅助功能权限彼此独立；未获得系统权限时本次操作仍会在 Host 侧失败。</p>
+      <p v-else-if="isDesktopObserve" class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">此权限只针对当前 desktop 调用中已明确选择的目标窗口，用于获取窗口图像和可用的辅助功能信息。它不会授予键盘或鼠标控制，也不会把屏幕访问扩大到其他未绑定窗口。</p>
       <p v-else-if="isBrowserControl" class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">Workbench Desktop Host 会创建独立临时浏览器 Profile，并通过本机 CDP 控制该 Session；不会复用你的日常浏览器 Cookie、扩展或登录 Profile。Session 关闭或 MCP Server 停止后会自动回收。</p>
       <p v-else-if="isBrowserObserve" class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">此权限只允许读取 Workbench 隔离浏览器 Session 的截图与结构化页面信息，不授予导航、点击、输入、Host Identity 或 Host 管理权限。</p>
       <p v-else-if="isHostIdentityUse" class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">Workbench Desktop Host 将在宿主用户身份上下文中执行这一条完全相同的已注册程序调用。不会把宿主环境或凭据作为 Tool Result 返回给 AI；授权只绑定当前 executable、参数、Workspace 与调用。</p>
@@ -91,6 +98,11 @@ const {
       <footer class="mt-4 flex justify-end gap-2">
         <Button variant="outline" size="sm" class="min-w-[88px]" :disabled="permissionResponding" @click="respondPermission('deny')">拒绝</Button>
         <Button v-if="isToolchainRegistration" size="sm" :disabled="permissionResponding" @click="respondPermission('remember')">允许并记住此 Profile</Button>
+        <div v-else-if="isDesktopPermission" class="flex gap-2">
+          <Button variant="outline" class="min-w-[104px]" size="sm" :disabled="permissionResponding" @click="respondPermission('once')">仅允许本次</Button>
+          <Button v-if="hasDesktopSession" class="min-w-[128px]" size="sm" :disabled="permissionResponding" @click="respondPermission('desktop_session')">允许本次桌面会话</Button>
+          <Button v-if="canRememberDesktopApplication" class="min-w-[128px]" size="sm" :disabled="permissionResponding" @click="respondPermission('remember_app')">始终允许此应用</Button>
+        </div>
         <Button v-else-if="isHostIdentityUse || isHostManage || isBrowserControl || isBrowserObserve" class="min-w-[104px]" size="sm" :disabled="permissionResponding" @click="respondPermission('once')">仅允许本次</Button>
         <div v-else class="relative inline-flex">
           <Button class="min-w-[104px] !rounded-r-none !rounded-l-[7px]" size="sm" :disabled="permissionResponding" @click="respondPermission('once')">仅允许本次</Button>

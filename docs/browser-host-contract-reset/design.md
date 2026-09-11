@@ -1,6 +1,7 @@
 # 浏览器观察与 Host 可靠性：重构设计
 
-状态：建议方案，尚未实施。基线 a80e72f。
+状态：历史 Browser/Host 设计，基线 a80e72f；源码实施记录见 tasks.md。
+2026-09-11：0.4.x 的范围和新增设计以 [通用桌面 Computer Use 计划](../desktop-computer-use-04/README.md) 为准。原控制面与工具契约设计继续复用，本文“通用桌面 Provider 延后”的范围决定已失效。
 
 ## 1. 结论与已核对证据
 

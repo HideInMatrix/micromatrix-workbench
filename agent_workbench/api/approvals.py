@@ -103,6 +103,36 @@ class ApprovalAPI:
                     updated if m.server_id == server_id else m for m in gateway.members)))
             return self.permission_broker.respond(request_id, "remember", registration=record)
 
+    def list_desktop_authorizations(self) -> list[dict[str, object]]:
+        rules = self.permission_broker.desktop_authorizations.list()
+        names = {profile.server_id: profile.name for profile in self.store.list()}
+        for gateway in self.gateway_store.list():
+            names.update({member.server_id: member.name for member in gateway.members})
+        return [
+            {
+                **item,
+                "server_name": names.get(str(item.get("server_id") or ""), "MCP Server"),
+            }
+            for item in rules
+        ]
+
+    def revoke_desktop_authorization(self, rule_id: str) -> bool:
+        return self.permission_broker.desktop_authorizations.revoke(str(rule_id))
+
+    def stop_all_desktop_input(self) -> dict[str, object]:
+        server_ids = {profile.server_id for profile in self.store.list()}
+        for gateway in self.gateway_store.list():
+            server_ids.update(member.server_id for member in gateway.runtime_members)
+        results = {
+            server_id: bool(self.permission_broker.stop_desktop_input(server_id))
+            for server_id in sorted(server_ids)
+        }
+        return {
+            "requested": len(results),
+            "stopped": sum(1 for value in results.values() if value),
+            "results": results,
+        }
+
     def list_workflow_approvals(self) -> list[dict[str, object]]:
         requests = self.permission_broker.pending_workflow_approvals()
         names = {profile.server_id: profile.name for profile in self.store.list()}

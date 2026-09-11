@@ -194,64 +194,6 @@ exit 0
 '''
 
 
-_POSIX_LINUX_HELPER = r'''#!/bin/sh
-set -eu
-ARCHIVE="$1"
-TARGET="$2"
-PARENT_PID="$3"
-EXEC_NAME="$4"
-
-while kill -0 "$PARENT_PID" 2>/dev/null; do
-  sleep 0.25
-done
-
-STAGING="$(mktemp -d -t micromatrix-workbench-update.XXXXXX)"
-BACKUP="${TARGET}.micromatrix-workbench-update-backup"
-
-rollback() {
-  if [ -d "$BACKUP" ]; then
-    rm -rf "$TARGET" 2>/dev/null || true
-    mv "$BACKUP" "$TARGET" 2>/dev/null || true
-  fi
-}
-
-trap 'rollback; rm -rf "$STAGING" 2>/dev/null || true' INT TERM HUP
-
-tar -xzf "$ARCHIVE" -C "$STAGING"
-SOURCE="$STAGING/$(basename "$TARGET")"
-if [ ! -d "$SOURCE" ]; then
-  echo "Updater: extracted application directory not found: $SOURCE" >&2
-  rm -rf "$STAGING"
-  "$TARGET/$EXEC_NAME" >/dev/null 2>&1 &
-  exit 20
-fi
-
-rm -rf "$BACKUP"
-if ! mv "$TARGET" "$BACKUP"; then
-  echo "Updater: failed to move current application to backup" >&2
-  rm -rf "$STAGING"
-  "$TARGET/$EXEC_NAME" >/dev/null 2>&1 &
-  exit 22
-fi
-if ! mv "$SOURCE" "$TARGET"; then
-  echo "Updater: failed to install new application directory" >&2
-  rollback
-  rm -rf "$STAGING"
-  "$TARGET/$EXEC_NAME" >/dev/null 2>&1 &
-  exit 21
-fi
-
-rm -rf "$STAGING"
-rm -f "$ARCHIVE"
-rmdir "$(dirname "$ARCHIVE")" 2>/dev/null || true
-"$TARGET/$EXEC_NAME" >/dev/null 2>&1 &
-sleep 2
-rm -rf "$BACKUP"
-rm -f "$0"
-exit 0
-'''
-
-
 def spawn_windows_installer(installer: Path) -> None:
     if not installer.is_file():
         raise RuntimeError(f"Windows 更新安装包不存在: {installer}")
@@ -278,33 +220,21 @@ def spawn_windows_installer(installer: Path) -> None:
 
 def spawn_update_helper(archive: Path, target: Path) -> None:
     system = platform.system().lower()
+    if system != "darwin":
+        raise RuntimeError(f"当前系统暂不支持自动更新: {platform.system()}")
+
     parent_pid = os.getpid()
-    executable_name = Path(sys.executable).name
     log_path = _helper_log_path()
 
-    if system == "darwin":
-        script = _write_helper_script(".sh", _POSIX_MAC_HELPER)
-        command = [
-            "/bin/sh",
-            str(script),
-            str(archive),
-            str(target),
-            str(parent_pid),
-        ]
-        kwargs: dict[str, object] = {"start_new_session": True}
-    elif system == "linux":
-        script = _write_helper_script(".sh", _POSIX_LINUX_HELPER)
-        command = [
-            "/bin/sh",
-            str(script),
-            str(archive),
-            str(target),
-            str(parent_pid),
-            executable_name,
-        ]
-        kwargs = {"start_new_session": True}
-    else:
-        raise RuntimeError(f"当前系统暂不支持自动更新: {platform.system()}")
+    script = _write_helper_script(".sh", _POSIX_MAC_HELPER)
+    command = [
+        "/bin/sh",
+        str(script),
+        str(archive),
+        str(target),
+        str(parent_pid),
+    ]
+    kwargs: dict[str, object] = {"start_new_session": True}
 
     with log_path.open("ab") as log:
         subprocess.Popen(

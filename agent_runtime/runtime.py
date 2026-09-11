@@ -34,6 +34,7 @@ from .results import make_tool_result
 from .sandbox import build_sandbox_profile, create_process_sandbox
 from .tools import build_tool_registry
 from .tools.browser.handlers import BrowserHandlers
+from .tools.desktop.handlers import DesktopHandlers
 from .tools.filesystem.handlers import FilesystemHandlers
 from .tools.git.handlers import GitHandlers
 from .tools.process.handlers import ProcessHandlers
@@ -59,6 +60,7 @@ LOGGER = logging.getLogger(__name__)
 class Runtime(
     FilesystemHandlers,
     BrowserHandlers,
+    DesktopHandlers,
     ProcessHandlers,
     GitHandlers,
     SystemHandlers,
@@ -374,12 +376,18 @@ class Runtime(
             context,
         )
         session = self.permission_session.session_permissions_for_call(context)
+        desktop_session = self.permission_session.desktop_session_permissions_for_call(
+            name,
+            arguments,
+            context,
+        )
         return frozenset(
             {
                 *ACTIVE_PERMISSIONS.get(),
                 *round_granted,
                 *stored,
                 *session,
+                *desktop_session,
             }
         )
 
@@ -441,6 +449,7 @@ class Runtime(
         *,
         context: RequestContext | None,
         granted: frozenset[str],
+        permission_context: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         permission = str(exc.details.get("permission") or "")
         if (
@@ -453,10 +462,16 @@ class Runtime(
         local_broker_configured = self.permission_session.broker_client is not None
         status = "unavailable"
         decision = None
+        display_arguments = (
+            {**arguments, "_trusted_context": permission_context}
+            if permission_context
+            else arguments
+        )
         if local_broker_configured:
             decision = self.permission_session.request_local_permission(
                 name=name,
                 arguments=arguments,
+                display_arguments=display_arguments,
                 permission=permission,
                 message=exc.message,
                 context=context,
@@ -466,9 +481,21 @@ class Runtime(
             status == "approved"
             and str(getattr(decision, "scope", "once")) == "session"
         )
+        desktop_session_scope = (
+            status == "approved"
+            and str(getattr(decision, "scope", "once")) == "desktop_session"
+            and name == "desktop"
+            and bool(str(arguments.get("session_id") or "").strip())
+        )
         if status == "approved":
             if session_scope:
                 self.permission_session.grant_session_permissions(context)
+            if desktop_session_scope:
+                self.permission_session.grant_desktop_session_permission(
+                    context,
+                    str(arguments.get("session_id") or ""),
+                    permission,
+                )
             if name == "request_permissions":
                 scope = "session" if session_scope else str(arguments.get("scope") or "once")
                 return self._store_permission_result(
@@ -527,6 +554,7 @@ class Runtime(
         input_required = self.permission_session.input_required(
             name=name,
             arguments=arguments,
+            display_arguments=display_arguments,
             permission=permission,
             message=exc.message,
             context=context,
@@ -575,6 +603,33 @@ class Runtime(
         definition, handler = self.tool_dispatcher.resolve(name, arguments)
         self._assert_tool_capabilities(name, definition.capabilities)
         image: tuple[str, str] | None = None
+        permission_context: dict[str, Any] | None = None
+        if definition.preflight_handler_name:
+            preflight_handler = getattr(self, definition.preflight_handler_name, None)
+            if not callable(preflight_handler):
+                return make_tool_result(
+                    name,
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": "TOOL_PREFLIGHT_UNAVAILABLE",
+                            "message": f"工具 {name} 缺少预检实现。",
+                            "category": "runtime",
+                            "retryable": False,
+                            "details": {},
+                        },
+                    },
+                )
+            preflight_context_token = ACTIVE_REQUEST_CONTEXT.set(context)
+            try:
+                try:
+                    candidate = preflight_handler(arguments)
+                    if isinstance(candidate, dict):
+                        permission_context = candidate
+                except ToolError as exc:
+                    return make_tool_result(name, {"ok": False, "error": exc.payload()})
+            finally:
+                ACTIVE_REQUEST_CONTEXT.reset(preflight_context_token)
         round_granted, denied = self.permission_session.permission_round(
             name,
             arguments,
@@ -615,6 +670,38 @@ class Runtime(
                     constraint_scope=("session_all" if session_granted else scope),
                     via=("existing_session_grant" if session_granted else None),
                 )
+        required_permissions = definition.required_operation_permissions(arguments)
+        for operation_permission in sorted(
+            required_permissions,
+            key=lambda item: item.value,
+        ):
+            permission = operation_permission.value
+            if (
+                permission in granted
+                or self.permission_policy.operation_is_auto_granted(permission)
+            ):
+                continue
+            permission_error = ToolError(
+                "PERMISSION_REQUIRED",
+                f"工具 {name} 的当前调用需要权限 {permission}。",
+                "permission",
+                False,
+                {"permission": permission},
+            )
+            handled = self._handle_permission_required(
+                name,
+                arguments,
+                permission_error,
+                context=context,
+                granted=granted,
+                permission_context=permission_context,
+            )
+            if handled is not None:
+                return handled
+            return make_tool_result(
+                name,
+                {"ok": False, "error": permission_error.payload()},
+            )
         permission_token = ACTIVE_PERMISSIONS.set(granted)
         request_context_token = ACTIVE_REQUEST_CONTEXT.set(context)
         try:
@@ -631,6 +718,7 @@ class Runtime(
                     exc,
                     context=context,
                     granted=granted,
+                    permission_context=permission_context,
                 )
                 if handled is not None:
                     return handled

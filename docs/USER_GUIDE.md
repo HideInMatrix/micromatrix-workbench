@@ -12,7 +12,8 @@
 
 你需要准备：
 
-- 一台 macOS、Windows 或 Linux 电脑
+- 桌面程序：一台 macOS 或 Windows 电脑
+- Linux：仅支持无界面的 Server/CLI 部署，不提供桌面程序
 - 一个需要 AI 协助的本地项目目录
 - 一个支持 Remote MCP 的 AI 客户端
 - 至少一种可以让 AI 客户端访问本地 MCP 服务的网络方案
@@ -399,17 +400,13 @@ Release 文件名不包含版本号，平台名称统一为：
 ```text
 MicroMatrix-Workbench-windows-x64.exe
 MicroMatrix-Workbench-windows-arm64.exe
-MicroMatrix-Workbench-windows-x64.zip
-MicroMatrix-Workbench-windows-arm64.zip
 MicroMatrix-Workbench-macos-x64.dmg
 MicroMatrix-Workbench-macos-arm64.dmg
 MicroMatrix-Workbench-macos-x64.zip
 MicroMatrix-Workbench-macos-arm64.zip
-MicroMatrix-Workbench-linux-x64.tar.gz
-MicroMatrix-Workbench-linux-arm64.tar.gz
 ```
 
-Windows 的 `.exe` 是当前正式安装与应用内更新包；Windows `.zip` 仅用于旧版 `onedir` updater 迁移到单文件版本。macOS 的 `.dmg` 用于首次手动安装，`.zip` 专供应用内更新。每个可用于自动更新的包同时发布对应的 `.sha256` 校验文件。
+Windows 的 `.exe` 是由 PyInstaller `onedir` 产物经 Inno Setup 生成的正式安装与应用内更新包，不再发布 Windows `.zip` updater 资产。macOS 的 `.dmg` 用于首次手动安装，`.zip` 专供应用内更新。Linux 当前不发布桌面安装包或桌面自动更新资产；Linux 仅保留 Server/CLI 部署。每个可用于自动更新的包同时发布对应的 `.sha256` 校验文件。
 
 版本号只保留在 Git Tag / GitHub Release 中，例如 `v0.1.4`，不会重复写入压缩包文件名。
 

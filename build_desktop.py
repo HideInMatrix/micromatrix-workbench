@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from agent_workbench.core.resources import bundled_cloudflared_path
@@ -25,6 +26,16 @@ DEFAULT_WEB_DIST = DEFAULT_WEB_DIR / "dist"
 ICON_DIR = ROOT / "deploy" / "icons"
 WINDOWS_ICON = ICON_DIR / "workbench-app-icon.ico"
 MACOS_ICON = ICON_DIR / "workbench-app-icon.icns"
+SUPPORTED_DESKTOP_PLATFORMS = frozenset({"darwin", "win32"})
+
+
+def ensure_supported_desktop_platform(platform_name: str | None = None) -> None:
+    current = (platform_name or sys.platform).lower()
+    if current not in SUPPORTED_DESKTOP_PLATFORMS:
+        raise SystemExit(
+            "Desktop packaging currently supports macOS and Windows only. "
+            "Linux remains supported for headless Server/CLI deployment."
+        )
 
 
 def build_web_frontend() -> None:
@@ -119,7 +130,22 @@ def write_build_version(version: str) -> Path:
     return path
 
 
+def run_pyinstaller(command: list[str]) -> int:
+    """Run PyInstaller with an isolated ephemeral binary cache."""
+
+    # Never share PyInstaller's binary cache with unrelated local builds or
+    # another concurrent Workbench build. A stale user-level cache can contain
+    # partially-created signing/cache entries and make an otherwise clean
+    # release fail during COLLECT. Keep cache state build-local and ephemeral;
+    # --clean still controls PyInstaller's work/spec analysis state.
+    with tempfile.TemporaryDirectory(prefix="micromatrix-workbench-pyinstaller-") as cache_dir:
+        environment = os.environ.copy()
+        environment["PYINSTALLER_CONFIG_DIR"] = cache_dir
+        return subprocess.call(command, cwd=ROOT, env=environment)
+
+
 def main(argv: list[str] | None = None) -> int:
+    ensure_supported_desktop_platform()
     args = parse_args(argv)
     if args.build_web:
         build_web_frontend()
@@ -185,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
     command.append("desktop.py")
     print(f"Desktop build version: {build_version}")
     print(f"Frontend dist: {web_dist}")
-    return subprocess.call(command, cwd=ROOT)
+    return run_pyinstaller(command)
 
 
 if __name__ == "__main__":

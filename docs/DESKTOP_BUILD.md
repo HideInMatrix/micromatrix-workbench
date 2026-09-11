@@ -15,8 +15,7 @@ Frontend Build（一次）
         ↓
 Desktop Package（按平台并行）
   macOS   ─┐
-  Windows ─┼─ 复用同一份 web-dist
-  Linux   ─┘
+  Windows ─┴─ 复用同一份 web-dist
 ```
 
 不要在每个平台的 PyInstaller Job 中重复安装 Node 依赖和重新构建 Vue。
@@ -65,23 +64,22 @@ agent_workbench/web/dist
 - PyInstaller 生成的 Python Runtime。
 - pywebview 对应的平台 WebView 运行环境。
 - `cloudflared` 原生可执行文件。
-- macOS `.app` / Windows `.exe` / Linux bundle。
+- macOS `.app` / Windows `.exe`。
 - 后续可能加入的签名、公证、安装器资源。
 
-Windows Release 使用 PyInstaller `--onefile`，直接发布
-`MicroMatrix-Workbench-windows-<arch>.exe`。应用内更新下载新的 `.exe`，在主进程退出后
-由独立 PowerShell helper 原子替换当前可执行文件并重新启动；替换或重启失败时回滚旧 `.exe`。
+Windows Desktop Build 使用 PyInstaller `--onedir` 生成应用目录，再由 Inno Setup
+打包为唯一正式发布/应用内更新资产 `MicroMatrix-Workbench-windows-<arch>.exe`。
+应用内更新下载新的 Inno Setup 安装器，在主进程退出后以静默参数启动安装器完成替换；
+不再发布或消费旧版 Windows `.zip` updater 资产。
 
-过渡期 Release 还会额外生成同名 `.zip`。这个 ZIP 只用于兼容旧版 `onedir` updater，
-内部仅包含 `MicroMatrix Workbench/MicroMatrix Workbench.exe`。新版本不会再消费该 ZIP；待旧版迁移窗口结束后可以移除。
-
-macOS 与 Linux 继续使用目录型 bundle，因为 `.app` / Linux bundle 本身包含平台目录结构。
+macOS 使用 `.app` bundle。Linux 当前不参与 Desktop Build，也不生成桌面 Release 资产；
+Linux 的 systemd / Docker / CLI Server 发布链与桌面打包链分离。
 
 因此只复用 Web `dist/`，不要试图复用整个 Desktop Bundle。
 
 ## 5. Web 兼容边界
 
-同一份 Web `dist/` 会分别运行在 WebView2、WKWebView、WebKitGTK 等引擎中。
+同一份 Web `dist/` 会分别运行在 Windows WebView2 和 macOS WKWebView 中。
 
 前端代码不得按操作系统条件编译不同版本；平台差异通过 pywebview Bridge / Python DesktopAPI 处理。
 

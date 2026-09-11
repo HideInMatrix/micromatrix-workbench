@@ -2,6 +2,8 @@
 
 状态：源码整改完成，自动化回归通过；实际包装 Desktop、真实宿主 Browser 与 DB-015B 部署验收仍需在发布环境执行。
 
+2026-09-11：以下完成记录针对 Browser/Host 整改。0.4.x 新增的浏览器、Blender、Figma 通用桌面观察与操作尚未实施，见 [0.4.x 计划](../desktop-computer-use-04/README.md)；不得将以下完成项视为通用桌面能力已完成。
+
 - [x] 1. 固定真实工具契约并消除目录误报
   - 建立 Catalog invocation ∈ tools/list 的不变量测试，覆盖目前 17 个失配入口、Browser、Git、Process、Skills、Workflow 和外部 MCP。
   - Browser 原子工具正式公开，删除 browser_manage；其他域私有方法退出公共注册。

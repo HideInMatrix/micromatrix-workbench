@@ -7,6 +7,7 @@ export type AppRouteName =
   | 'workbench-skills'
   | 'workbench-mcp-connections'
   | 'oauth'
+  | 'desktop-authorizations'
   | 'logs'
   | 'about'
 
@@ -46,6 +47,11 @@ export const router = createRouter({
       path: '/oauth',
       name: 'oauth',
       component: () => import('../components/OAuthClientView.vue'),
+    },
+    {
+      path: '/desktop-authorizations',
+      name: 'desktop-authorizations',
+      component: () => import('../components/DesktopAuthorizationView.vue'),
     },
     {
       path: '/logs',

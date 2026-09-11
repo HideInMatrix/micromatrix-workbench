@@ -23,6 +23,7 @@ class PermissionBroker:
         *,
         name: str,
         arguments: dict[str, Any],
+        display_arguments: dict[str, Any] | None = None,
         permission: str,
         message: str,
         principal: str,
@@ -32,6 +33,7 @@ class PermissionBroker:
         return self.client.request(
             tool_name=name,
             arguments=arguments,
+            display_arguments=display_arguments,
             permission=permission,
             reason=message,
             principal=principal or "anonymous",

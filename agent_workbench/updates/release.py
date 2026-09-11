@@ -105,8 +105,6 @@ def platform_asset_name(
         return f"MicroMatrix-Workbench-windows-{arch}.exe"
     if current_system == "darwin":
         return f"MicroMatrix-Workbench-macos-{arch}.dmg"
-    if current_system == "linux":
-        return f"MicroMatrix-Workbench-linux-{arch}.tar.gz"
     raise ValueError(f"不支持的系统: {current_system} {arch}")
 
 
@@ -121,8 +119,6 @@ def updater_asset_name(
         return f"MicroMatrix-Workbench-windows-{arch}.exe"
     if current_system == "darwin":
         return f"MicroMatrix-Workbench-macos-{arch}.zip"
-    if current_system == "linux":
-        return f"MicroMatrix-Workbench-linux-{arch}.tar.gz"
     raise ValueError(f"不支持的系统: {current_system} {arch}")
 
 

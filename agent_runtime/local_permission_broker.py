@@ -1064,6 +1064,7 @@ class LocalPermissionBrokerClient:
         *,
         tool_name: str,
         arguments: dict[str, Any],
+        display_arguments: dict[str, Any] | None = None,
         permission: str,
         reason: str,
         principal: str,
@@ -1081,7 +1082,7 @@ class LocalPermissionBrokerClient:
             "tool_name": tool_name,
             "permission": permission,
             "reason": str(reason)[:1200],
-            "arguments": redact_for_display(arguments),
+            "arguments": redact_for_display(display_arguments or arguments),
             "arguments_hash": hashlib.sha256(canonical_payload({"arguments": arguments})).hexdigest(),
             "principal_hash": hashlib.sha256((principal or "anonymous").encode("utf-8")).hexdigest(),
             "created_at": now,
@@ -1115,7 +1116,12 @@ class LocalPermissionBrokerClient:
                 ):
                     return LocalPermissionDecision("unavailable")
                 approved = raw.get("approved") is True
-                scope = "session" if raw.get("scope") == "session" else "once"
+                raw_scope = str(raw.get("scope") or "once")
+                scope = (
+                    raw_scope
+                    if raw_scope in {"session", "desktop_session", "remember_app"}
+                    else "once"
+                )
                 if permission == "toolchain_registration" and raw.get("scope") == "remember":
                     scope = "remember"
                     if approved and not isinstance(raw.get("registration"), dict):

@@ -1,9 +1,50 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from ..errors import ToolError
+
+
+MAX_MCP_IMAGE_BYTES = 25 * 1024 * 1024
+
+
+def decode_png_base64(encoded: str, *, label: str = "Image") -> bytes:
+    try:
+        data = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ToolError(
+            "HOST_CAPABILITY_ERROR",
+            f"{label} 返回无效 PNG 数据。",
+            "runtime",
+        ) from exc
+    if len(data) > MAX_MCP_IMAGE_BYTES:
+        raise ToolError(
+            "OUTPUT_TOO_LARGE",
+            f"{label} 超过 25 MiB 限制。",
+            "runtime",
+        )
+    return data
+
+
+def attach_png_image(
+    payload: dict[str, Any],
+    *,
+    field: str = "data_base64",
+    label: str = "Image",
+) -> dict[str, Any]:
+    encoded = str(payload.pop(field, "") or "")
+    if not encoded:
+        return payload
+    data = decode_png_base64(encoded, label=label)
+    payload.setdefault("mime_type", "image/png")
+    payload["bytes"] = len(data)
+    payload["_image"] = ("image/png", encoded)
+    return payload
 
 
 def truncate_text(text: str, max_bytes: int) -> tuple[str, bool]:

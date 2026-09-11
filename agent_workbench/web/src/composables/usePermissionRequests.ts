@@ -14,6 +14,8 @@ const PERMISSION_LABELS: Record<string, string> = {
   privileged_executable: '启动外部 stdio MCP',
   browser_observe: '观察隔离浏览器会话',
   browser_control: '控制隔离浏览器会话',
+  desktop_observe: '观察桌面应用窗口',
+  desktop_control: '控制桌面应用窗口',
   host_identity_use: '使用宿主身份执行',
   host_manage: '管理 Host Worker',
   toolchain_registration: '自动发现工具 · 确认并记住',
@@ -40,6 +42,19 @@ function createPermissionState() {
   const permissionMenuOpen = ref(false)
   const activePermissionRequest = computed(() => permissionRequests.value[0] || null)
   const permissionIs = (permission: string) => computed(() => activePermissionRequest.value?.permission === permission)
+  const isDesktopPermission = computed(() => (
+    activePermissionRequest.value?.permission === 'desktop_observe'
+    || activePermissionRequest.value?.permission === 'desktop_control'
+  ))
+  const hasDesktopSession = computed(() => {
+    if (!isDesktopPermission.value) return false
+    const args = activePermissionRequest.value?.arguments
+    return Boolean(args && !Array.isArray(args) && typeof args.session_id === 'string' && args.session_id)
+  })
+  const canRememberDesktopApplication = computed(() => (
+    isDesktopPermission.value
+    && activePermissionRequest.value?.persistent_authorization_available === true
+  ))
   return {
     errorMessage,
     permissionRequests,
@@ -49,6 +64,11 @@ function createPermissionState() {
     isToolchainRegistration: permissionIs('toolchain_registration'),
     isBrowserControl: permissionIs('browser_control'),
     isBrowserObserve: permissionIs('browser_observe'),
+    isDesktopControl: permissionIs('desktop_control'),
+    isDesktopObserve: permissionIs('desktop_observe'),
+    isDesktopPermission,
+    hasDesktopSession,
+    canRememberDesktopApplication,
     isHostIdentityUse: permissionIs('host_identity_use'),
     isHostManage: permissionIs('host_manage'),
     permissionArguments: computed(() => stringifyPermissionArguments(activePermissionRequest.value)),
@@ -68,7 +88,7 @@ function createPermissionActions(state: ReturnType<typeof createPermissionState>
     }
   }
 
-  async function respondPermission(decision: 'deny' | 'once' | 'session' | 'remember') {
+  async function respondPermission(decision: 'deny' | 'once' | 'session' | 'desktop_session' | 'remember_app' | 'remember') {
     const request = activePermissionRequest.value
     if (!request || permissionResponding.value) return
 

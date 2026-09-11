@@ -15,6 +15,18 @@ from agent_runtime.sandbox.windows_launcher import (
 )
 
 
+SUPPORTED_DESKTOP_PLATFORMS = frozenset({"darwin", "win32"})
+
+
+def ensure_supported_desktop_platform(platform_name: str | None = None) -> None:
+    current = (platform_name or sys.platform).lower()
+    if current not in SUPPORTED_DESKTOP_PLATFORMS:
+        raise RuntimeError(
+            "MicroMatrix Workbench 桌面版当前仅支持 macOS 和 Windows；"
+            "Linux 暂只支持无界面的 Server/CLI 部署。"
+        )
+
+
 def configure_titlebar(window: Window) -> None:
     """Keep the macOS title centered instead of the unified leading layout."""
     if sys.platform == "darwin":
@@ -31,6 +43,8 @@ def main() -> int:
     if INTERNAL_MCP_FLAG in sys.argv:
         index = sys.argv.index(INTERNAL_MCP_FLAG)
         return run_internal_mcp_server(sys.argv[index + 1 :])
+
+    ensure_supported_desktop_platform()
 
     try:
         import webview

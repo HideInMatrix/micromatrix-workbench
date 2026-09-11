@@ -3,6 +3,7 @@ import type {
   ToolchainRegistration,
   CapabilityCatalogDto,
   DesktopBridge,
+  DesktopAuthorizationDto,
   GatewayDiagnosticDto,
   GatewayDraft,
   GatewayDto,
@@ -150,8 +151,17 @@ export const desktopApi = {
   async listPermissionRequests(): Promise<PermissionRequestDto[]> {
     return (await bridge()).list_permission_requests()
   },
-  async respondPermissionRequest(requestId: string, decision: 'deny' | 'once' | 'session' | 'remember'): Promise<boolean> {
+  async respondPermissionRequest(requestId: string, decision: 'deny' | 'once' | 'session' | 'desktop_session' | 'remember_app' | 'remember'): Promise<boolean> {
     return (await bridge()).respond_permission_request(requestId, decision)
+  },
+  async listDesktopAuthorizations(): Promise<DesktopAuthorizationDto[]> {
+    return (await bridge()).list_desktop_authorizations()
+  },
+  async revokeDesktopAuthorization(ruleId: string): Promise<boolean> {
+    return (await bridge()).revoke_desktop_authorization(ruleId)
+  },
+  async stopAllDesktopInput(): Promise<{ requested: number; stopped: number; results: Record<string, boolean> }> {
+    return (await bridge()).stop_all_desktop_input()
   },
   async listWorkflowApprovals(): Promise<WorkflowApprovalDto[]> {
     return (await bridge()).list_workflow_approvals()
