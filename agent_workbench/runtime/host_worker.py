@@ -5,6 +5,7 @@ import os
 import argparse
 import threading
 import time
+import sys
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -28,6 +29,7 @@ from agent_runtime.local_permission_broker import (
 from agent_runtime.toolchains.registration import fingerprint, prepare_toolchain
 from agent_workbench.host_capabilities import HostCapabilityError, HostCapabilityManager
 from agent_workbench.host_identity import HostIdentityError, HostIdentityProcessManager
+from agent_workbench.core.version import current_version
 
 from .host_tools import resolve_host_tool
 
@@ -135,6 +137,11 @@ class HostWorker:
             "generation": self.generation,
             "generation_index": self.generation_index,
             "worker_pid": os.getpid(),
+            "runtime": {
+                "mode": "frozen" if bool(getattr(sys, "frozen", False)) else "source",
+                "executable_name": Path(sys.executable).name,
+                "workbench_version": current_version(),
+            },
             "updated_at_ms": payload["updated_at_ms"],
             "providers": self.host_capabilities.catalog(),
             "active": [dict(item) for item in active[:16]],

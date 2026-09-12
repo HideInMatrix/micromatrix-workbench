@@ -441,6 +441,7 @@ class LocalPermissionBrokerClient:
         worker_events = worker.get("events")
         providers = worker.get("providers")
         active = worker.get("active")
+        runtime = worker.get("runtime")
         return {
             "status": status,
             "supervisor": {
@@ -451,6 +452,7 @@ class LocalPermissionBrokerClient:
                     "circuit_open", "heartbeat_at_ms", "updated_at_ms",
                 )
             },
+            "runtime": dict(runtime) if isinstance(runtime, dict) else {},
             "providers": list(providers) if isinstance(providers, list) else [],
             "active": (list(active)[:16] if isinstance(active, list) else []),
             "events": (

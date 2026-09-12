@@ -605,6 +605,34 @@ class MacOSDesktopDriver:
         ]
 
     def is_focused(self, target: DesktopTarget) -> bool | None:
+        # A normal macOS app can remain the frontmost application while an
+        # always-on-top utility window from another process is visually above
+        # it.  Using the first layer-0 WindowServer record therefore produces
+        # false negatives for applications such as Blender whenever a floating
+        # utility window is present.  NSWorkspace exposes the actual frontmost
+        # application chosen by AppKit, which is the security boundary we need
+        # before emitting keyboard/mouse input.
+        try:
+            from AppKit import NSWorkspace
+
+            frontmost = NSWorkspace.sharedWorkspace().frontmostApplication()
+            if frontmost is not None:
+                if int(frontmost.processIdentifier()) != target.owner_pid:
+                    return False
+                # Preserve window-level isolation.  Once the frontmost app is
+                # confirmed, compare only that application's leading onscreen
+                # WindowServer record with the authorized target.  Floating
+                # windows owned by other applications no longer cause false
+                # negatives, while another Blender window still cannot inherit
+                # this target's authorization.
+                for current in self._window_records():
+                    if current.onscreen and current.owner_pid == target.owner_pid:
+                        return current.identity == target.identity
+                return None
+        except Exception:
+            # Keep a fail-closed fallback for source/test environments where
+            # PyObjC/AppKit is unavailable.
+            pass
         for current in self._window_records():
             if not current.onscreen:
                 continue

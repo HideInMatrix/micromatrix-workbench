@@ -8,7 +8,11 @@ from typing import Any
 from ..base import HostCapabilityDescriptor, HostCapabilityError
 from .drivers import build_desktop_driver
 from .drivers.base import DesktopControlDecision, DesktopDriver, DesktopTarget, WindowBounds
-from .sessions import DesktopSession
+from .sessions import DesktopObservationState, DesktopSession
+
+
+_OBSERVATION_HISTORY_LIMIT = 8
+_OBSERVATION_MAX_AGE_SECONDS = 120.0
 
 
 class DesktopHostCapability:
@@ -274,7 +278,11 @@ class DesktopHostCapability:
                         stage="system_permission",
                     )
             elif action in {"click", "type", "keypress", "scroll", "drag"}:
-                target = self._validate_control_observation(session, parameters)
+                target = self._validate_control_observation(
+                    session,
+                    parameters,
+                    consume=False,
+                )
                 self._ensure_target_control_allowed(target)
                 if (
                     bool(parameters.get("observe_after", True))
@@ -484,6 +492,15 @@ class DesktopHostCapability:
             for item in elements
             if str(item.get("ref") or "")
         }
+        session.observations[observation_id] = DesktopObservationState(
+            bounds=target.bounds,
+            image_width=width,
+            image_height=height,
+            observed_at_monotonic=time.monotonic(),
+            elements=dict(session.last_elements),
+        )
+        while len(session.observations) > _OBSERVATION_HISTORY_LIMIT:
+            session.observations.pop(next(iter(session.observations)))
         return {
             "session_id": session.session_id,
             "host_generation": session.generation,
@@ -503,6 +520,8 @@ class DesktopHostCapability:
         self,
         session: DesktopSession,
         parameters: dict[str, Any],
+        *,
+        consume: bool,
     ) -> DesktopTarget:
         if session.mode != "control":
             raise HostCapabilityError(
@@ -511,12 +530,27 @@ class DesktopHostCapability:
                 stage="authorization",
             )
         observation_id = str(parameters.get("observation_id") or "")
-        if not observation_id or observation_id != session.last_observation_id:
+        observation = session.observations.get(observation_id)
+        if (
+            observation is None
+            or time.monotonic() - observation.observed_at_monotonic
+            > _OBSERVATION_MAX_AGE_SECONDS
+        ):
+            session.observations.pop(observation_id, None)
             raise HostCapabilityError(
                 "Desktop observation_id 已过期；请重新 observe 后再执行输入动作。",
                 code="STALE_DESKTOP_OBSERVATION",
                 stage="validation",
             )
+        # Keep each accepted observation bound to the exact coordinate mapping
+        # and accessibility refs that were captured with that frame.  A newer
+        # observation may be produced by another preflight/UI consumer without
+        # invalidating an otherwise-safe recent frame from the same Session.
+        session.last_observation_id = observation_id
+        session.last_bounds = observation.bounds
+        session.last_image_width = observation.image_width
+        session.last_image_height = observation.image_height
+        session.last_elements = dict(observation.elements)
         current = self._refresh_session_target(session)
         # Re-evaluate target-specific protection immediately before every
         # input action. Preflight/approval may have happened earlier and a
@@ -536,6 +570,8 @@ class DesktopHostCapability:
                 code="DESKTOP_TARGET_NOT_FOCUSED" if focused is False else "DESKTOP_FOCUS_UNVERIFIED",
                 stage="focus",
             )
+        if consume:
+            session.observations.pop(observation_id, None)
         return current
 
     def _image_to_global(self, session: DesktopSession, x: int, y: int) -> tuple[float, float]:
@@ -580,7 +616,7 @@ class DesktopHostCapability:
         return int(round(x)), int(round(y))
 
     def _click(self, session: DesktopSession, parameters: dict[str, Any]) -> dict[str, Any]:
-        target = self._validate_control_observation(session, parameters)
+        target = self._validate_control_observation(session, parameters, consume=True)
         input_epoch = self._input_epoch(session.server_id)
         element_ref = str(parameters.get("element_ref") or "").strip()
         if element_ref:
@@ -609,7 +645,7 @@ class DesktopHostCapability:
         }
 
     def _type(self, session: DesktopSession, parameters: dict[str, Any]) -> dict[str, Any]:
-        target = self._validate_control_observation(session, parameters)
+        target = self._validate_control_observation(session, parameters, consume=True)
         input_epoch = self._input_epoch(session.server_id)
         text = str(parameters.get("text") or "")
         with self._input_lock:
@@ -622,7 +658,7 @@ class DesktopHostCapability:
         }
 
     def _keypress(self, session: DesktopSession, parameters: dict[str, Any]) -> dict[str, Any]:
-        target = self._validate_control_observation(session, parameters)
+        target = self._validate_control_observation(session, parameters, consume=True)
         input_epoch = self._input_epoch(session.server_id)
         key = str(parameters.get("key") or "")
         with self._input_lock:
@@ -631,7 +667,7 @@ class DesktopHostCapability:
         return {"session_id": session.session_id, "pressed": key}
 
     def _scroll(self, session: DesktopSession, parameters: dict[str, Any]) -> dict[str, Any]:
-        target = self._validate_control_observation(session, parameters)
+        target = self._validate_control_observation(session, parameters, consume=True)
         input_epoch = self._input_epoch(session.server_id)
         x_value = parameters.get("x")
         y_value = parameters.get("y")
@@ -670,7 +706,7 @@ class DesktopHostCapability:
         }
 
     def _drag(self, session: DesktopSession, parameters: dict[str, Any]) -> dict[str, Any]:
-        target = self._validate_control_observation(session, parameters)
+        target = self._validate_control_observation(session, parameters, consume=True)
         input_epoch = self._input_epoch(session.server_id)
         raw_path = parameters.get("path")
         if not isinstance(raw_path, list) or len(raw_path) < 2:
