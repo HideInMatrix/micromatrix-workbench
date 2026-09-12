@@ -14,16 +14,47 @@ class ToolchainHandlers:
                                    list(args.get("kinds") or ["node", "python", "go"])))
         primary = {"node": "node", "python": "python", "go": "go"}
         errors = {}
-        host_resolution_attempted = False
+        host_shell_resolution_attempted = False
         self._verify_registered_toolchains()
         discovered = self.toolchains.discover(kinds)
         for kind in kinds:
             current = discovered["toolchains"].get(kind, {})
-            if kind not in primary or current.get("selected") is not None:
+            if kind not in primary:
                 continue
-            host_resolution_attempted = True
+            project_context = self.toolchains.project_context(
+                primary[kind], self.workspace.root
+            )
+            requirements = project_context.get("requirements")
+            has_python_venv = (
+                kind == "python"
+                and isinstance(requirements, list)
+                and any(
+                    isinstance(item, dict)
+                    and item.get("type") == "python_virtual_environment"
+                    for item in requirements
+                )
+            )
+            selected = current.get("selected") if isinstance(current, dict) else None
+            selected_source = (
+                str(selected.get("source") or "")
+                if isinstance(selected, dict)
+                else ""
+            )
+            if selected is not None and not (
+                has_python_venv and selected_source != "registered"
+            ):
+                continue
             try:
-                self._resolve_program(primary[kind])
+                if has_python_venv:
+                    proposal = self._resolve_host_tool_proposal(
+                        primary[kind], cwd=self.workspace.root
+                    )
+                    self._register_missing_toolchain(
+                        primary[kind], proposal=proposal
+                    )
+                else:
+                    host_shell_resolution_attempted = True
+                    self._resolve_program(primary[kind])
             except ToolError as exc:
                 errors[kind] = exc.payload()
         # Registration may have replaced the resolver, so never return the old snapshot.
@@ -38,11 +69,13 @@ class ToolchainHandlers:
         return {
             **discovered,
             "project_contexts": project_contexts,
-            "shell_startup_files_evaluated": host_resolution_attempted and os.name != "nt",
+            "shell_startup_files_evaluated": (
+                host_shell_resolution_attempted and os.name != "nt"
+            ),
             "home_scanned_recursively": False,
             "elevated_user_environment_queried": False,
-            "host_resolution": "workspace_aware_desktop_command",
-            "host_user_environment_queried": host_resolution_attempted,
+            "host_resolution": "workspace_aware_desktop_host_resolution",
+            "host_user_environment_queried": host_shell_resolution_attempted,
             "host_environment_exposed_to_ai": False,
             "missing": missing,
             "registration_errors": errors,

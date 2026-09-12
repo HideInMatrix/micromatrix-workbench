@@ -256,6 +256,17 @@ class ToolchainResolver:
                 if node_engine_found and package_manager_found:
                     break
         elif kind == "python":
+            virtual_environment = self._python_virtual_environment(directory)
+            if virtual_environment is not None:
+                try:
+                    value = str(virtual_environment.relative_to(self.workspace))
+                except ValueError:
+                    value = virtual_environment.name
+                requirements.append(self._requirement(
+                    virtual_environment / "pyvenv.cfg",
+                    "python_virtual_environment",
+                    value,
+                ))
             version_file = self._nearest_file(directory, ".python-version")
             if version_file is not None:
                 value = self._read_first_line(version_file)
@@ -336,6 +347,33 @@ class ToolchainResolver:
 
     def _nearest_file(self, directory: Path, name: str) -> Path | None:
         return self._nearest_named_file(directory, (name,))
+
+    def _python_virtual_environment(self, directory: Path) -> Path | None:
+        for ancestor in self._project_ancestors(directory):
+            candidates: list[Path] = []
+            try:
+                entries = list(ancestor.iterdir())[:256]
+            except OSError:
+                continue
+            for entry in entries:
+                try:
+                    if entry.is_symlink() or not entry.is_dir():
+                        continue
+                    if not (entry / "pyvenv.cfg").is_file():
+                        continue
+                    entry.resolve(strict=True).relative_to(self.workspace)
+                except (OSError, ValueError):
+                    continue
+                candidates.append(entry)
+            if candidates:
+                candidates.sort(
+                    key=lambda item: (
+                        0 if item.name == ".venv" else 1 if item.name == "venv" else 2,
+                        item.name.casefold(),
+                    )
+                )
+                return candidates[0]
+        return None
 
     def _project_ancestors(self, directory: Path) -> list[Path]:
         result: list[Path] = []

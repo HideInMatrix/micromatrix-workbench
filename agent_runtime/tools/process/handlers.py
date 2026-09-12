@@ -175,26 +175,34 @@ class ProcessHandlers:
                 f"已配置的工具路径中未找到 {program}，且该名称不能作为主机工具解析。",
                 "process", False, {"program": program, "safe_path": list(self.safe_exec_path)},
             )
+        current_context = self.toolchains.project_context(
+            normalized,
+            (cwd or self.workspace.root).resolve(),
+        )
+        current_requirements = current_context.get("requirements")
+        if not isinstance(current_requirements, list):
+            current_requirements = []
+        project_python_environment = (
+            normalized in {"python", "python3"}
+            and any(
+                isinstance(item, dict)
+                and item.get("type") == "python_virtual_environment"
+                for item in current_requirements
+            )
+        )
         existing = next(
             (item for item in self.toolchain_registrations if item["program"] == normalized),
             None,
         )
         if existing is not None:
-            current_context = self.toolchains.project_context(
-                normalized,
-                (cwd or self.workspace.root).resolve(),
-            )
             registered_context = existing.get("project_context")
             registered_requirements = (
                 registered_context.get("requirements")
                 if isinstance(registered_context, dict)
                 else []
             )
-            current_requirements = current_context.get("requirements")
             if not isinstance(registered_requirements, list):
                 registered_requirements = []
-            if not isinstance(current_requirements, list):
-                current_requirements = []
             if current_requirements and not registered_context:
                 raise ToolError(
                     "TOOLCHAIN_REGISTRATION_STALE",
@@ -228,7 +236,7 @@ class ProcessHandlers:
                 )
             return resolved
         local = self.toolchains.resolve_program(normalized)
-        if local is not None:
+        if local is not None and not project_python_environment:
             return local
         if self._host_tool_broker() is None:
             raise ToolError(
@@ -333,7 +341,7 @@ class ProcessHandlers:
                 tool_name="register_toolchain",
                 arguments={**proposal, "workspace": str(self.workspace.root)},
                 permission="toolchain_registration",
-                reason=(f"AI 准备在当前 Workspace 使用 {program}。Workbench Host 已通过真实用户环境命令解析出工具路径；"
+                reason=(f"AI 准备在当前 Workspace 使用 {program}。Workbench Host 已通过项目上下文或真实用户环境解析出工具路径；"
                         f"仅把绝对路径与必要只读范围展示给你确认，主机环境变量不会交给 AI。"
                         f"{project_note}{isolation_note}"),
                 principal="toolchain-registration",

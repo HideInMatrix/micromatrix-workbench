@@ -282,9 +282,14 @@ class HostWorker:
         try:
             resolution = resolve_host_tool(program, workspace=workspace or None)
             proposal = prepare_toolchain(program, str(resolution["executable"]), [])
+            resolver = str(resolution.get("resolver") or "")
             proposal["resolution"] = {
-                "source": "host_command",
-                "resolver": resolution.get("resolver"),
+                "source": (
+                    "workspace_python_environment"
+                    if resolver == "workspace_pyvenv"
+                    else "host_command"
+                ),
+                "resolver": resolver,
                 "shell": resolution.get("shell"),
                 "shell_mode": resolution.get("shell_mode"),
                 "shell_startup_files_evaluated": resolution.get("shell_startup_files_evaluated", False),

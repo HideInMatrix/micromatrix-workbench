@@ -40,6 +40,71 @@ def _resolved_workspace(workspace: str | Path | None) -> Path | None:
     return path.resolve()
 
 
+def _workspace_python_environment(workspace: Path | None) -> Path | None:
+    """Return one project-owned virtual environment without recursive scanning.
+
+    A Python virtual environment is identified by ``pyvenv.cfg`` rather than a
+    particular directory name. Only direct workspace children are considered.
+    """
+    if workspace is None:
+        return None
+    candidates: list[Path] = []
+    try:
+        entries = list(workspace.iterdir())[:256]
+    except OSError:
+        return None
+    for entry in entries:
+        try:
+            if entry.is_symlink() or not entry.is_dir():
+                continue
+            if not (entry / "pyvenv.cfg").is_file():
+                continue
+            entry.resolve(strict=True).relative_to(workspace)
+        except (OSError, ValueError):
+            continue
+        candidates.append(entry)
+    if not candidates:
+        return None
+    candidates.sort(
+        key=lambda item: (
+            0 if item.name == ".venv" else 1 if item.name == "venv" else 2,
+            item.name.casefold(),
+        )
+    )
+    return candidates[0]
+
+
+def _resolve_workspace_python(program: str, workspace: Path | None) -> dict[str, Any] | None:
+    if program not in {"python", "python3"}:
+        return None
+    environment = _workspace_python_environment(workspace)
+    if environment is None:
+        return None
+    bin_dir = environment / ("Scripts" if os.name == "nt" else "bin")
+    names = (program, "python3", "python") if program == "python" else (program, "python")
+    for name in dict.fromkeys(names):
+        filenames = (f"{name}.exe", name) if os.name == "nt" else (name,)
+        for filename in filenames:
+            path = bin_dir / filename
+            try:
+                if not path.is_file() or not os.access(path, os.X_OK):
+                    continue
+                path.resolve(strict=True)
+            except OSError:
+                continue
+            return {
+                "program": program,
+                "executable": str(path),
+                "resolver": "workspace_pyvenv",
+                "shell": "",
+                "shell_mode": "none",
+                "shell_startup_files_evaluated": False,
+                "workspace": str(workspace) if workspace is not None else "",
+                "virtual_environment": str(environment),
+            }
+    return None
+
+
 def _resolve_posix(program: str, workspace: Path | None) -> dict[str, Any]:
     shell = _login_shell()
     script = (
@@ -142,6 +207,9 @@ def resolve_host_tool(
 
     normalized = normalize_program_name(program)
     resolved_workspace = _resolved_workspace(workspace)
+    workspace_python = _resolve_workspace_python(normalized, resolved_workspace)
+    if workspace_python is not None:
+        return workspace_python
     return (
         _resolve_windows(normalized, resolved_workspace)
         if os.name == "nt"
