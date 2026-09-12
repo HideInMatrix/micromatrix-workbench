@@ -41,6 +41,9 @@ class ProcessNetworkProvider(NetworkProvider):
 
     def spawn(self, command: list[str], *, prefix: str) -> None:
         self._log("启动网络进程: " + " ".join(command[:2]) + (" ..." if len(command) > 2 else ""))
+        # A Provider may be restarted in-place. Never let readiness waits consume
+        # stale output emitted by the previous child process.
+        self._lines = queue.Queue()
         self.process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,

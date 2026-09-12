@@ -12,10 +12,11 @@ from agent_runtime.local_permission_broker import (
     BROKER_SECRET_ENV,
     BROKER_SERVER_ID_ENV,
 )
-from agent_runtime.route_probe import ROUTE_PROBE_TOKEN_ENV
+from agent_runtime.route_probe import ROUTE_PROBE_TOKEN_ENV, workspace_fingerprint
 
 from ..core.config import LaunchConfig, NetworkConfig
 from ..network.base import NetworkProvider
+from ..network.cloudflare import probe_named_tunnel_route
 from ..network.factory import create_network_provider
 from ..network.specs import network_provider_spec
 from ..oauth.persistence import (
@@ -24,7 +25,11 @@ from ..oauth.persistence import (
     canonical_oauth_issuer,
 )
 from ..runtime.process import LogCallback, check_port_available
-from ..servers.launcher import MCPLauncher
+from ..servers.launcher import (
+    MCPLauncher,
+    NAMED_TUNNEL_FAILURE_THRESHOLD,
+    NAMED_TUNNEL_HEALTH_INTERVAL_SECONDS,
+)
 from .diagnostics import (
     DIAGNOSTIC_OAUTH_CLIENT_NAME,
     DIAGNOSTIC_STARTUP_GRACE_SECONDS,
@@ -101,6 +106,8 @@ class MCPGatewayLauncher:
         self._route_probe_token = ""
         self._last_diagnostic: GatewayDiagnosticReport | None = None
         self._diagnostics = GatewayDiagnostics(self.oauth_registry_file)
+        self._active_config: GatewayLaunchConfig | None = None
+        self._provider_restarting = False
 
     def _log(self, message: str) -> None:
         self._log_callback(message)
@@ -126,7 +133,7 @@ class MCPGatewayLauncher:
         return bool(
             provider
             and process
-            and provider.is_running
+            and (provider.is_running or self._provider_restarting)
             and process.poll() is None
             and not self._stopping
         )
@@ -321,11 +328,16 @@ class MCPGatewayLauncher:
                 f"都回源到 http://{info.host}:{info.port}。"
             )
 
-    def _start_watchers(self, url_mode: str) -> None:
+    def _start_watchers(self, url_mode: str, config: GatewayLaunchConfig) -> None:
         threading.Thread(target=self._watch_children, daemon=True).start()
         if url_mode == "Cloudflare Named Tunnel":
             threading.Thread(
                 target=self._diagnose_background,
+                daemon=True,
+            ).start()
+            threading.Thread(
+                target=self._watch_named_tunnel_health,
+                args=(config,),
                 daemon=True,
             ).start()
 
@@ -341,6 +353,7 @@ class MCPGatewayLauncher:
             self._stopping = False
             self._exit_reason = ""
             check_port_available(validated.host, validated.port)
+            self._active_config = validated
             try:
                 profiles = self._launch_profiles(validated)
                 if validated.network.public_url:
@@ -382,7 +395,7 @@ class MCPGatewayLauncher:
                     profiles=profiles,
                 )
                 self._log_launch_info(self._info)
-                self._start_watchers(url_mode)
+                self._start_watchers(url_mode, validated)
                 return self._info
             except Exception:
                 self._stop_locked()
@@ -400,6 +413,7 @@ class MCPGatewayLauncher:
         self._single_server_id = root.server_id
         self._stopping = False
         self._exit_reason = ""
+        self._active_config = None
         self._last_diagnostic = None
         self._diagnostics.reset()
         direct_info = self._direct.start(
@@ -466,12 +480,108 @@ class MCPGatewayLauncher:
                     return
             time.sleep(0.5)
 
+    def _watch_named_tunnel_health(self, config: GatewayLaunchConfig) -> None:
+        """Self-heal a fixed Gateway Tunnel after sustained public route loss."""
+
+        time.sleep(NAMED_TUNNEL_HEALTH_INTERVAL_SECONDS)
+        failures = 0
+        while True:
+            with self._lock:
+                if self._stopping or self._active_config is not config or self._info is None:
+                    return
+                process = self._gateway.process
+                if process is None or process.poll() is not None:
+                    return
+                info = self._info
+                route_probe_token = self._route_probe_token
+                profile = next(
+                    (item for item in info.profiles if item.instance_path == ""),
+                    info.profiles[0] if info.profiles else None,
+                )
+                if profile is None:
+                    return
+                public_base_url = profile.public_base_url or profile.oauth_issuer
+                expected_fingerprint = workspace_fingerprint(profile.workspace)
+
+            probe = probe_named_tunnel_route(
+                public_base_url,
+                route_probe_token,
+                expected_fingerprint,
+            )
+            if probe.ok:
+                failures = 0
+            elif probe.status == "blocked":
+                self._log(
+                    "Gateway Cloudflare 自动健康检查被 Edge 安全策略阻止"
+                    f"（{probe.detail}）；保留 Tunnel，不执行自动重启。"
+                )
+                return
+            elif probe.status == "mismatch":
+                self._log(
+                    "Gateway Cloudflare 公网 hostname 命中了错误 Runtime"
+                    f"（{probe.detail}）；停止自动自愈，请检查 Hostname/Tunnel 绑定。"
+                )
+                return
+            else:
+                failures += 1
+                self._log(
+                    "Gateway Cloudflare 公网健康检查失败 "
+                    f"({failures}/{NAMED_TUNNEL_FAILURE_THRESHOLD}): "
+                    f"{probe.detail or 'unavailable'}"
+                )
+                if failures >= NAMED_TUNNEL_FAILURE_THRESHOLD:
+                    if not self._restart_named_tunnel_provider(config, info.public_base_url):
+                        return
+                    failures = 0
+            time.sleep(NAMED_TUNNEL_HEALTH_INTERVAL_SECONDS)
+
+    def _restart_named_tunnel_provider(
+        self,
+        config: GatewayLaunchConfig,
+        public_base_url: str,
+    ) -> bool:
+        with self._lock:
+            if self._stopping or self._active_config is not config:
+                return False
+            provider = self._provider
+            process = self._gateway.process
+            if provider is None or process is None or process.poll() is not None:
+                return False
+            self._log(
+                "Gateway Cloudflare Named Tunnel 连续公网探针失败；"
+                "仅重启 Tunnel Provider，Gateway Runtime 保持运行。"
+            )
+            self._provider_restarting = True
+            replacement: NetworkProvider | None = None
+            try:
+                provider.stop()
+                replacement = create_network_provider(config.network.provider, self._log)
+                network_info = replacement.start(config.host, config.port, config.network)
+                provider_url = canonical_oauth_issuer(network_info.public_base_url)
+                if provider_url != public_base_url:
+                    raise RuntimeError(
+                        "Gateway Cloudflare Provider 自愈后 Public URL 发生变化，拒绝替换。"
+                    )
+                self._provider = replacement
+                self._provider_restarting = False
+                self._log("Gateway Cloudflare Named Tunnel Provider 自动重启完成。")
+                return True
+            except Exception as exc:
+                if replacement is not None:
+                    replacement.stop()
+                self._provider_restarting = False
+                self._exit_reason = f"Gateway Cloudflare Named Tunnel 自动重启失败: {exc}"
+                self._log(self._exit_reason)
+                self._stop_locked()
+                return False
+
     def stop(self) -> None:
         with self._lock:
             self._stop_locked()
 
     def _stop_locked(self) -> None:
         self._stopping = True
+        self._provider_restarting = False
         if self._active_mode == "single":
             self._direct.stop()
         else:
@@ -484,6 +594,7 @@ class MCPGatewayLauncher:
         self._last_diagnostic = None
         self._diagnostics.reset()
         self._single_server_id = ""
+        self._active_config = None
 
     def wait(self) -> None:
         while self.is_running:

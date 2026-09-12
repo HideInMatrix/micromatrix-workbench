@@ -17,6 +17,7 @@ except ImportError:  # pragma: no cover - desktop requirements normally include 
 
 from ..core.config import LaunchConfig, LaunchInfo
 from ..network.base import NetworkProvider
+from ..network.cloudflare import probe_named_tunnel_route
 from ..network.factory import create_network_provider
 from ..oauth.persistence import (
     OAUTH_REGISTRY_FILE_ENV,
@@ -33,10 +34,15 @@ from agent_runtime.route_probe import (
     ROUTE_PROBE_HEADER,
     ROUTE_PROBE_PATH,
     ROUTE_PROBE_TOKEN_ENV,
+    workspace_fingerprint,
 )
 
 if TYPE_CHECKING:
     from ..runtime.permission_broker import DesktopPermissionBroker
+
+
+NAMED_TUNNEL_HEALTH_INTERVAL_SECONDS = 5.0
+NAMED_TUNNEL_FAILURE_THRESHOLD = 3
 
 
 class MCPLauncher:
@@ -54,6 +60,9 @@ class MCPLauncher:
         self._stopping = False
         self._exit_reason = ""
         self._permission_broker = permission_broker
+        self._active_config: LaunchConfig | None = None
+        self._route_probe_token = ""
+        self._provider_restarting = False
 
     def _log(self, message: str) -> None:
         self._log_callback(message)
@@ -199,7 +208,7 @@ class MCPLauncher:
         return bool(
             provider
             and mcp
-            and provider.is_running
+            and (provider.is_running or self._provider_restarting)
             and mcp.poll() is None
             and not self._stopping
         )
@@ -217,6 +226,8 @@ class MCPLauncher:
             self._stopping = False
             self._exit_reason = ""
             check_port_available(config.host, config.port)
+            self._active_config = config
+            self._route_probe_token = route_probe_token
             try:
                 self._provider = create_network_provider(
                     config.network.provider,
@@ -327,6 +338,11 @@ class MCPLauncher:
                         args=(public_base_url, route_probe_token),
                         daemon=True,
                     ).start()
+                    threading.Thread(
+                        target=self._watch_named_tunnel_health,
+                        args=(config, public_base_url, route_probe_token),
+                        daemon=True,
+                    ).start()
                 return self._info
             except Exception:
                 self._stop_locked()
@@ -357,12 +373,116 @@ class MCPLauncher:
                     return
             time.sleep(0.5)
 
+    def _watch_named_tunnel_health(
+        self,
+        config: LaunchConfig,
+        public_base_url: str,
+        route_probe_token: str,
+    ) -> None:
+        """Self-heal a fixed Cloudflare Tunnel after sustained route loss."""
+
+        expected_fingerprint = workspace_fingerprint(config.workspace)
+        failures = 0
+        time.sleep(NAMED_TUNNEL_HEALTH_INTERVAL_SECONDS)
+        while True:
+            with self._lock:
+                if (
+                    self._stopping
+                    or self._active_config is not config
+                    or self._route_probe_token != route_probe_token
+                    or self._info is None
+                ):
+                    return
+                process = self._mcp.process
+                if process is None or process.poll() is not None:
+                    return
+
+            probe = probe_named_tunnel_route(
+                public_base_url,
+                route_probe_token,
+                expected_fingerprint,
+            )
+            if probe.ok:
+                failures = 0
+            elif probe.status == "blocked":
+                self._log(
+                    "Cloudflare Named Tunnel 自动健康检查被 Edge 安全策略阻止"
+                    f"（{probe.detail}）；保留 Tunnel，不执行自动重启。"
+                )
+                return
+            elif probe.status == "mismatch":
+                self._log(
+                    "Cloudflare Named Tunnel 公网 hostname 命中了错误 Runtime"
+                    f"（{probe.detail}）；重启 cloudflared 无法安全修复路由，"
+                    "已停止自动自愈，请检查 Public Hostname/Tunnel 绑定。"
+                )
+                return
+            else:
+                failures += 1
+                self._log(
+                    "Cloudflare Named Tunnel 公网健康检查失败 "
+                    f"({failures}/{NAMED_TUNNEL_FAILURE_THRESHOLD}): "
+                    f"{probe.detail or 'unavailable'}"
+                )
+                if failures >= NAMED_TUNNEL_FAILURE_THRESHOLD:
+                    if not self._restart_named_tunnel_provider(config, public_base_url):
+                        return
+                    failures = 0
+            time.sleep(NAMED_TUNNEL_HEALTH_INTERVAL_SECONDS)
+
+    def _restart_named_tunnel_provider(
+        self,
+        config: LaunchConfig,
+        public_base_url: str,
+    ) -> bool:
+        """Restart cloudflared without restarting the healthy Runtime."""
+
+        with self._lock:
+            if self._stopping or self._active_config is not config:
+                return False
+            provider = self._provider
+            process = self._mcp.process
+            if provider is None or process is None or process.poll() is not None:
+                return False
+            self._log(
+                "Cloudflare Named Tunnel 连续公网探针失败；"
+                "仅重启 Tunnel Provider，Agent Runtime 保持运行。"
+            )
+            self._provider_restarting = True
+            replacement: NetworkProvider | None = None
+            try:
+                provider.stop()
+                replacement = create_network_provider(config.network.provider, self._log)
+                network_info = replacement.start(
+                    config.host,
+                    config.port,
+                    config.network,
+                )
+                provider_url = canonical_oauth_issuer(network_info.public_base_url)
+                if provider_url != public_base_url:
+                    raise RuntimeError(
+                        "Cloudflare Provider 自愈后 Public URL 发生变化，拒绝替换。"
+                    )
+                self._provider = replacement
+                self._provider_restarting = False
+                self._log("Cloudflare Named Tunnel Provider 自动重启完成。")
+                return True
+            except Exception as exc:
+                if replacement is not None:
+                    replacement.stop()
+                self._provider_restarting = False
+                self._exit_reason = f"Cloudflare Named Tunnel 自动重启失败: {exc}"
+                self._log(self._exit_reason)
+                self._stop_locked()
+                return False
+
     def stop(self) -> None:
         with self._lock:
             self._stop_locked()
 
     def _stop_locked(self) -> None:
         self._stopping = True
+        self._provider_restarting = False
         self._mcp.stop()
         if self._provider is not None:
             self._provider.stop()
@@ -371,6 +491,8 @@ class MCPLauncher:
         self._oauth_persistence = None
         self._provider = None
         self._info = None
+        self._active_config = None
+        self._route_probe_token = ""
 
     def wait(self) -> None:
         while self.is_running:

@@ -371,7 +371,7 @@ _WORKBENCH_MCP_FACADES = (
     ToolDefinition(
         "mcp_connection_manage",
         "MCP connection management",
-        "Manage external MCP Connections. action=list|get|validate|save|delete|test|discover|call_tool.",
+        "Manage external MCP Connections. action=list|get|validate|save|delete|test|discover|call_tool. For compatibility with cached older schemas, action=test also accepts arguments.deep when the top-level deep field is unavailable.",
         obj(
             {
                 "action": {**S, "enum": ["list", "get", "validate", "save", "delete", "test", "discover", "call_tool"]},

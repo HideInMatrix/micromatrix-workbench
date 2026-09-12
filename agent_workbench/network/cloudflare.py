@@ -1,6 +1,19 @@
 from __future__ import annotations
 
+import json
 import re
+import secrets
+import ssl
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
+
+try:
+    import certifi
+except ImportError:  # pragma: no cover - desktop requirements normally include it
+    certifi = None
+
+from agent_runtime.route_probe import ROUTE_PROBE_HEADER, ROUTE_PROBE_PATH
 
 from ..core.config import NetworkConfig
 from ..core.resources import resolve_cloudflared
@@ -14,6 +27,73 @@ REQUEST_CANCELLATION_MARKERS = (
     "incoming request ended abruptly: context canceled",
     "failed to proxy http: incoming request ended abruptly: context canceled",
 )
+
+
+@dataclass(frozen=True, slots=True)
+class NamedTunnelProbeResult:
+    status: str
+    detail: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "ok"
+
+
+def probe_named_tunnel_route(
+    public_base_url: str,
+    route_probe_token: str,
+    expected_fingerprint: str,
+    *,
+    timeout: float = 4.0,
+) -> NamedTunnelProbeResult:
+    """Check that a fixed Cloudflare hostname reaches the expected Runtime."""
+
+    context = ssl.create_default_context()
+    if certifi is not None:
+        try:
+            context.load_verify_locations(cafile=certifi.where())
+        except OSError:
+            pass
+    request = urllib.request.Request(
+        f"{public_base_url.rstrip('/')}"
+        f"{ROUTE_PROBE_PATH}?nonce={secrets.token_urlsafe(8)}",
+        headers={
+            ROUTE_PROBE_HEADER: route_probe_token,
+            "Cache-Control": "no-cache",
+            "Connection": "close",
+            "User-Agent": "MicroMatrix-Workbench-Tunnel-Health/1.0",
+        },
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
+            body = response.read(8193)
+            if len(body) > 8192:
+                return NamedTunnelProbeResult(
+                    "unavailable", "route probe response exceeded 8 KiB"
+                )
+            raw = json.loads(body.decode("utf-8"))
+            if not isinstance(raw, dict):
+                return NamedTunnelProbeResult(
+                    "unavailable", "route probe returned non-object JSON"
+                )
+            actual = str(raw.get("workspace_fingerprint") or "")
+            if actual != expected_fingerprint:
+                return NamedTunnelProbeResult(
+                    "mismatch",
+                    f"workspace fingerprint mismatch: {actual or 'missing'}",
+                )
+            return NamedTunnelProbeResult("ok")
+    except urllib.error.HTTPError as exc:
+        if exc.code in {401, 403, 429}:
+            return NamedTunnelProbeResult("blocked", f"HTTP {exc.code}")
+        if exc.code == 404:
+            return NamedTunnelProbeResult("mismatch", "HTTP 404 route probe not found")
+        return NamedTunnelProbeResult("unavailable", f"HTTP {exc.code}")
+    except urllib.error.URLError as exc:
+        return NamedTunnelProbeResult("unavailable", str(exc.reason or exc))
+    except (TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
+        return NamedTunnelProbeResult("unavailable", str(exc))
 
 
 def is_request_cancellation_log(value: str) -> bool:

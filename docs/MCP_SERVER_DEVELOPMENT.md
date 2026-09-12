@@ -426,6 +426,8 @@ cacheScope = private
 
 公共 `tools/list` 在一个 Runtime 生命周期内保持不可变，`capabilities.tools.listChanged=false`。Skill、Workflow、外部 MCP 等动态内容只改变 `capability_catalog.revision`，不热增删顶层 MCP Tool。`toolContractRevision` 对当前完整公共 Tool Contract 做稳定哈希；版本/构建改变 Tool schema 后 revision 随新 Runtime 改变。MCP `serverInfo.version` 会把该 revision 作为 SemVer build metadata 暴露，使仅按 Server identity 缓存 Tool schema 的客户端也能在 Runtime 更新后自然失效旧 Contract；modern 响应仍同时携带 `_meta.com.micromatrix.workbench/toolContractRevision`。Server 不通过私有 header 或伪 session 强迫 2026 客户端刷新本地 schema 缓存。
 
+对于 `*_manage` 这类长期稳定的 domain facade，新增 action-specific 可选参数时必须保留已有可扩展对象的兼容入口，不能只依赖新增顶层 schema 字段。部分 MCP 客户端会跨 Runtime 更新继续使用旧 Tool schema；Server 应允许旧 schema 表达同一操作，同时让显式的新字段在刷新后的客户端中保持优先级。例如 `mcp_connection_manage(action="test")` 同时接受新版顶层 `deep` 与旧 facade 已存在的 `arguments.deep`，顶层字段存在时优先。
+
 ## 8. Workspace 边界
 
 路径隔离集中在：

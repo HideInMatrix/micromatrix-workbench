@@ -461,9 +461,17 @@ class WorkbenchHandlers:
         connection_id = str(arguments.get("connection_id") or "").strip()
         definition = self._mcp_connection_definition(connection_id)
         self._require_mcp_connection_access(definition, operation="MCP Connection Test")
+        nested_arguments = arguments.get("arguments")
+        nested_deep = (
+            nested_arguments.get("deep")
+            if isinstance(nested_arguments, dict) and "deep" in nested_arguments
+            else None
+        )
         deep = (
             bool(arguments.get("deep"))
             if "deep" in arguments
+            else bool(nested_deep)
+            if nested_deep is not None
             else bool(definition.health_tool.strip())
         )
         probe = self.mcp_connections.test(

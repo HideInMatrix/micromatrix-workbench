@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import os
 from typing import Any
-
-from ... import __version__
 from ...core.constants import ENDPOINT_PATH, SERVER_NAME, SERVER_TITLE
 from ...errors import ToolError
 from ...permissions.capabilities import ELICITABLE_PERMISSIONS
@@ -114,7 +112,7 @@ class SystemHandlers:
         summary: dict[str, Any] = {
             "server": SERVER_NAME,
             "title": SERVER_TITLE,
-            "version": __version__,
+            "version": self.server_identity()["version"],
             "contract_version": 2,
             "contract_revision": self.tool_contract_revision,
             "workspace": str(self.workspace.root),
