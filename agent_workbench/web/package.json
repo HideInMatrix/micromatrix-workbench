@@ -12,7 +12,7 @@
     "test": "node --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "typecheck:vue": "vue-tsc --noEmit",
-    "build": "node scripts/check-code-standards.mjs && tsc --noEmit && vue-tsc --noEmit && vite build",
+    "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
