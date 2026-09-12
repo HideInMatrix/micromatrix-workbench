@@ -85,20 +85,6 @@ class ApprovalAPI:
             self.store.save(updated)
             return self.permission_broker.respond(request_id, "remember", registration=record)
 
-    def list_resource_authorizations(self) -> list[dict[str, object]]:
-        rules = self.permission_broker.resource_authorizations.list()
-        names = {profile.server_id: profile.name for profile in self.store.list()}
-        return [
-            {
-                **item,
-                "server_name": names.get(str(item.get("server_id") or ""), "MCP Server"),
-            }
-            for item in rules
-        ]
-
-    def revoke_resource_authorization(self, rule_id: str) -> bool:
-        return self.permission_broker.resource_authorizations.revoke(str(rule_id))
-
     def stop_all_desktop_input(self) -> dict[str, object]:
         server_ids = {profile.server_id for profile in self.store.list()}
         results = {

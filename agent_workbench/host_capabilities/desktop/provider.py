@@ -185,7 +185,6 @@ class DesktopHostCapability:
                     "application": {
                         "name": target.application_name,
                         "id": target.application_id or None,
-                        "persistent_authorization_supported": target.persistent_authorization_supported,
                     },
                     "window": {
                         "width": int(round(target.bounds.width)),
@@ -398,7 +397,6 @@ class DesktopHostCapability:
                 "pid": target.owner_pid,
                 "id": target.application_id or None,
                 "identity_fingerprint": target.application_identity_fingerprint or None,
-                "persistent_authorization_supported": target.persistent_authorization_supported,
             },
             "window": {
                 "title": target.window_title,

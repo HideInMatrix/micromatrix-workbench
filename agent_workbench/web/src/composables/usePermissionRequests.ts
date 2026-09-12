@@ -56,9 +56,6 @@ function createPermissionState() {
   const hasResourceSession = computed(() => (
     activePermissionRequest.value?.session_authorization_available === true
   ))
-  const canRememberResource = computed(() => (
-    activePermissionRequest.value?.persistent_authorization_available === true
-  ))
   return {
     errorMessage,
     permissionRequests,
@@ -73,7 +70,6 @@ function createPermissionState() {
     isDesktopPermission,
     isBrowserPermission,
     hasResourceSession,
-    canRememberResource,
     isHostIdentityUse: permissionIs('host_identity_use'),
     isHostManage: permissionIs('host_manage'),
     permissionArguments: computed(() => stringifyPermissionArguments(activePermissionRequest.value)),
@@ -93,7 +89,7 @@ function createPermissionActions(state: ReturnType<typeof createPermissionState>
     }
   }
 
-  async function respondPermission(decision: 'deny' | 'once' | 'session' | 'resource_session' | 'remember_resource' | 'remember') {
+  async function respondPermission(decision: 'deny' | 'once' | 'session' | 'resource_session' | 'remember') {
     const request = activePermissionRequest.value
     if (!request || permissionResponding.value) return
 

@@ -6,7 +6,6 @@ import {
   PanelLeftOpen,
   ScrollText,
   Server,
-  ShieldCheck,
   Sparkles,
   Workflow,
 } from '@lucide/vue'
@@ -144,16 +143,6 @@ function subNavClass(name: AppRouteName): string[] {
           <span class="leading-none">外部 MCP</span>
         </Button>
       </template>
-      <Button
-        variant="ghost"
-        size="sm"
-        :class="navClass('resource-authorizations')"
-        :title="collapsed ? '应用授权' : undefined"
-        @click="router.push({ name: 'resource-authorizations' })"
-      >
-        <ShieldCheck class="flex-none" :size="16" :stroke-width="1.8" />
-        <span v-if="!collapsed" class="leading-none">应用授权</span>
-      </Button>
       <Button
         variant="ghost"
         size="sm"

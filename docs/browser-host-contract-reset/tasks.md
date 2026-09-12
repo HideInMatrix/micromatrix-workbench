@@ -56,7 +56,7 @@
 | 动作已确认后断联 | 返回已执行/未知状态，不自动重放点击、提交或输入 |
 | 一个 Profile 停止，另一个仍运行 | 只取消和清理停止 Profile 的资源 |
 | Browser 授权后请求 Host restart / Host Identity | 未获得其他权限，不能借用 Browser 授权 |
-| 操作系统权限缺失 | 返回可行动的系统权限错误，无声称已修复的无效应用授权 |
+| 操作系统权限缺失 | 返回可行动的系统权限错误，不把 Workbench 会话授权误报为系统权限已修复 |
 | 进程 running / 非零退出 / timeout | UI、AI 与 Workflow 对状态和成功判定一致 |
 | Catalog 查询期间心跳变化 | 静态 contract_revision 稳定；invocation 目标与公共工具始终一致 |
 | 新版本读取旧 Workflow 引用 | 预检明确识别并通过一次性迁移更新；不自动运行兼容路径 |

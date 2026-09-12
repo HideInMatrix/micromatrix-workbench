@@ -44,14 +44,6 @@ class DesktopTarget:
             self.application_id or f"pid:{self.owner_pid}",
         )
 
-    @property
-    def persistent_authorization_supported(self) -> bool:
-        return bool(
-            self.application_identity_verified
-            and self.application_id
-            and self.application_identity_fingerprint
-        )
-
 
 @dataclass(frozen=True, slots=True)
 class DesktopControlDecision:

@@ -140,14 +140,14 @@ browser_* 保留现有 CDP 专业语义，不在本轮重做其公开接口；�
 
 ### 7.1 Workbench 授权弹窗与系统权限
 
-0.4.x 必须有 Workbench 自己的应用授权弹窗。现有 App.vue、usePermissionRequests.ts、ApprovalAPI 与 Permission Broker 已提供通用审批基础，但当前并没有 desktop 应用会话授权和永久应用授权；不能将这些新能力标记为已实现。
+Workbench 使用统一权限弹窗处理 desktop/browser 的单次与资源会话授权；不再提供跨会话永久应用授权。
 
 授权分为三个独立问题：
 
 | 层次 | 解决的问题 | 交互位置 |
 | --- | --- | --- |
 | 客户端认证 | 谁在连接哪个 Workbench 服务 | 复用现有 MCP/OAuth 连接认证流程 |
-| 应用授权 | 该客户端能否看见或控制这个应用/窗口，持续多久 | Workbench 自己的授权弹窗 |
+| Workbench 操作授权 | 该客户端能否在本次调用或当前资源会话内看见/控制目标 | Workbench 自己的授权弹窗 |
 | 系统授权 | Workbench 的实际捕获/输入进程是否获得系统权限 | macOS 系统弹窗或系统设置 |
 
 用户参考图一展示应用使用授权，图二展示操作系统屏幕访问授权。Workbench 实现对应的两层体验，但系统提示的文案、归属名称、出现次数取决于 macOS 版本、捕获 API 和签名后的实际执行进程，不保证复刻参考图。获得屏幕权限不等于正在保存录像，也不要求为纯页面观察采集音频。
@@ -159,13 +159,11 @@ Workbench 弹窗示例：“允许客户端 X 通过公司开发环境观察并�
 - 拒绝：本次操作不执行，返回明确拒绝结果。
 - 仅允许本次：绑定这次具体请求及其默认动作后观察，不放行下一条输入。
 - 允许本次桌面会话：限当前已认证主体、Profile、目标应用/窗口范围和能力集合；会话结束、到期、Profile 停止或用户撤销后失效。同一范围内每次点击不重复弹窗。
-- 始终允许此应用：用户显式选择后保存同一主体、Profile、可信应用身份与能力范围的授权规则；设置页可查看和撤销。应用路径替换、身份无法确认、客户端变化或请求扩大范围时重新授权，不保存全桌面通配许可。
+“本次桌面会话”不能伪装成第三方 AI 的“本次对话”：普通 MCP 请求未必提供可验证的聊天边界，使用 Workbench 自己管理的资源会话期限。会话结束后必须重新授权，旧窗口 ID、坐标、观察和 generation 继续按既有规则失效并重新绑定。
 
-“本次桌面会话”不能伪装成第三方 AI 的“本次对话”：普通 MCP 请求未必提供可验证的聊天边界，使用 Workbench 自己管理的会话期限。持久规则允许后续建立新会话，但旧窗口 ID、坐标、观察和 generation 仍必须作废并重新绑定。
+复用现有审批队列及 UI 状态管理，只保留单次授权与资源会话作用域；工具链 remember 分支仍只用于工具链注册。安全、可信、危险模式均不隐式扩大为任意桌面控制，系统权限始终独立。
 
-复用现有审批队列及 UI 状态管理，补充作用域模型与持久规则管理；不把现有工具链 remember 分支当成桌面永久授权。安全、可信、危险模式均不隐式扩大为任意桌面控制；有效的目标授权规则可以免重复询问，系统权限始终独立。
-
-请求流程：验证客户端和参数 → 检查 Host/目标及系统可行性 → 匹配目标授权或提交 Workbench 审批 → 必要时引导用户完成系统授权 → 重新检查目标、权限和焦点 → 执行 → 返回观察。已知不支持或目标不存在时直接失败，不弹无效审批。
+请求流程：验证客户端和参数 → 检查 Host/目标及系统可行性 → 匹配当前资源会话授权或提交 Workbench 审批 → 必要时引导用户完成系统授权 → 重新检查目标、权限和焦点 → 执行 → 返回观察。已知不支持或目标不存在时直接失败，不弹无效审批。
 
 审批超时、调用取消、Profile 停止会使待批请求失效并清除对应排队动作；恢复后不得执行之前的迟到批准。实际输入前再次检查授权。AI 的桌面工具不能操作 Workbench 自身的授权按钮或系统权限弹窗完成自我授权；这些交互由本地用户完成。
 
@@ -208,9 +206,9 @@ Workbench 弹窗示例：“允许客户端 X 通过公司开发环境观察并�
 
 ### D4：UI、打包与真实跨应用验收
 
-- [x] Workbench 授权 UI 复用统一资源授权模型：`once / resource_session / remember_resource`；资源会话 grant 统一绑定 `principal + resource_type + resource_id + permission`，不再绑定发起请求的 MCP tool name。Desktop 提供经过 Host 验证的 `desktop_session`/应用 identity；Browser 提供经过 Host 验证的 `browser_session`，同一 Browser Session 的 observe/control 授权可跨原子 Browser 工具复用。持久规则统一查看/撤销，同时保留本地“立即停止桌面输入”。
+- [x] Workbench 授权 UI 收敛为 `once / resource_session`；资源会话 grant 统一绑定 `principal + resource_type + resource_id + permission`，不再绑定发起请求的 MCP tool name。Desktop 提供经过 Host 验证的 `desktop_session`，Browser 提供经过 Host 验证的 `browser_session`，同一资源会话内的 observe/control 授权可跨原子工具复用。
 - [ ] 对应平台的签名/安装包真实 Browser、Blender、Figma、系统弹窗及系统权限流程仍需逐平台验收；源码自动化不能替代这项门槛。
-- 复用现有授权弹窗和 composable，补充目标范围、本次调用/桌面会话/持久授权、撤销管理、系统权限状态与停止控制。
+- 复用现有授权弹窗和 composable，只保留本次调用/资源会话授权；系统权限仍由操作系统管理。
 - 平台依赖、helper 身份、安装升级和权限重授予流程在实际安装包中验证。
 - 按发布平台完成图像、输入、Host 故障和多客户端测试，记录已知边界。
 
@@ -229,11 +227,10 @@ PyInstaller 桌面包、GitHub Desktop Release 或桌面应用内更新。后续
 
 - Target token 与 Desktop Session 同时绑定 Host generation、Profile/server ID 和已认证 principal 的内部哈希；同一 Profile 下另一个 MCP 主体不能复用已知 token/session。
 - `desktop_observe` 与 `desktop_control` 独立；Dangerous 模式和普通 Server session-all 不自动扩大 Desktop 权限。
-- 持久授权由 Permission Broker 的通用 `ResourceAuthorizationStore` 管理，统一绑定 principal、Profile、tool、permission、resource type/id 与可信身份指纹。规则不保存窗口 ID、坐标、observation 或 generation，资源身份变化后旧规则不会命中。
+- 不保存跨会话的应用/资源授权；权限只允许本次调用或当前 `desktop_session` / `browser_session`，资源会话结束后授权失效。
 - Host 可行性预检发生在 Workbench 审批之前；目标已消失、系统能力明确缺失或旧 observation 无效时不会先弹无效授权。
 - 本地“立即停止桌面输入”同时在 Host Worker 队列截止时间和 Provider 输入 epoch 两层失效排队动作；`detach` 只释放控制，不关闭用户应用。
-- 持久应用授权身份使用真实可执行文件 SHA-256（按路径/文件状态缓存）参与指纹；二进制变化后旧持久规则不会继续命中。
-- Desktop target 的持久授权资格由通用身份规则派生：必须同时具备已验证 identity、稳定 application ID 与 fingerprint，平台 Driver 不再各自维护“可持久授权应用”名单。
+- 应用身份仍使用真实可执行文件 SHA-256（按路径/文件状态缓存）参与 Host target/application ref 校验；二进制变化后旧引用失效，但该指纹不再用于跨会话持久授权。
 - Windows Secure Desktop / 非默认 input desktop 与高于 Workbench Host Worker 的 integrity level 会阻断控制；macOS 控制只依赖真实 Accessibility 系统授权。OS 自身的安全授权表面不再通过应用名/进程名黑名单识别，必须依赖操作系统安全边界并在签名安装包真实流程中继续验收。
 
 ### 8.3 当前自动化验收记录

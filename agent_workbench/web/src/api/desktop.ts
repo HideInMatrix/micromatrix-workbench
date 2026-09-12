@@ -3,7 +3,6 @@ import type {
   ToolchainRegistration,
   CapabilityCatalogDto,
   DesktopBridge,
-  ResourceAuthorizationDto,
   LogEntryDto,
   MCPConnectionDefinitionDto,
   MCPConnectionProbeDto,
@@ -108,14 +107,8 @@ export const desktopApi = {
   async listPermissionRequests(): Promise<PermissionRequestDto[]> {
     return (await bridge()).list_permission_requests()
   },
-  async respondPermissionRequest(requestId: string, decision: 'deny' | 'once' | 'session' | 'resource_session' | 'remember_resource' | 'remember'): Promise<boolean> {
+  async respondPermissionRequest(requestId: string, decision: 'deny' | 'once' | 'session' | 'resource_session' | 'remember'): Promise<boolean> {
     return (await bridge()).respond_permission_request(requestId, decision)
-  },
-  async listResourceAuthorizations(): Promise<ResourceAuthorizationDto[]> {
-    return (await bridge()).list_resource_authorizations()
-  },
-  async revokeResourceAuthorization(ruleId: string): Promise<boolean> {
-    return (await bridge()).revoke_resource_authorization(ruleId)
   },
   async stopAllDesktopInput(): Promise<{ requested: number; stopped: number; results: Record<string, boolean> }> {
     return (await bridge()).stop_all_desktop_input()

@@ -6,7 +6,6 @@ export type AppRouteName =
   | 'workbench-workflows'
   | 'workbench-skills'
   | 'workbench-mcp-connections'
-  | 'resource-authorizations'
   | 'logs'
   | 'about'
 
@@ -41,11 +40,6 @@ export const router = createRouter({
       path: '/workbench/mcp-connections',
       name: 'workbench-mcp-connections',
       component: () => import('../components/MCPConnectionManagerView.vue'),
-    },
-    {
-      path: '/resource-authorizations',
-      name: 'resource-authorizations',
-      component: () => import('../components/ResourceAuthorizationView.vue'),
     },
     {
       path: '/logs',

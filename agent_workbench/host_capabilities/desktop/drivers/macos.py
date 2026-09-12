@@ -358,7 +358,7 @@ class MacOSDesktopDriver:
                     continue
                 title = self._cf_string(self._dict_value(raw, "kCGWindowName")).strip()
                 onscreen = self._cf_bool(self._dict_value(raw, "kCGWindowIsOnscreen"))
-                application_id, identity_fingerprint, persistent_supported = self._process_identity(owner_pid)
+                application_id, identity_fingerprint, identity_verified = self._process_identity(owner_pid)
                 result.append(
                     DesktopTarget(
                         window_id=window_id,
@@ -369,7 +369,7 @@ class MacOSDesktopDriver:
                         onscreen=onscreen,
                         application_id=application_id,
                         application_identity_fingerprint=identity_fingerprint,
-                        application_identity_verified=persistent_supported,
+                        application_identity_verified=identity_verified,
                     )
                 )
             return result

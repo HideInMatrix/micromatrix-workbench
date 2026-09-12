@@ -32,7 +32,6 @@ from agent_runtime.local_permission_broker import (
     sign_payload,
     verify_payload,
 )
-from .resource_authorizations import ResourceAuthorizationStore
 from .process import hidden_process_kwargs
 
 
@@ -56,7 +55,6 @@ class DesktopPermissionBroker:
         self._host_lock = threading.RLock()
         self._host_supervisor_stop = threading.Event()
         self._supervisor_events: deque[dict[str, Any]] = deque(maxlen=32)
-        self.resource_authorizations = ResourceAuthorizationStore()
         self._start_host_worker()
         if not self._wait_for_worker_ready(timeout=3.0):
             self._record_supervisor_event("initial_worker_ready_timeout")
@@ -246,7 +244,6 @@ class DesktopPermissionBroker:
 
     def _host_supervisor_loop(self) -> None:
         while not self._host_supervisor_stop.wait(0.1):
-            self._auto_respond_resource_authorizations()
             for path in tuple(self.directory.glob("*.host-control.request.json")):
                 try:
                     self._respond_host_control_request(path)
@@ -271,38 +268,6 @@ class DesktopPermissionBroker:
             if not self._prepare_automatic_restart("worker_exit_detected"):
                 continue
             self._restart_host_worker(automatic=True)
-
-    def _auto_respond_resource_authorizations(self) -> None:
-        now = int(time.time())
-        for path in tuple(self.directory.glob("*.request.json")):
-            if path.name.endswith(
-                (
-                    ".host-control.request.json",
-                    ".host-capability.request.json",
-                    ".host-tool-resolution.request.json",
-                    ".host-identity.request.json",
-                    ".workflow-approval.request.json",
-                    ".worker-control.request.json",
-                )
-            ):
-                continue
-            request_id = path.name.removesuffix(".request.json")
-            response_path = self.directory / f"{request_id}.response.json"
-            if response_path.exists():
-                continue
-            try:
-                raw = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            if (
-                not isinstance(raw, dict)
-                or not verify_payload(self.secret, raw)
-                or raw.get("version") != BROKER_VERSION
-                or int(raw.get("expires_at", 0)) <= now
-            ):
-                continue
-            if self.resource_authorizations.match(raw) is not None:
-                self.respond(request_id, "once")
 
     @staticmethod
     def _session_authorization_available(request: dict[str, Any]) -> bool:
@@ -475,9 +440,6 @@ class DesktopPermissionBroker:
                     "arguments": raw.get("arguments") if isinstance(raw.get("arguments"), (dict, list)) else {},
                     "created_at": int(raw.get("created_at", 0)),
                     "expires_at": expires_at,
-                    "persistent_authorization_available": (
-                        self.resource_authorizations.persistent_context(raw) is not None
-                    ),
                     "session_authorization_available": self._session_authorization_available(raw),
                 }
             )
@@ -538,7 +500,6 @@ class DesktopPermissionBroker:
             "once",
             "session",
             "resource_session",
-            "remember_resource",
             "remember",
         }:
             return False
@@ -563,9 +524,6 @@ class DesktopPermissionBroker:
             return False
         elif normalized_decision == "resource_session" and not self._session_authorization_available(raw):
             return False
-        elif normalized_decision == "remember_resource":
-            if self.resource_authorizations.remember(raw) is None:
-                return False
         elif normalized_decision == "remember" or registration is not None:
             return False
         payload: dict[str, Any] = {
@@ -581,7 +539,6 @@ class DesktopPermissionBroker:
                 if normalized_decision in {
                     "session",
                     "resource_session",
-                    "remember_resource",
                     "remember",
                 }
                 else "once"

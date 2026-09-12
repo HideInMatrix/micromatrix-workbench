@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-import hashlib
 import mimetypes
 from pathlib import Path
 from typing import Any
@@ -13,19 +12,8 @@ from ...permissions.capabilities import Capability
 
 class ArtifactHandlers:
     def host_artifact_import_preflight(self, args: dict[str, Any]) -> dict[str, Any]:
-        host_path = str(args.get("host_path") or "").strip()
-        resource_id = "path:" + hashlib.sha256(
-            host_path.encode("utf-8", "surrogateescape")
-        ).hexdigest()[:32]
-        return {
-            "authorization_resource": {
-                "type": "host_temp_artifact",
-                "id": resource_id,
-                "name": Path(host_path).name or "Host temporary artifact",
-                "identity_fingerprint": resource_id,
-                "persistent_authorization_supported": False,
-            }
-        }
+        del args
+        return {}
 
     def _artifact_call(self, parameters: dict[str, Any]) -> dict[str, Any]:
         broker = self.local_permission_broker

@@ -127,22 +127,7 @@ export interface PermissionRequestDto {
   arguments: Record<string, unknown> | unknown[]
   created_at: number
   expires_at: number
-  persistent_authorization_available?: boolean
   session_authorization_available?: boolean
-}
-
-export interface ResourceAuthorizationDto {
-  id: string
-  server_id: string
-  server_name: string
-  tool_name: string
-  permission: string
-  resource_type: string
-  resource_id: string
-  resource_name: string
-  identity_fingerprint: string
-  created_at: number
-  last_used_at: number
 }
 
 export type WorkflowNodeKind =
@@ -437,9 +422,7 @@ export interface DesktopBridge {
   stop_server(serverId: string): Promise<ServerDto>
   set_server_enabled(serverId: string, enabled: boolean): Promise<ServerDto>
   list_permission_requests(): Promise<PermissionRequestDto[]>
-  respond_permission_request(requestId: string, decision: 'deny' | 'once' | 'session' | 'resource_session' | 'remember_resource' | 'remember'): Promise<boolean>
-  list_resource_authorizations(): Promise<ResourceAuthorizationDto[]>
-  revoke_resource_authorization(ruleId: string): Promise<boolean>
+  respond_permission_request(requestId: string, decision: 'deny' | 'once' | 'session' | 'resource_session' | 'remember'): Promise<boolean>
   stop_all_desktop_input(): Promise<{ requested: number; stopped: number; results: Record<string, boolean> }>
   list_workflow_approvals(): Promise<WorkflowApprovalDto[]>
   respond_workflow_approval(requestId: string, approved: boolean): Promise<boolean>

@@ -31,10 +31,6 @@ class _ApplicationTarget:
     executable: Path
     identity_fingerprint: str
 
-    @property
-    def persistent_authorization_supported(self) -> bool:
-        return bool(self.bundle_id and self.identity_fingerprint)
-
 
 class ApplicationHostCapability:
     """Resolve and control registered GUI applications in the Desktop Host.
@@ -278,18 +274,7 @@ class ApplicationHostCapability:
                 "version": target.version,
                 "build": target.build,
                 "identity_fingerprint": target.identity_fingerprint or None,
-                "persistent_authorization_supported": target.persistent_authorization_supported,
             },
-        }
-
-    @staticmethod
-    def _authorization_resource(target: _ApplicationTarget) -> dict[str, Any]:
-        return {
-            "type": "application",
-            "id": target.bundle_id,
-            "name": target.name,
-            "identity_fingerprint": target.identity_fingerprint,
-            "persistent_authorization_supported": target.persistent_authorization_supported,
         }
 
     def _open(self, target: _ApplicationTarget, *, new_instance: bool = False) -> None:
@@ -359,7 +344,6 @@ class ApplicationHostCapability:
         if preflight:
             return {
                 "preflight": True,
-                "authorization_resource": self._authorization_resource(target),
                 **self._public(ref, target),
             }
         if action == "launch":
