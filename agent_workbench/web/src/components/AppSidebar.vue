@@ -2,7 +2,6 @@
 import { onMounted, ref } from 'vue'
 import {
   Info,
-  KeyRound,
   PanelLeftClose,
   PanelLeftOpen,
   ScrollText,
@@ -148,22 +147,12 @@ function subNavClass(name: AppRouteName): string[] {
       <Button
         variant="ghost"
         size="sm"
-        :class="navClass('oauth')"
-        :title="collapsed ? 'OAuth 授权' : undefined"
-        @click="router.push({ name: 'oauth' })"
-      >
-        <KeyRound class="flex-none" :size="16" :stroke-width="1.8" />
-        <span v-if="!collapsed" class="leading-none">OAuth 授权</span>
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
         :class="navClass('resource-authorizations')"
-        :title="collapsed ? '持久授权' : undefined"
+        :title="collapsed ? '应用授权' : undefined"
         @click="router.push({ name: 'resource-authorizations' })"
       >
         <ShieldCheck class="flex-none" :size="16" :stroke-width="1.8" />
-        <span v-if="!collapsed" class="leading-none">持久授权</span>
+        <span v-if="!collapsed" class="leading-none">应用授权</span>
       </Button>
       <Button
         variant="ghost"

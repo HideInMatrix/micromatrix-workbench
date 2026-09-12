@@ -6,7 +6,6 @@ export type AppRouteName =
   | 'workbench-workflows'
   | 'workbench-skills'
   | 'workbench-mcp-connections'
-  | 'oauth'
   | 'resource-authorizations'
   | 'logs'
   | 'about'
@@ -42,11 +41,6 @@ export const router = createRouter({
       path: '/workbench/mcp-connections',
       name: 'workbench-mcp-connections',
       component: () => import('../components/MCPConnectionManagerView.vue'),
-    },
-    {
-      path: '/oauth',
-      name: 'oauth',
-      component: () => import('../components/OAuthClientView.vue'),
     },
     {
       path: '/resource-authorizations',

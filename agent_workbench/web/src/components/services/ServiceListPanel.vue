@@ -28,7 +28,7 @@ const emit = defineEmits<{
     <div class="flex items-center justify-between gap-3 border-b border-border p-3.5">
       <div class="grid gap-[3px]">
         <strong>Work</strong>
-        <span class="text-[11px] text-muted-foreground">一个域名对应一个独立 Work</span>
+        <span class="text-[11px] text-muted-foreground">Switch 表示随应用自动启动</span>
       </div>
       <Button variant="outline" size="sm" class="min-h-[30px] px-2.5" @click="emit('create')">
         <Plus :size="14" /> 新建
@@ -60,7 +60,8 @@ const emit = defineEmits<{
       <div class="relative shrink-0" @click.stop>
         <Switch
           :model-value="workEnabled(work)"
-          :aria-label="`${workEnabled(work) ? '停用' : '启用'} ${workName(work)}`"
+          :aria-label="`${workEnabled(work) ? '关闭' : '开启'} ${workName(work)} 随应用自动启动`"
+          :title="workEnabled(work) ? '关闭随应用自动启动' : '开启随应用自动启动'"
           :disabled="Boolean(togglingId)"
           @update:model-value="emit('toggle', work, $event)"
         />

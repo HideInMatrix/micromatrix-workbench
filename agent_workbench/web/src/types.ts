@@ -52,7 +52,6 @@ export interface ServerDto {
   public_mcp_url: string
   url_mode: string
   exit_reason: string
-  oauth_client_count: number
 }
 
 export interface ServerDraft {
@@ -68,16 +67,6 @@ export interface ServerDraft {
   enable_view_image: boolean
   toolchains?: ToolchainRegistration[]
   network: NetworkConfigDto
-}
-
-export interface OAuthClientDto {
-  client_id: string
-  client_name: string
-  redirect_uris: string[]
-  token_endpoint_auth_method: string
-  issued_at: number
-  client_type: 'dcr' | 'cimd'
-  revocable: boolean
 }
 
 export interface BootstrapDto {
@@ -447,9 +436,6 @@ export interface DesktopBridge {
   start_server(serverId: string, payload?: ServerDraft): Promise<ServerDto>
   stop_server(serverId: string): Promise<ServerDto>
   set_server_enabled(serverId: string, enabled: boolean): Promise<ServerDto>
-  list_oauth_clients(serverId: string): Promise<OAuthClientDto[]>
-  revoke_oauth_client(serverId: string, clientId: string): Promise<boolean>
-  revoke_all_oauth_clients(serverId: string): Promise<number>
   list_permission_requests(): Promise<PermissionRequestDto[]>
   respond_permission_request(requestId: string, decision: 'deny' | 'once' | 'session' | 'resource_session' | 'remember_resource' | 'remember'): Promise<boolean>
   list_resource_authorizations(): Promise<ResourceAuthorizationDto[]>

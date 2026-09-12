@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 from ..core.config import LaunchConfig, LaunchInfo
 from .launcher import MCPLauncher
-from ..oauth.client_store import CIMDClientStore, OAuthClientStore, OAuthClientSummary
 from ..oauth.persistence import (
     bound_server_oauth_issuer,
     delete_issuer_oauth_storage,
@@ -141,48 +140,3 @@ class MCPServerManager:
                     if not still_referenced:
                         delete_issuer_oauth_storage(issuer)
             return deleted
-
-    def oauth_clients(self, server_id: str) -> list[OAuthClientSummary]:
-        profile = self.store.get(server_id)
-        if profile is None:
-            raise KeyError(f"找不到 MCP Server: {server_id}")
-        if profile.lifecycle == "ephemeral":
-            launcher = self._launchers.get(server_id)
-            if not launcher or not launcher.is_running:
-                return []
-            registry_file = launcher.oauth_registry_file
-            if registry_file is None:
-                return []
-            clients = OAuthClientStore(profile.server_id, path=registry_file).list()
-            clients.extend(
-                CIMDClientStore(
-                    profile.server_id,
-                    path=registry_file.with_name("cimd-clients.json"),
-                ).list()
-            )
-            return sorted(clients, key=lambda item: (item.issued_at, item.client_id))
-        clients = OAuthClientStore(profile.server_id).list()
-        clients.extend(CIMDClientStore(profile.server_id).list())
-        return sorted(clients, key=lambda item: (item.issued_at, item.client_id))
-
-    def remove_oauth_client(self, server_id: str, client_id: str) -> bool:
-        with self._lock:
-            profile = self.store.get(server_id)
-            if profile is None:
-                raise KeyError(f"找不到 MCP Server: {server_id}")
-            if profile.lifecycle == "ephemeral":
-                raise RuntimeError("临时 Server 的 OAuth Client 随 Session 自动销毁。")
-            if self.is_running(server_id):
-                raise RuntimeError("请先停止 MCP Server，再撤销 OAuth Client。")
-            return OAuthClientStore(profile.server_id).remove(client_id)
-
-    def clear_oauth_clients(self, server_id: str) -> int:
-        with self._lock:
-            profile = self.store.get(server_id)
-            if profile is None:
-                raise KeyError(f"找不到 MCP Server: {server_id}")
-            if profile.lifecycle == "ephemeral":
-                return 0
-            if self.is_running(server_id):
-                raise RuntimeError("请先停止 MCP Server，再撤销 OAuth Client。")
-            return OAuthClientStore(profile.server_id).clear()

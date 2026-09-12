@@ -9,7 +9,6 @@ import type {
   MCPConnectionProbeDto,
   MCPConnectionValidationDto,
   NetworkProviderDto,
-  OAuthClientDto,
   PermissionRequestDto,
   SkillDefinitionDto,
   SkillValidationDto,
@@ -105,15 +104,6 @@ export const desktopApi = {
   },
   async setServerEnabled(serverId: string, enabled: boolean): Promise<ServerDto> {
     return (await bridge()).set_server_enabled(serverId, enabled)
-  },
-  async listOAuthClients(serverId: string): Promise<OAuthClientDto[]> {
-    return (await bridge()).list_oauth_clients(serverId)
-  },
-  async revokeOAuthClient(serverId: string, clientId: string): Promise<boolean> {
-    return (await bridge()).revoke_oauth_client(serverId, clientId)
-  },
-  async revokeAllOAuthClients(serverId: string): Promise<number> {
-    return (await bridge()).revoke_all_oauth_clients(serverId)
   },
   async listPermissionRequests(): Promise<PermissionRequestDto[]> {
     return (await bridge()).list_permission_requests()

@@ -85,7 +85,7 @@ function remove(item: ToolchainRegistration) {
     </header>
 
     <p v-if="mode === 'dangerous'" class="m-0 text-[11px] text-destructive">危险模式：工具执行不受沙箱隔离。</p>
-    <p v-if="locked" class="m-0 text-[11px] text-muted-foreground">停用 Work 后可手动修改工具。</p>
+    <p v-if="locked" class="m-0 text-[11px] text-muted-foreground">停止 Work 后可手动修改工具。</p>
 
     <div v-if="registrations.length" class="overflow-hidden rounded-lg border border-border bg-background">
       <article v-for="item in registrations" :key="item.program" class="border-b border-border last:border-b-0">

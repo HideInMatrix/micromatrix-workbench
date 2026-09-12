@@ -27,6 +27,7 @@ export function useServiceManager() {
   const draft = ref<ServerDraft>(emptyWorkDraft(8234))
   const isNew = ref(true)
   const busy = ref(false)
+  const lifecycleBusy = ref(false)
   const togglingId = ref('')
   const errorMessage = ref('')
   const copiedUrl = ref('')
@@ -46,7 +47,6 @@ export function useServiceManager() {
   const locked = computed(() => selectedRunning.value)
   const stats = computed(() => ({
     works: works.value.length,
-    enabled: works.value.filter(workEnabled).length,
     running: works.value.filter(workRunning).length,
   }))
 
@@ -104,12 +104,6 @@ export function useServiceManager() {
       isNew.value = false
       await refreshWorks(false)
       await selectWork(key)
-      const saved = selected.value?.server
-      if (saved?.enabled && !saved.running) {
-        await desktopApi.setServerEnabled(saved.server_id, true)
-        await refreshWorks(true)
-        await selectWork(key)
-      }
     } catch (error) {
       errorMessage.value = error instanceof Error ? error.message : String(error)
     } finally {
@@ -120,7 +114,7 @@ export function useServiceManager() {
   async function deleteWork() {
     const current = selected.value
     if (!current || current.server.running) return
-    if (!confirm('确定删除这个 Work 吗？相关 OAuth 状态也会按现有清理规则处理。')) return
+    if (!confirm('确定删除这个 Work 吗？相关运行与认证状态会一并清理。')) return
     busy.value = true
     errorMessage.value = ''
     try {
@@ -151,6 +145,28 @@ export function useServiceManager() {
     }
   }
 
+  async function toggleRunning() {
+    const current = selected.value
+    if (!current || isNew.value || lifecycleBusy.value) return
+    const key = current.key
+    lifecycleBusy.value = true
+    errorMessage.value = ''
+    try {
+      if (current.server.running) {
+        await desktopApi.stopServer(current.id)
+      } else {
+        await desktopApi.startServer(current.id, normalizedWorkDraft(draft.value))
+      }
+      await refreshWorks(true)
+      await selectWork(key)
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : String(error)
+      await refreshWorks(true)
+    } finally {
+      lifecycleBusy.value = false
+    }
+  }
+
   async function copyUrl(value: string) {
     if (!value) return
     await navigator.clipboard.writeText(value)
@@ -161,7 +177,7 @@ export function useServiceManager() {
   }
 
   async function pollWorks() {
-    if (busy.value || togglingId.value) return
+    if (busy.value || lifecycleBusy.value || togglingId.value) return
     try {
       await refreshWorks(true)
     } catch { /* transient polling failure */ }
@@ -208,6 +224,7 @@ export function useServiceManager() {
     draft,
     isNew,
     busy,
+    lifecycleBusy,
     togglingId,
     errorMessage,
     copiedUrl,
@@ -231,6 +248,7 @@ export function useServiceManager() {
     saveWork,
     deleteWork,
     toggleWork,
+    toggleRunning,
     copyUrl,
   }
 }

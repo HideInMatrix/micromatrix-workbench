@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Check, Copy, Eye, EyeOff, FolderOpen } from '@lucide/vue'
+import { Check, Copy, Eye, EyeOff, FolderOpen, Play, Square } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { CheckField, FormField, FormGrid } from '@/components/ui/form'
 import { InputGroup, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
@@ -14,6 +14,7 @@ const props = defineProps<{
   isNew: boolean
   locked: boolean
   busy: boolean
+  lifecycleBusy: boolean
   selectedRunning: boolean
   copiedUrl: string
   runtimeUrl: string
@@ -31,6 +32,7 @@ const emit = defineEmits<{
   copyUrl: [value: string]
   delete: []
   save: []
+  toggleRunning: []
 }>()
 </script>
 
@@ -40,7 +42,7 @@ const emit = defineEmits<{
       <div>
         <h2 class="m-0 text-[13px] leading-5 font-medium">{{ isNew ? '新建 Work' : 'Work 设置' }}</h2>
         <p class="mt-px mb-0 text-[11px] leading-4 text-muted-foreground">
-          每个 Work 独占一个公网域名与 Runtime；启停由左侧列表 Switch 控制。
+          每个 Work 独占一个公网域名与 Runtime；Switch 只控制随应用自动启动，当前 Runtime 由启动/停止按钮控制。
         </p>
       </div>
       <span
@@ -53,7 +55,7 @@ const emit = defineEmits<{
               : 'bg-secondary text-muted-foreground',
         ]"
       >
-        {{ selectedRunning ? '运行中' : draft.enabled ? '已启用 · 未运行' : '未启用' }}
+        {{ selectedRunning ? '运行中' : draft.enabled ? '已停止 · 随应用启动' : '已停止' }}
       </span>
     </div>
 
@@ -165,9 +167,22 @@ const emit = defineEmits<{
 
     <div class="mt-4 flex justify-between gap-2 border-t border-border pt-3.5">
       <Button v-if="!isNew" variant="destructiveOutline" size="sm" :disabled="busy || locked" @click="emit('delete')">删除</Button>
-      <Button class="ml-auto" variant="outline" size="sm" :disabled="busy || locked" @click="emit('save')">
-        {{ isNew ? '创建 Work' : '保存' }}
-      </Button>
+      <div class="ml-auto flex items-center gap-2">
+        <Button
+          v-if="!isNew"
+          :variant="selectedRunning ? 'destructiveOutline' : 'default'"
+          size="sm"
+          :disabled="busy || lifecycleBusy"
+          @click="emit('toggleRunning')"
+        >
+          <Square v-if="selectedRunning" :size="13" />
+          <Play v-else :size="13" />
+          {{ lifecycleBusy ? (selectedRunning ? '停止中…' : '启动中…') : (selectedRunning ? '停止' : '启动') }}
+        </Button>
+        <Button variant="outline" size="sm" :disabled="busy || lifecycleBusy || locked" @click="emit('save')">
+          {{ isNew ? '创建 Work' : '保存' }}
+        </Button>
+      </div>
     </div>
   </section>
 </template>

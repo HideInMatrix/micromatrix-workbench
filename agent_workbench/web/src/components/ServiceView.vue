@@ -12,7 +12,7 @@ const manager = useServiceManager()
       <div>
         <h1 class="m-0 text-xl leading-7 font-medium tracking-[-0.02em]">Work</h1>
         <p class="mt-[3px] mb-0 text-xs leading-[18px] text-muted-foreground">
-          一个 Work 对应一个独立域名、一个 Runtime 和一个工作目录；左侧 Switch 决定应用启动时是否启用它。
+          一个 Work 对应一个独立域名、一个 Runtime 和一个工作目录；Switch 只决定应用启动时是否自动启动，当前启停由按钮控制。
         </p>
       </div>
     </header>
@@ -22,16 +22,11 @@ const manager = useServiceManager()
       <button class="border-0 bg-transparent text-lg leading-none text-inherit" @click="manager.errorMessage.value = ''">×</button>
     </div>
 
-    <div class="grid grid-cols-1 gap-2 lg:grid-cols-3">
+    <div class="grid grid-cols-1 gap-2 lg:grid-cols-2">
       <div class="min-h-28 rounded-lg bg-card p-4">
         <span class="block text-xs leading-5 text-muted-foreground">Work</span>
         <strong class="mt-2.5 block min-h-8 text-2xl leading-8 font-medium tracking-[-0.03em] tabular-nums">{{ manager.stats.value.works }}</strong>
         <small class="mt-1 block text-[11px] leading-4 text-muted-foreground">独立域名与 Runtime</small>
-      </div>
-      <div class="min-h-28 rounded-lg bg-card p-4">
-        <span class="block text-xs leading-5 text-muted-foreground">已启用</span>
-        <strong class="mt-2.5 block min-h-8 text-2xl leading-8 font-medium tracking-[-0.03em] tabular-nums">{{ manager.stats.value.enabled }}</strong>
-        <small class="mt-1 block text-[11px] leading-4 text-muted-foreground">应用启动时自动恢复</small>
       </div>
       <div class="min-h-28 rounded-lg bg-card p-4">
         <span class="block text-xs leading-5 text-muted-foreground">正在运行</span>
@@ -55,6 +50,7 @@ const manager = useServiceManager()
         :is-new="manager.isNew.value"
         :locked="manager.locked.value"
         :busy="manager.busy.value"
+        :lifecycle-busy="manager.lifecycleBusy.value"
         :selected-running="manager.selectedRunning.value"
         :copied-url="manager.copiedUrl.value"
         :runtime-url="manager.runtimeUrl.value"
@@ -65,6 +61,7 @@ const manager = useServiceManager()
         @copy-url="manager.copyUrl"
         @delete="manager.deleteWork"
         @save="manager.saveWork"
+        @toggle-running="manager.toggleRunning"
       />
     </div>
   </section>

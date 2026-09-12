@@ -40,10 +40,6 @@ class ServiceAPI:
     def _profile_payload(self, profile: MCPServerProfile) -> dict[str, object]:
         status = self.manager.status(profile.server_id)
         info = status.info
-        try:
-            oauth_client_count = len(self.manager.oauth_clients(profile.server_id))
-        except Exception:
-            oauth_client_count = 0
         return {
             "server_id": profile.server_id,
             "name": profile.name,
@@ -69,7 +65,6 @@ class ServiceAPI:
             "public_mcp_url": info.public_mcp_url if info else "",
             "url_mode": info.url_mode if info else "",
             "exit_reason": status.exit_reason,
-            "oauth_client_count": oauth_client_count,
         }
 
     def _next_available_port(self, start: int = 8234) -> int:
@@ -116,7 +111,7 @@ class ServiceAPI:
         if current is None:
             raise KeyError(f"找不到 Work: {server_id}")
         if self.manager.is_running(server_id):
-            raise RuntimeError("请先停用当前 Work，再修改配置。")
+            raise RuntimeError("请先停止当前 Work，再修改配置。")
         network = self._network_from_payload(payload.get("network"))
         remember = bool(payload.get("remember_secrets", True))
         profile = self.store.save(
@@ -206,9 +201,6 @@ class ServiceAPI:
         if current is None:
             raise KeyError(f"找不到 Work: {server_id}")
         desired = bool(enabled)
-        if not desired and self.manager.is_running(server_id):
-            self.manager.stop(server_id)
-            self.permission_broker.clear_server(server_id)
         updated = self.store.save(
             MCPServerProfile(
                 server_id=current.server_id,
@@ -228,31 +220,6 @@ class ServiceAPI:
                 updated_at=current.updated_at,
             )
         )
-        if desired:
-            if not self.manager.is_running(server_id):
-                try:
-                    self.manager.start(server_id)
-                except Exception:
-                    self.store.save(
-                        MCPServerProfile(
-                            server_id=updated.server_id,
-                            name=updated.name,
-                            workspace=updated.workspace,
-                            oauth_password=updated.oauth_password,
-                            network=updated.network,
-                            host=updated.host,
-                            port=updated.port,
-                            lifecycle=updated.lifecycle,
-                            enabled=False,
-                            permission_mode=updated.permission_mode,
-                            allow_network=updated.allow_network,
-                            enable_view_image=updated.enable_view_image,
-                            toolchains=updated.toolchains,
-                            created_at=updated.created_at,
-                            updated_at=updated.updated_at,
-                        )
-                    )
-                    raise
         return self._profile_payload(self.store.get(server_id) or updated)
 
 

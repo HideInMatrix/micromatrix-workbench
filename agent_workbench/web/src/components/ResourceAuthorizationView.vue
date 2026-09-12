@@ -75,9 +75,9 @@ onMounted(() => void refresh())
   <section class="mx-auto w-full max-w-5xl">
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h1 class="m-0 text-xl font-semibold text-foreground">持久资源授权</h1>
+        <h1 class="m-0 text-xl font-semibold text-foreground">应用授权</h1>
         <p class="mt-1.5 mb-0 max-w-3xl text-xs leading-5 text-muted-foreground">
-          管理 Workbench 的持久资源授权。规则统一绑定客户端主体、Profile、工具、权限、资源身份与指纹；Desktop 应用只是其中一种资源类型，系统级权限仍由操作系统独立控制。
+          管理你在权限弹窗中选择“始终允许此应用”后创建的规则。授权会同时绑定 Work、调用方、工具、权限、应用身份与签名指纹；应用身份发生变化后不会继续命中。系统级权限仍由操作系统独立控制。
         </p>
       </div>
       <div class="flex gap-2">
@@ -96,11 +96,11 @@ onMounted(() => void refresh())
     </div>
 
     <div v-if="loading && !rules.length" class="mt-5 rounded-lg border border-border bg-card px-4 py-6 text-xs text-muted-foreground">
-      正在读取持久授权规则…
+      正在读取应用授权规则…
     </div>
 
     <div v-else-if="empty" class="mt-5 rounded-lg border border-dashed border-border px-4 py-8 text-center text-xs text-muted-foreground">
-      当前没有持久资源授权。支持持久授权的资源会在权限弹窗中提供“始终允许此资源”。
+      当前没有应用授权。只有在应用/桌面权限弹窗中选择“始终允许此应用”后，这里才会出现可撤销的规则。
     </div>
 
     <div v-else class="mt-5 grid gap-3">
@@ -112,7 +112,7 @@ onMounted(() => void refresh())
               <span class="rounded-full bg-secondary px-2 py-0.5 text-[10px] text-muted-foreground">{{ permissionLabel(rule.permission) }}</span>
             </div>
             <div class="mt-2 grid gap-1 text-[11px] leading-4 text-muted-foreground">
-              <span>Profile：{{ rule.server_name }}</span>
+              <span>Work：{{ rule.server_name }}</span>
               <span>工具：{{ rule.tool_name }} · 资源类型：{{ rule.resource_type }}</span>
               <span class="break-all font-mono">资源身份：{{ rule.resource_id }}</span>
               <span class="break-all font-mono">指纹：{{ rule.identity_fingerprint }}</span>
