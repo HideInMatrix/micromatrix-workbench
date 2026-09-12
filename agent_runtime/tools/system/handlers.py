@@ -109,6 +109,12 @@ class SystemHandlers:
         mcp_tools = [definition.name for definition in self._tools]
         host = self.host_status({})
         connection = host.get("connection") if isinstance(host, dict) else {}
+        transport_metrics = getattr(self, "http_transport_metrics", None)
+        transport = (
+            transport_metrics.snapshot()
+            if callable(getattr(transport_metrics, "snapshot", None))
+            else {"available": False}
+        )
         summary: dict[str, Any] = {
             "server": SERVER_NAME,
             "title": SERVER_TITLE,
@@ -121,6 +127,7 @@ class SystemHandlers:
             "supported_protocol_versions": list(KNOWN_PROTOCOL_VERSIONS),
             "endpoint_path": ENDPOINT_PATH,
             "tool_count": len(tools),
+            "http_transport": transport,
             "host": {
                 "supported": bool(host.get("supported", False)) if isinstance(host, dict) else False,
                 "configured": bool(host.get("configured", False)) if isinstance(host, dict) else False,
@@ -146,7 +153,7 @@ class SystemHandlers:
         details = {
             "server": SERVER_NAME,
             "title": SERVER_TITLE,
-            "version": __version__,
+            "version": self.server_identity()["version"],
             "workspace": str(self.workspace.root),
             "permission_mode": self.permission_mode,
             "permission_profile": {
@@ -267,6 +274,7 @@ class SystemHandlers:
                 "buffer_bytes_per_stream": STREAM_LIMIT_BYTES,
                 "head_bytes_per_stream": STREAM_HEAD_BYTES,
             },
+            "http_transport": transport,
             "project_context": {
                 "root_instruction_files": [
                     item.path for item in self.project_context.root_files
@@ -306,6 +314,7 @@ class SystemHandlers:
                     "dangerously_skip_all_permissions",
                     "annotation_override",
                     "output_retention",
+                    "http_transport",
                 )
             },
             "toolchains": {

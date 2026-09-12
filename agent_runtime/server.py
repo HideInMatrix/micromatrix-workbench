@@ -11,6 +11,7 @@ import secrets
 import signal
 import sys
 import threading
+import time
 import urllib.parse
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,45 @@ HEALTH_PATH = "/.well-known/micromatrix-workbench-health"
 ORIGIN_HEADER = "X-MicroMatrix-Origin"
 ORIGIN_HEADER_VALUE = "agent-runtime"
 LOGGER = logging.getLogger(__name__)
+
+
+class HTTPTransportMetrics:
+    """Small in-process counters for distinguishing origin vs upstream failures."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._requests = 0
+        self._responses = 0
+        self._last_request_at_ms = 0
+        self._last_response_at_ms = 0
+        self._last_method = ""
+        self._last_path = ""
+        self._last_status = 0
+
+    def mark_request(self, method: str, path: str) -> None:
+        with self._lock:
+            self._requests += 1
+            self._last_request_at_ms = int(time.time() * 1000)
+            self._last_method = method
+            self._last_path = path
+
+    def mark_response(self, status: int) -> None:
+        with self._lock:
+            self._responses += 1
+            self._last_response_at_ms = int(time.time() * 1000)
+            self._last_status = int(status)
+
+    def snapshot(self) -> dict[str, object]:
+        with self._lock:
+            return {
+                "requests_seen": self._requests,
+                "responses_started": self._responses,
+                "last_request_at_ms": self._last_request_at_ms,
+                "last_response_at_ms": self._last_response_at_ms,
+                "last_method": self._last_method,
+                "last_path": self._last_path,
+                "last_status": self._last_status,
+            }
 
 
 def _truthy(value: str | None) -> bool:
@@ -123,6 +163,9 @@ class MCPHTTPServer(http.server.ThreadingHTTPServer):
             raise ValueError("runtime and gateway_pool are mutually exclusive")
         self.runtime = runtime
         self.gateway_pool = gateway_pool
+        self.transport_metrics = HTTPTransportMetrics()
+        if runtime is not None:
+            runtime.http_transport_metrics = self.transport_metrics
         super().__init__(address, MCPHandler)
 
 
@@ -151,6 +194,10 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
         return getattr(self, "_gateway_profile", None)
 
     def _select_request_runtime(self) -> bool:
+        self.server.transport_metrics.mark_request(  # type: ignore[attr-defined]
+            self.command,
+            urllib.parse.urlparse(self.path).path,
+        )
         pool = self.server.gateway_pool  # type: ignore[attr-defined]
         if pool is None:
             return True
@@ -172,6 +219,7 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
             self._json(404, {"error": "gateway_profile_not_found"})
             return False
         profile, runtime = resolved
+        runtime.http_transport_metrics = self.server.transport_metrics  # type: ignore[attr-defined]
         self._gateway_profile = profile
         self._gateway_runtime = runtime
         profile_host = ""
@@ -186,6 +234,10 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
 
     def log_message(self, fmt: str, *args: Any) -> None:
         print(fmt % args, file=sys.stderr)
+
+    def send_response(self, code: int, message: str | None = None) -> None:
+        self.server.transport_metrics.mark_response(code)  # type: ignore[attr-defined]
+        super().send_response(code, message)
 
     def _post_internal_error(self, exc: Exception) -> None:
         """Keep unexpected POST failures from becoming upstream 502s."""
