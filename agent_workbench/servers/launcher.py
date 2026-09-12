@@ -63,6 +63,7 @@ class MCPLauncher:
         self._active_config: LaunchConfig | None = None
         self._route_probe_token = ""
         self._provider_restarting = False
+        self._provider_failure_reported = False
 
     def _log(self, message: str) -> None:
         self._log_callback(message)
@@ -203,12 +204,9 @@ class MCPLauncher:
 
     @property
     def is_running(self) -> bool:
-        provider = self._provider
         mcp = self._mcp.process
         return bool(
-            provider
-            and mcp
-            and (provider.is_running or self._provider_restarting)
+            mcp
             and mcp.poll() is None
             and not self._stopping
         )
@@ -225,6 +223,7 @@ class MCPLauncher:
             route_probe_token = secrets.token_urlsafe(32) if named_cloudflare else ""
             self._stopping = False
             self._exit_reason = ""
+            self._provider_failure_reported = False
             check_port_available(config.host, config.port)
             self._active_config = config
             self._route_probe_token = route_probe_token
@@ -358,12 +357,13 @@ class MCPLauncher:
                 if provider is None or mcp is None:
                     return
                 if not provider.is_running:
-                    self._exit_reason = (
-                        f"{provider.display_name} 已退出，退出码: {provider.exit_code}"
-                    )
-                    self._log(self._exit_reason)
-                    self._stop_locked()
-                    return
+                    if not self._provider_restarting and not self._provider_failure_reported:
+                        self._provider_failure_reported = True
+                        self._log(
+                            f"{provider.display_name} 已退出，退出码: {provider.exit_code}。"
+                            "Agent Runtime 保持运行；公网网络进入 degraded 状态，"
+                            "等待 Network Provider 自动恢复。"
+                        )
                 if mcp.poll() is not None:
                     self._exit_reason = (
                         f"Agent Runtime 已退出，退出码: {mcp.returncode}"
@@ -425,8 +425,24 @@ class MCPLauncher:
                     f"{probe.detail or 'unavailable'}"
                 )
                 if failures >= NAMED_TUNNEL_FAILURE_THRESHOLD:
-                    if not self._restart_named_tunnel_provider(config, public_base_url):
-                        return
+                    restarted = self._restart_named_tunnel_provider(
+                        config,
+                        public_base_url,
+                    )
+                    if not restarted:
+                        with self._lock:
+                            process = self._mcp.process
+                            if (
+                                self._stopping
+                                or self._active_config is not config
+                                or process is None
+                                or process.poll() is not None
+                            ):
+                                return
+                        self._log(
+                            "Cloudflare Named Tunnel Provider 暂未恢复；"
+                            "Agent Runtime 继续运行，稍后重新探测并重试。"
+                        )
                     failures = 0
             time.sleep(NAMED_TUNNEL_HEALTH_INTERVAL_SECONDS)
 
@@ -465,15 +481,18 @@ class MCPLauncher:
                     )
                 self._provider = replacement
                 self._provider_restarting = False
+                self._provider_failure_reported = False
                 self._log("Cloudflare Named Tunnel Provider 自动重启完成。")
                 return True
             except Exception as exc:
                 if replacement is not None:
                     replacement.stop()
                 self._provider_restarting = False
-                self._exit_reason = f"Cloudflare Named Tunnel 自动重启失败: {exc}"
-                self._log(self._exit_reason)
-                self._stop_locked()
+                self._provider_failure_reported = True
+                self._log(
+                    "Cloudflare Named Tunnel 自动重启失败: "
+                    f"{exc}。Agent Runtime 保持运行。"
+                )
                 return False
 
     def stop(self) -> None:
@@ -483,6 +502,7 @@ class MCPLauncher:
     def _stop_locked(self) -> None:
         self._stopping = True
         self._provider_restarting = False
+        self._provider_failure_reported = False
         self._mcp.stop()
         if self._provider is not None:
             self._provider.stop()

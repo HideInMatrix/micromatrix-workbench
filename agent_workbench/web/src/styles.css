@@ -1,90 +1,41 @@
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
-  color: oklch(0.145 0 0);
-  background: oklch(0.995 0 0);
-
-  --radius: 0.5rem;
-  --background: oklch(0.995 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(0.975 0.002 90);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.12 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.965 0.002 90);
-  --secondary-foreground: oklch(0.2 0 0);
-  --muted: oklch(0.965 0.002 90);
-  --muted-foreground: oklch(0.55 0 0);
-  --accent: oklch(0.95 0.003 90);
-  --accent-foreground: oklch(0.16 0 0);
-  --destructive: oklch(0.58 0.22 27);
-  --input: oklch(0.9 0 0);
-  --ring: oklch(0.78 0 0);
-  --border: oklch(0.91 0 0);
-  --sidebar: oklch(0.985 0.001 90);
-  --sidebar-foreground: oklch(0.18 0 0);
-  --sidebar-accent: oklch(0.955 0 0);
-  --sidebar-border: oklch(0.93 0 0);
   --success: oklch(0.62 0.16 150);
   --warning: oklch(0.72 0.15 75);
+  /* unocss-preset-shadcn currently maps bg-sidebar through
+     --sidebar-background while the Blue theme exposes --sidebar. */
+  --sidebar-background: var(--sidebar);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: oklch(0.95 0 0);
-    background: oklch(0.13 0 0);
-    --background: oklch(0.13 0 0);
-    --foreground: oklch(0.95 0 0);
-    --card: oklch(0.18 0 0);
-    --card-foreground: oklch(0.95 0 0);
-    --popover: oklch(0.17 0 0);
-    --popover-foreground: oklch(0.95 0 0);
-    --primary: oklch(0.96 0 0);
-    --primary-foreground: oklch(0.12 0 0);
-    --secondary: oklch(0.21 0 0);
-    --secondary-foreground: oklch(0.94 0 0);
-    --muted: oklch(0.21 0 0);
-    --muted-foreground: oklch(0.64 0 0);
-    --accent: oklch(0.24 0 0);
-    --accent-foreground: oklch(0.96 0 0);
-    --destructive: oklch(0.65 0.2 28);
-    --input: oklch(0.3 0 0);
-    --ring: oklch(0.36 0 0);
-    --border: oklch(0.27 0 0);
-    --sidebar: oklch(0.145 0 0);
-    --sidebar-foreground: oklch(0.92 0 0);
-    --sidebar-accent: oklch(0.22 0 0);
-    --sidebar-border: oklch(0.25 0 0);
-    --success: oklch(0.72 0.14 150);
-    --warning: oklch(0.79 0.13 75);
-  }
+.dark {
+  --success: oklch(0.72 0.14 150);
+  --warning: oklch(0.79 0.13 75);
 }
 
-* { box-sizing: border-box; border-color: var(--border); }
+* { box-sizing: border-box; }
 html, body, #app { margin: 0; width: 100%; min-width: 900px; height: 100%; min-height: 640px; overflow: hidden; }
-body { background: var(--background); color: var(--foreground); font-size: 14px; text-rendering: optimizeLegibility; }
+body { font-size: 14px; text-rendering: optimizeLegibility; }
 button, input, select { font: inherit; }
 button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .5; }
 .workflow-handle {
   width: 8px !important;
   height: 8px !important;
-  border: 1px solid var(--background) !important;
+  border: 1px solid oklch(var(--background)) !important;
   border-radius: 9999px !important;
-  background: var(--foreground) !important;
-  box-shadow: 0 0 0 1px var(--border);
+  background: oklch(var(--foreground)) !important;
+  box-shadow: 0 0 0 1px oklch(var(--border));
   transition: background 120ms ease, box-shadow 120ms ease;
 }
 .workflow-handle:hover,
 .workflow-handle.connectingfrom,
 .workflow-handle.connectingto {
-  background: var(--primary) !important;
-  box-shadow: 0 0 0 1px var(--primary);
+  background: oklch(var(--primary)) !important;
+  box-shadow: 0 0 0 1px oklch(var(--primary));
 }
-* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+* { scrollbar-width: thin; scrollbar-color: oklch(var(--border)) transparent; }
 *::-webkit-scrollbar { width: 5px; height: 5px; }
 *::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb { border-radius: 5px; background: var(--border); }
+*::-webkit-scrollbar-thumb { border-radius: 5px; background: oklch(var(--border)); }
 

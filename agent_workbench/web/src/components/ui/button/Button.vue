@@ -19,8 +19,8 @@ const props = withDefaults(defineProps<Props>(), {
 // declared only inside CVA strings, which makes primary buttons unreadable.
 const semanticForeground = computed(() => {
   const variant = props.variant ?? 'default'
-  if (variant === 'default') return 'var(--primary-foreground)'
-  if (variant === 'secondary') return 'var(--secondary-foreground)'
+  if (variant === 'default') return 'oklch(var(--primary-foreground))'
+  if (variant === 'secondary') return 'oklch(var(--secondary-foreground))'
   if (variant === 'destructive') return 'white'
   return ''
 })

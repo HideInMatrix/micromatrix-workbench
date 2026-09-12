@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { LoaderCircle, Plus } from '@lucide/vue'
+import { Plus } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import {
   workEnabled,
   workName,
@@ -56,31 +57,15 @@ const emit = defineEmits<{
         </span>
       </button>
 
-      <button
-        type="button"
-        role="switch"
-        :aria-checked="workEnabled(work)"
-        :aria-label="`${workEnabled(work) ? '停用' : '启用'} ${workName(work)}`"
-        :disabled="Boolean(togglingId)"
-        :class="[
-          'relative h-5 w-9 shrink-0 rounded-full border-0 p-0 transition-colors disabled:cursor-wait disabled:opacity-60',
-          workEnabled(work) ? 'bg-foreground' : 'bg-muted-foreground/30',
-        ]"
-        @click.stop="emit('toggle', work, !workEnabled(work))"
-      >
-        <LoaderCircle
-          v-if="togglingId === work.id"
-          :size="12"
-          class="absolute top-1 left-3 animate-spin text-background"
+      <div class="relative shrink-0" @click.stop>
+        <Switch
+          :model-value="workEnabled(work)"
+          :aria-label="`${workEnabled(work) ? '停用' : '启用'} ${workName(work)}`"
+          :disabled="Boolean(togglingId)"
+          @update:model-value="emit('toggle', work, $event)"
         />
-        <span
-          v-else
-          :class="[
-            'absolute top-[3px] h-3.5 w-3.5 rounded-full bg-background transition-transform',
-            workEnabled(work) ? 'translate-x-[17px]' : 'translate-x-[3px]',
-          ]"
-        />
-      </button>
+
+      </div>
     </div>
 
     <div v-if="!works.length" class="flex min-h-[250px] flex-col items-center justify-center px-5 py-[42px] text-center text-muted-foreground">
