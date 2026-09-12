@@ -158,12 +158,12 @@ WORKBENCH_TOOLS = (
     ToolDefinition(
         "mcp_connection_test",
         "Test MCP connection",
-        "Connect to an enabled external MCP Server and verify protocol negotiation without changing its discovered Tool cache.",
+        "Connect to an enabled external MCP Server. If a read-only health_tool is configured, omitting deep performs the backend probe automatically; set deep=false explicitly for protocol-only testing.",
         obj(
             {
                 "connection_id": {**S, "minLength": 1},
                 "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30},
-                "deep": {**B, "default": False},
+                "deep": B,
             },
             ("connection_id",),
         ),
@@ -381,7 +381,7 @@ _WORKBENCH_MCP_FACADES = (
                 "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 120},
                 "tool_name": S,
                 "arguments": {"type": "object", "additionalProperties": True},
-                "deep": {**B, "default": False},
+                "deep": B,
             },
             ("action",),
         ),

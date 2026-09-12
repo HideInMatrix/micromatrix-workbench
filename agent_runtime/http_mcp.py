@@ -615,7 +615,11 @@ class MCPHTTPController:
         except Exception as exc:
             LOGGER.exception("Unhandled MCP dispatch failure")
             handler._json(
-                500,
+                # A syntactically valid JSON-RPC request reached MCP dispatch.
+                # Keep implementation failures inside JSON-RPC instead of
+                # returning HTTP 5xx, which reverse proxies often rewrite into
+                # an opaque 502 and hide the structured error payload.
+                200,
                 {
                     "jsonrpc": "2.0",
                     "id": request.get("id"),

@@ -345,7 +345,12 @@ class Runtime(
         )
 
     def server_identity(self) -> dict[str, str]:
-        return {"name": SERVER_NAME, "title": SERVER_TITLE, "version": __version__}
+        version = (
+            f"{__version__}.contract.{self.tool_contract_revision}"
+            if "+" in __version__
+            else f"{__version__}+contract.{self.tool_contract_revision}"
+        )
+        return {"name": SERVER_NAME, "title": SERVER_TITLE, "version": version}
 
     def server_instructions(self) -> str:
         """Return MCP guidance with the latest user-authored Workflow catalog."""

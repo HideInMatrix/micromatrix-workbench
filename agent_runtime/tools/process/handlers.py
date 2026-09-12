@@ -153,6 +153,27 @@ class ProcessHandlers:
             return None
         return self.workspace.writable(raw)
 
+    @staticmethod
+    def _registered_python_alias_matches(
+        registration: dict[str, Any],
+        candidate: str,
+        requirements: list[Any],
+    ) -> bool:
+        if registration.get("program") not in {"python", "python3"}:
+            return False
+        context = registration.get("project_context")
+        registered_requirements = (
+            context.get("requirements") if isinstance(context, dict) else None
+        )
+        if registered_requirements != requirements:
+            return False
+        try:
+            registered_target = Path(str(registration["executable"])).resolve(strict=True)
+            candidate_target = Path(candidate).resolve(strict=True)
+        except (KeyError, OSError):
+            return False
+        return registered_target == candidate_target
+
     def _resolve_program(self, program: str, cwd: Path | None = None) -> str:
         from ...toolchains.registration import normalize_program_name
         path = Path(program).expanduser()
@@ -236,6 +257,21 @@ class ProcessHandlers:
                 )
             return resolved
         local = self.toolchains.resolve_program(normalized)
+        if project_python_environment and local is not None:
+            alias_registration = next(
+                (
+                    item
+                    for item in self.toolchain_registrations
+                    if self._registered_python_alias_matches(
+                        item,
+                        local,
+                        current_requirements,
+                    )
+                ),
+                None,
+            )
+            if alias_registration is not None:
+                return local
         if local is not None and not project_python_environment:
             return local
         if self._host_tool_broker() is None:

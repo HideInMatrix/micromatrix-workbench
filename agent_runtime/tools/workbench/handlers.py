@@ -461,10 +461,15 @@ class WorkbenchHandlers:
         connection_id = str(arguments.get("connection_id") or "").strip()
         definition = self._mcp_connection_definition(connection_id)
         self._require_mcp_connection_access(definition, operation="MCP Connection Test")
+        deep = (
+            bool(arguments.get("deep"))
+            if "deep" in arguments
+            else bool(definition.health_tool.strip())
+        )
         probe = self.mcp_connections.test(
             connection_id,
             timeout=float(arguments.get("timeout_seconds", 8)),
-            deep=bool(arguments.get("deep", False)),
+            deep=deep,
         )
         if not probe.ok:
             backend = probe.health.get("backend") if isinstance(probe.health, dict) else None

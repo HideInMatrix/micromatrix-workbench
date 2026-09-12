@@ -424,7 +424,7 @@ ttlMs = 0
 cacheScope = private
 ```
 
-公共 `tools/list` 在一个 Runtime 生命周期内保持不可变，`capabilities.tools.listChanged=false`。Skill、Workflow、外部 MCP 等动态内容只改变 `capability_catalog.revision`，不热增删顶层 MCP Tool。`toolContractRevision` 对当前完整公共 Tool Contract 做稳定哈希；版本/构建改变 Tool schema 后 revision 随新 Runtime 改变，现代客户端可据此重新发现，但 Server 不通过私有 header 或伪 session 强迫 2026 客户端刷新本地 schema 缓存。
+公共 `tools/list` 在一个 Runtime 生命周期内保持不可变，`capabilities.tools.listChanged=false`。Skill、Workflow、外部 MCP 等动态内容只改变 `capability_catalog.revision`，不热增删顶层 MCP Tool。`toolContractRevision` 对当前完整公共 Tool Contract 做稳定哈希；版本/构建改变 Tool schema 后 revision 随新 Runtime 改变。MCP `serverInfo.version` 会把该 revision 作为 SemVer build metadata 暴露，使仅按 Server identity 缓存 Tool schema 的客户端也能在 Runtime 更新后自然失效旧 Contract；modern 响应仍同时携带 `_meta.com.micromatrix.workbench/toolContractRevision`。Server 不通过私有 header 或伪 session 强迫 2026 客户端刷新本地 schema 缓存。
 
 ## 8. Workspace 边界
 
