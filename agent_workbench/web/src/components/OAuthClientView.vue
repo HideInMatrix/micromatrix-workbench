@@ -2,33 +2,19 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Button } from '@/components/ui/button'
 import { desktopApi } from '../api/desktop'
-import type { GatewayDto, OAuthClientDto, ServerDto } from '../types'
+import type { OAuthClientDto, ServerDto } from '../types'
 
-type OAuthTarget =
-  | {
-      key: string
-      kind: 'server'
-      serverId: string
-      label: string
-      detail: string
-      running: boolean
-      lifecycle: 'persistent' | 'ephemeral'
-      clientCount: number
-    }
-  | {
-      key: string
-      kind: 'gateway'
-      gatewayId: string
-      serverId: string
-      label: string
-      detail: string
-      running: boolean
-      lifecycle: 'persistent' | 'ephemeral'
-      clientCount: number
-    }
+type OAuthTarget = {
+  key: string
+  serverId: string
+  label: string
+  detail: string
+  running: boolean
+  lifecycle: 'persistent' | 'ephemeral'
+  clientCount: number
+}
 
 const servers = ref<ServerDto[]>([])
-const gateways = ref<GatewayDto[]>([])
 const selectedKey = ref('')
 const clients = ref<OAuthClientDto[]>([])
 const busy = ref(false)
@@ -37,26 +23,14 @@ let pollTimer = 0
 
 const targets = computed<OAuthTarget[]>(() => [
   ...servers.value.map(server => ({
-    key: `server:${server.server_id}`,
-    kind: 'server' as const,
+    key: `work:${server.server_id}`,
     serverId: server.server_id,
-    label: `服务 · ${server.name} / 主 Workspace`,
-    detail: `/mcp · ${server.host}:${server.port}`,
+    label: `Work · ${server.name}`,
+    detail: server.public_mcp_url || server.network.public_url || `:${server.port}`,
     running: server.running,
     lifecycle: server.lifecycle,
     clientCount: server.oauth_client_count,
   })),
-  ...gateways.value.flatMap(gateway => gateway.members.map((member, index) => ({
-    key: `gateway:${gateway.gateway_id}:${member.server_id}`,
-    kind: 'gateway' as const,
-    gatewayId: gateway.gateway_id,
-    serverId: member.server_id,
-    label: `服务 · ${gateway.name} / ${index === 0 ? '主 Workspace' : member.name}`,
-    detail: member.public_mcp_url || (member.public_url ? `${member.public_url}/mcp` : `${member.instance_path || ''}/mcp`),
-    running: gateway.running && (gateway.mode === 'multi' || index === 0),
-    lifecycle: member.lifecycle,
-    clientCount: member.oauth_client_count,
-  }))),
 ])
 
 const selected = computed(() => targets.value.find(item => item.key === selectedKey.value) || null)
@@ -76,7 +50,7 @@ const mutationHelp = computed(() => {
       ? '当前目标使用临时公网 Session；DCR Client 随 Session 销毁，CIMD 为 Runtime 观察记录且不可在本地撤销。'
       : '该临时 Session 已停止；临时 DCR Client 已销毁，CIMD 观察记录不会作为本地注册信息管理。'
   }
-  if (target.running) return '可查看 DCR 与 CIMD Client；运行中的 Runtime 正在持有 DCR Registry，撤销 DCR 前请先停止对应服务。CIMD 由外部客户端元数据管理，只读。'
+  if (target.running) return '可查看 DCR 与 CIMD Client；运行中的 Runtime 正在持有 DCR Registry，撤销 DCR 前请先停用对应 Work。CIMD 由外部客户端元数据管理，只读。'
   return '当前目标已停止；DCR Client 可以撤销，CIMD 是 Runtime 观察到的外部客户端记录，不属于本地 Registry。'
 })
 
@@ -86,12 +60,7 @@ function formatTime(timestamp: number) {
 
 async function refreshTargets(preserveSelection = true) {
   const previous = selectedKey.value
-  const [serverItems, gatewayItems] = await Promise.all([
-    desktopApi.listServers(),
-    desktopApi.listGateways(),
-  ])
-  servers.value = serverItems
-  gateways.value = gatewayItems
+  servers.value = await desktopApi.listServers()
 
   if (preserveSelection && previous && targets.value.some(item => item.key === previous)) {
     selectedKey.value = previous
@@ -106,9 +75,7 @@ async function refreshClients() {
     clients.value = []
     return
   }
-  clients.value = target.kind === 'server'
-    ? await desktopApi.listOAuthClients(target.serverId)
-    : await desktopApi.listGatewayOAuthClients(target.gatewayId, target.serverId)
+  clients.value = await desktopApi.listOAuthClients(target.serverId)
 }
 
 async function refreshAll(preserveSelection = true) {
@@ -133,11 +100,7 @@ async function revokeClient(clientId: string) {
   busy.value = true
   errorMessage.value = ''
   try {
-    if (target.kind === 'server') {
-      await desktopApi.revokeOAuthClient(target.serverId, clientId)
-    } else {
-      await desktopApi.revokeGatewayOAuthClient(target.gatewayId, target.serverId, clientId)
-    }
+    await desktopApi.revokeOAuthClient(target.serverId, clientId)
     await refreshTargets(true)
     await refreshClients()
   } catch (error) {
@@ -154,11 +117,7 @@ async function revokeAll() {
   busy.value = true
   errorMessage.value = ''
   try {
-    if (target.kind === 'server') {
-      await desktopApi.revokeAllOAuthClients(target.serverId)
-    } else {
-      await desktopApi.revokeAllGatewayOAuthClients(target.gatewayId, target.serverId)
-    }
+    await desktopApi.revokeAllOAuthClients(target.serverId)
     await refreshTargets(true)
     await refreshClients()
   } catch (error) {

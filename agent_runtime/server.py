@@ -24,8 +24,6 @@ from .oauth import (
     OAuthObservedClientRegistry,
 )
 from .oauth_service import OAuthService
-from .gateway import GatewayProfile, GatewayRuntimePool
-from .gateway.config import build_gateway_runtime_pool, load_gateway_config
 from .http_mcp import MCPHTTPController
 from .http_oauth import OAuthHTTPController
 from .core.constants import ENDPOINT_PATH
@@ -150,22 +148,10 @@ class MCPHTTPServer(http.server.ThreadingHTTPServer):
     request_queue_size = 128
     daemon_threads = True
 
-    def __init__(
-        self,
-        address: tuple[str, int],
-        runtime: Runtime | None = None,
-        *,
-        gateway_pool: GatewayRuntimePool | None = None,
-    ):
-        if runtime is None and gateway_pool is None:
-            raise ValueError("runtime or gateway_pool is required")
-        if runtime is not None and gateway_pool is not None:
-            raise ValueError("runtime and gateway_pool are mutually exclusive")
+    def __init__(self, address: tuple[str, int], runtime: Runtime):
         self.runtime = runtime
-        self.gateway_pool = gateway_pool
         self.transport_metrics = HTTPTransportMetrics()
-        if runtime is not None:
-            runtime.http_transport_metrics = self.transport_metrics
+        runtime.http_transport_metrics = self.transport_metrics
         super().__init__(address, MCPHandler)
 
 
@@ -181,55 +167,13 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
 
     @property
     def runtime(self) -> Runtime:
-        selected = getattr(self, "_gateway_runtime", None)
-        if selected is not None:
-            return selected
-        runtime = self.server.runtime  # type: ignore[attr-defined]
-        if runtime is None:
-            raise RuntimeError("gateway request runtime has not been selected")
-        return runtime
-
-    @property
-    def gateway_profile(self) -> GatewayProfile | None:
-        return getattr(self, "_gateway_profile", None)
+        return self.server.runtime  # type: ignore[attr-defined]
 
     def _select_request_runtime(self) -> bool:
         self.server.transport_metrics.mark_request(  # type: ignore[attr-defined]
             self.command,
             urllib.parse.urlparse(self.path).path,
         )
-        pool = self.server.gateway_pool  # type: ignore[attr-defined]
-        if pool is None:
-            return True
-        request_path = urllib.parse.urlparse(self.path).path
-        direct_host = self.headers.get("Host", "").split(",", 1)[0].strip()
-        forwarded_host = self.headers.get("X-Forwarded-Host", "").split(",", 1)[0].strip()
-        request_host = direct_host
-        try:
-            direct_hostname = (urllib.parse.urlsplit(f"//{direct_host}").hostname or "").lower()
-        except ValueError:
-            direct_hostname = ""
-        if direct_hostname in {"localhost", "127.0.0.1", "::1"} and forwarded_host:
-            request_host = forwarded_host
-        resolved = pool.runtime_for_request(request_path, request_host)
-        if resolved is None and forwarded_host:
-            request_host = forwarded_host
-            resolved = pool.runtime_for_request(request_path, forwarded_host)
-        if resolved is None:
-            self._json(404, {"error": "gateway_profile_not_found"})
-            return False
-        profile, runtime = resolved
-        runtime.http_transport_metrics = self.server.transport_metrics  # type: ignore[attr-defined]
-        self._gateway_profile = profile
-        self._gateway_runtime = runtime
-        profile_host = ""
-        if profile.public_url:
-            profile_host = (urllib.parse.urlsplit(profile.public_url).hostname or "").lower()
-        try:
-            request_hostname = (urllib.parse.urlsplit(f"//{request_host}").hostname or "").lower()
-        except ValueError:
-            request_hostname = ""
-        self._gateway_host_routed = bool(profile_host and profile_host == request_hostname)
         return True
 
     def log_message(self, fmt: str, *args: Any) -> None:
@@ -283,16 +227,9 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
         if not host:
             server_host, server_port = self.server.server_address[:2]  # type: ignore[attr-defined]
             host = f"{server_host}:{server_port}"
-        base = f"{scheme}://{host}".rstrip("/")
-        profile = self.gateway_profile
-        return f"{base}{profile.instance_path}" if profile else base
+        return f"{scheme}://{host}".rstrip("/")
 
     def _instance_prefix(self) -> str:
-        profile = self.gateway_profile
-        if profile is not None:
-            if getattr(self, "_gateway_host_routed", False):
-                return ""
-            return profile.instance_path
         config = self.runtime.oauth_service
         return _url_path(config.server_url if config else None)
 
@@ -428,9 +365,8 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         raw_path = urllib.parse.urlparse(self.path).path
-        # This probe identifies the HTTP process itself. In Gateway mode it
-        # must not instantiate or select a Workspace Runtime just to report
-        # transport health; profile routing has a separate tokenized probe.
+        # This probe identifies the HTTP process itself without touching
+        # Runtime business state.
         if raw_path == HEALTH_PATH:
             self._json(200, {"ok": True})
             return
@@ -522,11 +458,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--stdio", action="store_true")
     parser.add_argument("--auth-token", default=None)
     parser.add_argument("--oauth-mode", action="store_true", default=False)
-    parser.add_argument(
-        "--gateway-config",
-        default=os.environ.get(f"{ENV_PREFIX}_GATEWAY_CONFIG") or None,
-        help="Run Local MCP Gateway mode using a versioned local JSON config file.",
-    )
     parser.add_argument("--permission-mode", choices=PERMISSION_MODES, default=None)
     parser.add_argument("--allow-network", action="store_true")
     parser.add_argument("--enable-view-image", action="store_true", default=os.environ.get(f"{ENV_PREFIX}_ENABLE_VIEW_IMAGE", "1") != "0")
@@ -609,8 +540,6 @@ def build_runtime(args: argparse.Namespace, *, http: bool) -> Runtime:
 
 
 def run_http(args: argparse.Namespace) -> int:
-    if args.gateway_config:
-        return run_gateway_http(args)
     try:
         runtime = build_runtime(args, http=True)
     except (ValueError, OSError, RuntimeError, ToolError) as exc:
@@ -638,57 +567,7 @@ def run_http(args: argparse.Namespace) -> int:
     return 0
 
 
-def run_gateway_http(args: argparse.Namespace) -> int:
-    try:
-        config = load_gateway_config(args.gateway_config)
-        registry, pool = build_gateway_runtime_pool(config)
-        # Instantiate every profile before binding so invalid Workspace/OAuth
-        # state fails startup atomically rather than on the first request.
-        runtimes = [pool.get(profile.profile_id) for profile in registry.profiles()]
-    except (ValueError, OSError, RuntimeError, ToolError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 2
-
-    auth_mode = os.environ.get(f"{ENV_PREFIX}_AUTH_MODE", "").strip().lower()
-    if (
-        not _loopback(str(args.host))
-        and auth_mode != "noauth"
-        and any(not runtime.auth_enabled() for runtime in runtimes)
-    ):
-        print(
-            "ERROR: non-loopback Gateway binding requires authentication for every profile or AGENT_RUNTIME_AUTH_MODE=noauth.",
-            file=sys.stderr,
-        )
-        pool.close()
-        return 2
-    try:
-        server = MCPHTTPServer(
-            (str(args.host), int(args.port)),
-            gateway_pool=pool,
-        )
-    except OSError as exc:
-        print(f"ERROR: cannot bind {args.host}:{args.port}: {exc}", file=sys.stderr)
-        pool.close()
-        return 2
-    print(
-        f"MicroMatrix Workbench Gateway listening on http://{args.host}:{args.port} "
-        f"with {len(registry)} profiles",
-        file=sys.stderr,
-    )
-    try:
-        server.serve_forever(poll_interval=0.3)
-    except KeyboardInterrupt:
-        return 130
-    finally:
-        server.server_close()
-        pool.close()
-    return 0
-
-
 def run_stdio(args: argparse.Namespace) -> int:
-    if args.gateway_config:
-        print("ERROR: Local MCP Gateway currently supports HTTP mode only.", file=sys.stderr)
-        return 2
     try:
         runtime = build_runtime(args, http=False)
     except (ValueError, OSError, RuntimeError, ToolError) as exc:

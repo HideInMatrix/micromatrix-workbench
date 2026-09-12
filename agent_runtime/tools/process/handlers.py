@@ -174,6 +174,32 @@ class ProcessHandlers:
             return False
         return registered_target == candidate_target
 
+    @staticmethod
+    def _registered_node_alias_matches(
+        registration: dict[str, Any],
+        candidate: str,
+        requirements: list[Any],
+    ) -> bool:
+        if registration.get("program") not in {
+            "node", "npm", "npx", "corepack", "pnpm", "yarn"
+        }:
+            return False
+        context = registration.get("project_context")
+        registered_requirements = (
+            context.get("requirements") if isinstance(context, dict) else None
+        )
+        if registered_requirements != requirements:
+            return False
+        try:
+            candidate_target = Path(candidate).resolve(strict=True)
+            roots = [Path(str(value)).resolve(strict=True) for value in registration["read_roots"]]
+        except (KeyError, OSError, TypeError):
+            return False
+        return any(
+            candidate_target == root or candidate_target.is_relative_to(root)
+            for root in roots
+        )
+
     def _resolve_program(self, program: str, cwd: Path | None = None) -> str:
         from ...toolchains.registration import normalize_program_name
         path = Path(program).expanduser()
@@ -208,6 +234,18 @@ class ProcessHandlers:
             and any(
                 isinstance(item, dict)
                 and item.get("type") == "python_virtual_environment"
+                for item in current_requirements
+            )
+        )
+        project_node_context = (
+            normalized in {"node", "npm", "npx", "corepack", "pnpm", "yarn"}
+            and any(
+                isinstance(item, dict)
+                and item.get("type") in {
+                    "runtime_version",
+                    "node_engine",
+                    "package_manager",
+                }
                 for item in current_requirements
             )
         )
@@ -272,7 +310,22 @@ class ProcessHandlers:
             )
             if alias_registration is not None:
                 return local
-        if local is not None and not project_python_environment:
+        if project_node_context and local is not None:
+            alias_registration = next(
+                (
+                    item
+                    for item in self.toolchain_registrations
+                    if self._registered_node_alias_matches(
+                        item,
+                        local,
+                        current_requirements,
+                    )
+                ),
+                None,
+            )
+            if alias_registration is not None:
+                return local
+        if local is not None and not (project_python_environment or project_node_context):
             return local
         if self._host_tool_broker() is None:
             raise ToolError(

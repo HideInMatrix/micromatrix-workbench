@@ -109,6 +109,8 @@ class SystemHandlers:
         mcp_tools = [definition.name for definition in self._tools]
         host = self.host_status({})
         connection = host.get("connection") if isinstance(host, dict) else {}
+        oauth_service = getattr(self, "oauth_service", None)
+        public_server_url = str(getattr(oauth_service, "server_url", "") or "")
         transport_metrics = getattr(self, "http_transport_metrics", None)
         transport = (
             transport_metrics.snapshot()
@@ -126,6 +128,7 @@ class SystemHandlers:
             "auth_enabled": self.auth_enabled(),
             "supported_protocol_versions": list(KNOWN_PROTOCOL_VERSIONS),
             "endpoint_path": ENDPOINT_PATH,
+            "public_server_url": public_server_url,
             "tool_count": len(tools),
             "http_transport": transport,
             "host": {
@@ -208,6 +211,7 @@ class SystemHandlers:
             "auth_enabled": self.auth_enabled(),
             "supported_protocol_versions": list(KNOWN_PROTOCOL_VERSIONS),
             "endpoint_path": ENDPOINT_PATH,
+            "public_server_url": public_server_url,
             "runtime_dir": str(self.commands.runtime_dir),
             "home": str(self.commands.home_dir),
             "config_dir": str(self.commands.config_dir),

@@ -59,7 +59,7 @@ async function register() {
     const result = await desktopApi.registerToolchain(selected.program, selected.executable, selected.read_roots)
     registrations.value = [...registrations.value.filter(item => item.program !== result.program), result]
     closeEditor()
-    notice.value = '已更新，保存服务后生效。'
+    notice.value = '已更新，保存 Work 后生效。'
   } catch (reason) { error.value = String(reason) }
   finally { busy.value = false }
 }
@@ -68,7 +68,7 @@ function remove(item: ToolchainRegistration) {
   if (props.locked || busy.value) return
   registrations.value = registrations.value.filter(value => value.program !== item.program)
   if (expanded.value === item.program) expanded.value = null
-  notice.value = '已移除，保存服务后生效。'
+  notice.value = '已移除，保存 Work 后生效。'
 }
 </script>
 
@@ -85,7 +85,7 @@ function remove(item: ToolchainRegistration) {
     </header>
 
     <p v-if="mode === 'dangerous'" class="m-0 text-[11px] text-destructive">危险模式：工具执行不受沙箱隔离。</p>
-    <p v-if="locked" class="m-0 text-[11px] text-muted-foreground">停止服务后可手动修改工具。</p>
+    <p v-if="locked" class="m-0 text-[11px] text-muted-foreground">停用 Work 后可手动修改工具。</p>
 
     <div v-if="registrations.length" class="overflow-hidden rounded-lg border border-border bg-background">
       <article v-for="item in registrations" :key="item.program" class="border-b border-border last:border-b-0">

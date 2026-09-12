@@ -10,9 +10,9 @@ const manager = useServiceManager()
   <section class="grid gap-5">
     <header class="flex min-h-8 items-center justify-between gap-4">
       <div>
-        <h1 class="m-0 text-xl leading-7 font-medium tracking-[-0.02em]">服务</h1>
+        <h1 class="m-0 text-xl leading-7 font-medium tracking-[-0.02em]">Work</h1>
         <p class="mt-[3px] mb-0 text-xs leading-[18px] text-muted-foreground">
-          一个服务管理一个公网入口；Profile 配置与运行模式分离，由顶部滑块明确决定本次启用单 Workspace 还是多 Workspace。
+          一个 Work 对应一个独立域名、一个 Runtime 和一个工作目录；左侧 Switch 决定应用启动时是否启用它。
         </p>
       </div>
     </header>
@@ -23,17 +23,31 @@ const manager = useServiceManager()
     </div>
 
     <div class="grid grid-cols-1 gap-2 lg:grid-cols-3">
-      <div class="min-h-28 rounded-lg bg-card p-4"><span class="block text-xs leading-5 text-muted-foreground">服务</span><strong class="mt-2.5 block min-h-8 text-2xl leading-8 font-medium tracking-[-0.03em] tabular-nums">{{ manager.stats.value.services }}</strong><small class="mt-1 block text-[11px] leading-4 text-muted-foreground">统一公网入口</small></div>
-      <div class="min-h-28 rounded-lg bg-card p-4"><span class="block text-xs leading-5 text-muted-foreground">正在运行</span><strong class="mt-2.5 block min-h-8 text-2xl leading-8 font-medium tracking-[-0.03em] tabular-nums">{{ manager.stats.value.running }}</strong><small class="mt-1 block text-[11px] leading-4 text-muted-foreground">{{ manager.stats.value.services - manager.stats.value.running }} 个已停止</small></div>
-      <div class="min-h-28 rounded-lg bg-card p-4"><span class="block text-xs leading-5 text-muted-foreground">Workspace</span><strong class="mt-2.5 block min-h-8 text-2xl leading-8 font-medium tracking-[-0.03em] tabular-nums">{{ manager.stats.value.workspaces }}</strong><small class="mt-1 block text-[11px] leading-4 text-muted-foreground">主 Workspace + 子 Profile</small></div>
+      <div class="min-h-28 rounded-lg bg-card p-4">
+        <span class="block text-xs leading-5 text-muted-foreground">Work</span>
+        <strong class="mt-2.5 block min-h-8 text-2xl leading-8 font-medium tracking-[-0.03em] tabular-nums">{{ manager.stats.value.works }}</strong>
+        <small class="mt-1 block text-[11px] leading-4 text-muted-foreground">独立域名与 Runtime</small>
+      </div>
+      <div class="min-h-28 rounded-lg bg-card p-4">
+        <span class="block text-xs leading-5 text-muted-foreground">已启用</span>
+        <strong class="mt-2.5 block min-h-8 text-2xl leading-8 font-medium tracking-[-0.03em] tabular-nums">{{ manager.stats.value.enabled }}</strong>
+        <small class="mt-1 block text-[11px] leading-4 text-muted-foreground">应用启动时自动恢复</small>
+      </div>
+      <div class="min-h-28 rounded-lg bg-card p-4">
+        <span class="block text-xs leading-5 text-muted-foreground">正在运行</span>
+        <strong class="mt-2.5 block min-h-8 text-2xl leading-8 font-medium tracking-[-0.03em] tabular-nums">{{ manager.stats.value.running }}</strong>
+        <small class="mt-1 block text-[11px] leading-4 text-muted-foreground">当前 Runtime 状态</small>
+      </div>
     </div>
 
-    <div class="grid items-start gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+    <div class="grid items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
       <ServiceListPanel
-        :services="manager.services.value"
+        :works="manager.works.value"
         :selected-key="manager.selectedKey.value"
+        :toggling-id="manager.togglingId.value"
         @create="manager.createNew"
-        @select="manager.selectService"
+        @select="manager.selectWork"
+        @toggle="manager.toggleWork"
       />
       <ServiceEditor
         v-model:draft="manager.draft.value"
@@ -42,25 +56,15 @@ const manager = useServiceManager()
         :locked="manager.locked.value"
         :busy="manager.busy.value"
         :selected-running="manager.selectedRunning.value"
-        :selected-is-starting="manager.selectedIsStarting.value"
         :copied-url="manager.copiedUrl.value"
-        :diagnostic="manager.diagnostic.value"
-        :show-diagnostic="manager.showDiagnostic.value"
+        :runtime-url="manager.runtimeUrl.value"
         :network-providers="manager.networkProviders.value"
-        :is-root-profile="manager.isRootProfile"
-        :profile-enabled="manager.profileEnabled"
-        :runtime-url="manager.runtimeUrl"
-        :is-o-auth-password-visible="manager.isOAuthPasswordVisible"
-        @set-mode="manager.setMode"
-        @add-profile="manager.addProfile"
-        @remove-profile="manager.removeProfile"
+        :oauth-password-visible="manager.oauthPasswordVisible.value"
         @choose-workspace="manager.chooseWorkspace"
-        @toggle-o-auth-password="manager.toggleOAuthPassword"
+        @toggle-o-auth-password="manager.oauthPasswordVisible.value = !manager.oauthPasswordVisible.value"
         @copy-url="manager.copyUrl"
-        @test="manager.testService"
-        @delete="manager.deleteService"
-        @save="manager.saveService"
-        @toggle="manager.toggleService"
+        @delete="manager.deleteWork"
+        @save="manager.saveWork"
       />
     </div>
   </section>

@@ -295,8 +295,8 @@ class OAuthObservedClientRegistry:
 class OAuthClientRegistry:
     """Thread-safe RFC 7591 client registry.
 
-    Persistence is instance-scoped so multiple Gateway profiles can keep
-    independent DCR client registries in one process.
+    Persistence is instance-scoped so independent Runtime instances keep
+    independent DCR client registries.
     """
 
     def __init__(self, persistence_file: str | Path | None = None) -> None:

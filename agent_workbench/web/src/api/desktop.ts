@@ -4,9 +4,6 @@ import type {
   CapabilityCatalogDto,
   DesktopBridge,
   ResourceAuthorizationDto,
-  GatewayDiagnosticDto,
-  GatewayDraft,
-  GatewayDto,
   LogEntryDto,
   MCPConnectionDefinitionDto,
   MCPConnectionProbeDto,
@@ -85,9 +82,6 @@ export const desktopApi = {
   async listServers(): Promise<ServerDto[]> {
     return (await bridge()).list_servers()
   },
-  async listGateways(): Promise<GatewayDto[]> {
-    return (await bridge()).list_gateways()
-  },
   async nextPort(): Promise<number> {
     return (await bridge()).get_next_port()
   },
@@ -109,44 +103,17 @@ export const desktopApi = {
   async stopServer(serverId: string): Promise<ServerDto> {
     return (await bridge()).stop_server(serverId)
   },
-  async createGateway(payload: GatewayDraft): Promise<GatewayDto> {
-    return (await bridge()).create_gateway(payload)
-  },
-  async updateGateway(gatewayId: string, payload: GatewayDraft): Promise<GatewayDto> {
-    return (await bridge()).update_gateway(gatewayId, payload)
-  },
-  async promoteServerToGateway(serverId: string, payload: GatewayDraft): Promise<GatewayDto> {
-    return (await bridge()).promote_server_to_gateway(serverId, payload)
-  },
-  async deleteGateway(gatewayId: string): Promise<boolean> {
-    return (await bridge()).delete_gateway(gatewayId)
-  },
-  async startGateway(gatewayId: string, payload?: GatewayDraft): Promise<GatewayDto> {
-    return (await bridge()).start_gateway(gatewayId, payload)
-  },
-  async stopGateway(gatewayId: string): Promise<GatewayDto> {
-    return (await bridge()).stop_gateway(gatewayId)
-  },
-  async testGateway(gatewayId: string): Promise<GatewayDiagnosticDto> {
-    return (await bridge()).test_gateway(gatewayId)
+  async setServerEnabled(serverId: string, enabled: boolean): Promise<ServerDto> {
+    return (await bridge()).set_server_enabled(serverId, enabled)
   },
   async listOAuthClients(serverId: string): Promise<OAuthClientDto[]> {
     return (await bridge()).list_oauth_clients(serverId)
-  },
-  async listGatewayOAuthClients(gatewayId: string, serverId: string): Promise<OAuthClientDto[]> {
-    return (await bridge()).list_gateway_oauth_clients(gatewayId, serverId)
   },
   async revokeOAuthClient(serverId: string, clientId: string): Promise<boolean> {
     return (await bridge()).revoke_oauth_client(serverId, clientId)
   },
   async revokeAllOAuthClients(serverId: string): Promise<number> {
     return (await bridge()).revoke_all_oauth_clients(serverId)
-  },
-  async revokeGatewayOAuthClient(gatewayId: string, serverId: string, clientId: string): Promise<boolean> {
-    return (await bridge()).revoke_gateway_oauth_client(gatewayId, serverId, clientId)
-  },
-  async revokeAllGatewayOAuthClients(gatewayId: string, serverId: string): Promise<number> {
-    return (await bridge()).revoke_all_gateway_oauth_clients(gatewayId, serverId)
   },
   async listPermissionRequests(): Promise<PermissionRequestDto[]> {
     return (await bridge()).list_permission_requests()

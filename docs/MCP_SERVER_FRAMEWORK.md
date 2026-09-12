@@ -166,7 +166,7 @@ PermissionSession
     └── Desktop Permission Broker adapter
 ```
 
-因此权限状态不是全局状态，也不属于 Tool Handler。Local MCP Gateway 同时挂载多个 Profile 时，每个 Profile 都使用自己的 `PermissionSession`，禁止跨 Profile 共享 requestState、grant 或 session-all approval。
+因此权限状态不是全局状态，也不属于 Tool Handler。每个 Work 都拥有自己的 Runtime 与 `PermissionSession`，禁止跨 Work 共享 requestState、grant 或 session-all approval。
 
 `runtime.local_permission_broker` 目前仅作为历史兼容 facade 保留，实际 Broker client 由 `PermissionSession` 持有。
 
@@ -222,46 +222,21 @@ tools/process/
 
 具体 Tool 业务逻辑禁止直接新增到 `Runtime`。如果某个领域继续变大，优先在对应功能包内增加 `services.py`、`models.py` 或 `manager.py`，不要把实现重新搬回 Runtime。
 
-## 9. Local MCP Gateway
+## 9. Work Runtime 隔离
 
-Gateway 应依赖 Runtime/Registry，而不是复制工具实现：
-
-```text
-Local MCP Gateway
-        │
-    path -> profile
-        │
-┌───────┼────────┐
-/crm  /home  /project
-  │      │       │
-Runtime Runtime Runtime
-  └──────┼───────┘
-      Shared Tool Framework
-```
-
-每个 Profile 拥有独立 Workspace、PermissionProfile、PermissionSession、OAuthService/Registry 与 Desktop Broker identity，但共享同一套 ToolDefinition 与 Handler 实现。
-
-该架构已经落地为：
+产品层统一以 Work 为运行单元。每个 Work 都直接拥有独立 Runtime，不再通过 Hostname、URL Path 或共享 Gateway 进程选择不同 Workspace：
 
 ```text
-agent_runtime/gateway/
-├── models.py
-├── routes.py
-├── registry.py
-├── runtime_pool.py
-└── config.py
-
-agent_workbench/
-└── gateways/
-    ├── models.py
-    ├── store.py
-    ├── process.py
-    ├── diagnostics.py
-    ├── launcher.py
-    └── manager.py
+Work A -> Port A -> Runtime A -> Workspace A
+Work B -> Port B -> Runtime B -> Workspace B
+Work C -> Port C -> Runtime C -> Workspace C
 ```
 
-`MCPHTTPServer` 支持显式 `gateway_pool` 模式；默认单 Runtime 构造方式保持兼容。详细设计见 `docs/LOCAL_MCP_GATEWAY.md`。
+每个 Work 拥有独立 Workspace root、PermissionProfile、PermissionSession、OAuthService/Registry、Desktop Broker identity 与 HTTP transport 状态，但共享同一套 ToolDefinition 与 Handler 实现。
+
+公网层也遵循同一边界：一个 Work 对应一个 Public Hostname；使用 Cloudflare Named Tunnel 时，每个 Work 配置独立 Tunnel 与独立 Token。Work 列表上的持久 Switch 决定哪些 Work 随桌面应用启动。
+
+`MCPHTTPServer` 只绑定一个 Runtime。历史 `gateway_pool`、Profile Host/Path 路由与 `--gateway-config` 启动方式已移除。
 
 ## 10. 新增工具规范
 

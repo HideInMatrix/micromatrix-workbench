@@ -1,7 +1,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 
 export type AppRouteName =
-  | 'services'
+  | 'work'
   | 'workbench'
   | 'workbench-workflows'
   | 'workbench-skills'
@@ -16,11 +16,11 @@ export const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/services',
+      redirect: '/work',
     },
     {
-      path: '/services',
-      name: 'services',
+      path: '/work',
+      name: 'work',
       component: () => import('../components/ServiceView.vue'),
     },
     {
@@ -65,7 +65,7 @@ export const router = createRouter({
     },
     {
       path: '/:pathMatch(.*)*',
-      redirect: '/services',
+      redirect: '/work',
     },
   ],
 })

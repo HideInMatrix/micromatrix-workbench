@@ -40,6 +40,7 @@ export interface ServerDto {
   host: string
   port: number
   lifecycle: 'persistent' | 'ephemeral'
+  enabled: boolean
   permission_mode: 'safe' | 'trusted' | 'dangerous'
   allow_network: boolean
   enable_view_image: boolean
@@ -60,88 +61,13 @@ export interface ServerDraft {
   oauth_password: string
   host: string
   port: number
+  enabled: boolean
   remember_secrets: boolean
   permission_mode: 'safe' | 'trusted' | 'dangerous'
   allow_network: boolean
   enable_view_image: boolean
   toolchains?: ToolchainRegistration[]
   network: NetworkConfigDto
-}
-
-export interface GatewayMemberDto {
-  server_id: string
-  name: string
-  workspace: string
-  oauth_password: string
-  has_saved_password: boolean
-  instance_path: string
-  public_url: string
-  permission_mode: 'safe' | 'trusted' | 'dangerous'
-  lifecycle: 'persistent' | 'ephemeral'
-  allow_network: boolean
-  enable_view_image: boolean
-  toolchains?: ToolchainRegistration[]
-  public_mcp_url: string
-  local_mcp_url: string
-  oauth_issuer: string
-  oauth_client_count: number
-}
-
-export interface GatewayMemberDraft {
-  server_id?: string
-  name: string
-  workspace: string
-  oauth_password: string
-  instance_path: string
-  public_url: string
-  permission_mode: 'safe' | 'trusted' | 'dangerous'
-  allow_network: boolean
-  enable_view_image: boolean
-  toolchains?: ToolchainRegistration[]
-}
-
-export interface GatewayDto {
-  gateway_id: string
-  name: string
-  mode: 'single' | 'multi'
-  host: string
-  port: number
-  created_at: number
-  updated_at: number
-  network: NetworkConfigDto
-  members: GatewayMemberDto[]
-  running: boolean
-  public_base_url: string
-  url_mode: string
-  exit_reason: string
-  diagnostic: GatewayDiagnosticDto | null
-}
-
-export interface GatewayDraft {
-  name: string
-  mode: 'single' | 'multi'
-  host: string
-  port: number
-  remember_secrets: boolean
-  network: NetworkConfigDto
-  members: GatewayMemberDraft[]
-}
-
-export interface GatewayProfileDiagnosticDto {
-  server_id: string
-  name: string
-  instance_path: string
-  public_base_url: string
-  ok: boolean
-  checks: string[]
-  errors: string[]
-}
-
-export interface GatewayDiagnosticDto {
-  ok: boolean
-  public_base_url: string
-  checked_at: number
-  profiles: GatewayProfileDiagnosticDto[]
 }
 
 export interface OAuthClientDto {
@@ -161,7 +87,6 @@ export interface BootstrapDto {
   selected_server_id: string
   next_default_port: number
   servers: ServerDto[]
-  gateways: GatewayDto[]
   network_providers: NetworkProviderDto[]
 }
 
@@ -514,7 +439,6 @@ export interface DesktopBridge {
   save_update_download_proxy(prefix: string): Promise<string>
   list_network_providers(): Promise<NetworkProviderDto[]>
   list_servers(): Promise<ServerDto[]>
-  list_gateways(): Promise<GatewayDto[]>
   get_next_port(): Promise<number>
   select_server(serverId: string): Promise<boolean>
   create_server(payload: ServerDraft): Promise<ServerDto>
@@ -522,19 +446,10 @@ export interface DesktopBridge {
   delete_server(serverId: string): Promise<boolean>
   start_server(serverId: string, payload?: ServerDraft): Promise<ServerDto>
   stop_server(serverId: string): Promise<ServerDto>
-  create_gateway(payload: GatewayDraft): Promise<GatewayDto>
-  update_gateway(gatewayId: string, payload: GatewayDraft): Promise<GatewayDto>
-  promote_server_to_gateway(serverId: string, payload: GatewayDraft): Promise<GatewayDto>
-  delete_gateway(gatewayId: string): Promise<boolean>
-  start_gateway(gatewayId: string, payload?: GatewayDraft): Promise<GatewayDto>
-  stop_gateway(gatewayId: string): Promise<GatewayDto>
-  test_gateway(gatewayId: string): Promise<GatewayDiagnosticDto>
+  set_server_enabled(serverId: string, enabled: boolean): Promise<ServerDto>
   list_oauth_clients(serverId: string): Promise<OAuthClientDto[]>
-  list_gateway_oauth_clients(gatewayId: string, serverId: string): Promise<OAuthClientDto[]>
   revoke_oauth_client(serverId: string, clientId: string): Promise<boolean>
   revoke_all_oauth_clients(serverId: string): Promise<number>
-  revoke_gateway_oauth_client(gatewayId: string, serverId: string, clientId: string): Promise<boolean>
-  revoke_all_gateway_oauth_clients(gatewayId: string, serverId: string): Promise<number>
   list_permission_requests(): Promise<PermissionRequestDto[]>
   respond_permission_request(requestId: string, decision: 'deny' | 'once' | 'session' | 'resource_session' | 'remember_resource' | 'remember'): Promise<boolean>
   list_resource_authorizations(): Promise<ResourceAuthorizationDto[]>

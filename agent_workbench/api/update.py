@@ -93,13 +93,9 @@ class UpdateAPI:
 
     def get_update_install_impact(self) -> dict[str, object]:
         services = [
-            {"id": f"{kind}:{item_id}", "name": item.name}
-            for kind, statuses, id_field in (
-                ("direct", self.manager.statuses(), "server_id"),
-                ("gateway", self.gateway_manager.statuses(), "gateway_id"),
-            )
-            for item in statuses if item.running
-            for item_id in (getattr(item, id_field),)
+            {"id": f"work:{item.server_id}", "name": item.name}
+            for item in self.manager.statuses()
+            if item.running
         ]
         return {"version": self.update_manager.status().version, "services": services}
 

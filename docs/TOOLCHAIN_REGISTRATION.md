@@ -82,7 +82,7 @@ Project Tool Resolution
 - Python：最近的 `.python-version`、`pyproject.toml` 的 `project.requires-python`
 - Go：最近的 `.go-version`、`go.mod` 的 `go` 与 `toolchain` 指令
 
-这些文件只在 Workspace 内按当前 cwd 向上查找，不扫描 Home，不查找版本管理器安装目录，也不执行 nvm/node/python/go 等工具。
+这些文件只在 Workspace 内解析：正常命令按当前 cwd 向上查找；Workspace 级 Node discovery 在根目录本身不是 Node 项目时，会做有界的两层子目录扫描以发现嵌套 `package.json`。整个过程不扫描 Home，不查找版本管理器安装目录，也不执行 nvm/node/python/go 等工具。
 
 项目版本元数据本身不是新的授权对象。它只决定 Host Resolution 缓存是否仍然有效，并作为注册确认信息展示。若版本文件变化后真实用户 Shell 解析到不同 executable，Workbench 会要求重新确认新的路径；如果仍解析到相同 shim，则继续使用同一注册，由该 shim/工具自身在正常任务沙箱里按项目配置选择实际版本。
 

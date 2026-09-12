@@ -20,8 +20,6 @@ from agent_runtime.workbench import (
     validate_workflow,
 )
 
-from ..gateways.manager import MCPGatewayManager
-from ..gateways.store import GatewayProfileStore
 from ..servers.manager import MCPServerManager
 from ..servers.store import ServerProfileStore
 
@@ -52,15 +50,11 @@ class DesktopWorkbenchManager:
         self,
         *,
         server_store: ServerProfileStore,
-        gateway_store: GatewayProfileStore,
         server_manager: MCPServerManager,
-        gateway_manager: MCPGatewayManager,
         global_root: Path | None = None,
     ) -> None:
         self.server_store = server_store
-        self.gateway_store = gateway_store
         self.server_manager = server_manager
-        self.gateway_manager = gateway_manager
         self.global_root = global_root.resolve() if global_root is not None else None
 
     def targets(self) -> tuple[WorkbenchTarget, ...]:
@@ -71,27 +65,12 @@ class DesktopWorkbenchManager:
                     target_id=f"server:{profile.server_id}",
                     server_id=profile.server_id,
                     service_name=profile.name,
-                    profile_name="主 Workspace",
+                    profile_name="Work",
                     workspace=profile.workspace.resolve(),
                     running=self.server_manager.is_running(profile.server_id),
                     enable_view_image=profile.enable_view_image,
                 )
             )
-        for gateway in self.gateway_store.list():
-            gateway_running = self.gateway_manager.is_running(gateway.gateway_id)
-            for member in gateway.members:
-                targets.append(
-                    WorkbenchTarget(
-                        target_id=f"gateway:{gateway.gateway_id}:{member.server_id}",
-                        server_id=member.server_id,
-                        service_name=gateway.name,
-                        profile_name=member.name,
-                        workspace=member.workspace.resolve(),
-                        running=gateway_running
-                        and (gateway.mode == "multi" or member.instance_path == ""),
-                        enable_view_image=member.enable_view_image,
-                    )
-                )
         return tuple(targets)
 
     def target(self, target_id: str) -> WorkbenchTarget:

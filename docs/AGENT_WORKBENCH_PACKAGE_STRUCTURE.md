@@ -113,7 +113,6 @@ class DesktopAPI(
 ```python
 from agent_workbench.core.config import LaunchConfig
 from agent_workbench.servers.launcher import MCPLauncher
-from agent_workbench.gateways.manager import MCPGatewayManager
 from agent_workbench.api.desktop import DesktopAPI
 from agent_workbench.updates.release import fetch_latest_release
 ```
@@ -128,13 +127,13 @@ from agent_workbench.updates.release import fetch_latest_release
 
 未通过 `agent_workbench.__all__` 导出、不是命令入口、也未写入持久化格式的旧
 内部模块路径不承诺兼容。新代码和测试 monkeypatch 均应指向真实定义模块，
-例如 Gateway 诊断中的 HTTP patch 应指向 `agent_workbench.gateways.diagnostics`。
+不要为已经退役的内部模块继续保留兼容层或测试 patch 入口。
 
 ## 6. 数据与安全边界
 
 本次目录重构不迁移用户数据，也不改变以下语义：
 
-- Server/Gateway Profile schema 与设置目录；
+- Work Profile schema 与设置目录；
 - OAuth issuer、Client Registry 与 token secret 持久化路径；
 - Permission Broker 默认权限和 Workspace 边界；
 - Network Provider 的公网暴露方式；

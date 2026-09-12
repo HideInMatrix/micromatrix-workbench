@@ -10,8 +10,6 @@ from typing import Any, Protocol
 from ..core.settings import load_settings, save_settings, settings_dir
 from ..core.version import current_version
 from ..executables import resolve_executable
-from ..gateways.manager import MCPGatewayManager
-from ..gateways.store import GatewayProfileStore
 from ..network.specs import network_provider_catalog
 from ..runtime.permission_broker import DesktopPermissionBroker
 from ..servers.manager import MCPServerManager
@@ -23,10 +21,8 @@ from .workbench_manager import DesktopWorkbenchManager
 
 class DesktopAPIContext(Protocol):
     store: ServerProfileStore
-    gateway_store: GatewayProfileStore
     permission_broker: DesktopPermissionBroker
     manager: MCPServerManager
-    gateway_manager: MCPGatewayManager
     workbench_manager: DesktopWorkbenchManager
     update_manager: UpdateManager
     _app_version: str
@@ -40,7 +36,6 @@ class DesktopBaseAPI:
     def __init__(self, *, app_version: str | None = None) -> None:
         self._app_version = app_version or current_version()
         self.store = ServerProfileStore()
-        self.gateway_store = GatewayProfileStore()
         self.permission_broker = DesktopPermissionBroker()
         self._log_lock = threading.RLock()
         self._log_cursor = 0
@@ -50,16 +45,9 @@ class DesktopBaseAPI:
             log=self._append_log,
             permission_broker=self.permission_broker,
         )
-        self.gateway_manager = MCPGatewayManager(
-            store=self.gateway_store,
-            log=self._append_log,
-            permission_broker=self.permission_broker,
-        )
         self.workbench_manager = DesktopWorkbenchManager(
             server_store=self.store,
-            gateway_store=self.gateway_store,
             server_manager=self.manager,
-            gateway_manager=self.gateway_manager,
             global_root=settings_dir() / "workbench",
         )
         self.update_manager = UpdateManager(log=self._append_log)
@@ -69,13 +57,17 @@ class DesktopBaseAPI:
         self._window: Any | None = None
         self._permission_attention_id = ""
         self._workflow_approval_attention_id = ""
+        threading.Thread(
+            target=self._restore_enabled_works,
+            name="restore-enabled-works",
+            daemon=True,
+        ).start()
 
     def _bind_window(self, window: Any) -> None:
         self._window = window
 
     def _close(self) -> None:
         self.manager.stop_all()
-        self.gateway_manager.stop_all()
         self.update_manager.cleanup()
         self.permission_broker.cleanup()
 
@@ -100,7 +92,6 @@ class DesktopBaseAPI:
 
     def bootstrap(self) -> dict[str, object]:
         profiles = self.store.list()
-        gateways = self.gateway_store.list()
         selected = self._selected_server_id()
         ids = {profile.server_id for profile in profiles}
         if selected not in ids:
@@ -112,9 +103,20 @@ class DesktopBaseAPI:
             "selected_server_id": selected,
             "next_default_port": self._next_available_port(),
             "servers": [self._profile_payload(profile) for profile in profiles],
-            "gateways": [self._gateway_payload(gateway) for gateway in gateways],
             "network_providers": network_provider_catalog(),
         }
+
+    def _restore_enabled_works(self) -> None:
+        for profile in self.store.list():
+            if not profile.enabled or self.manager.is_running(profile.server_id):
+                continue
+            try:
+                self.manager.start(profile.server_id)
+                self._append_log(f"[Work:{profile.name}] 已按启用状态恢复启动。")
+            except Exception as exc:
+                self._append_log(
+                    f"[Work:{profile.name}] 自动启动失败: {type(exc).__name__}: {exc}"
+                )
 
     def list_network_providers(self) -> list[dict[str, object]]:
         return network_provider_catalog()

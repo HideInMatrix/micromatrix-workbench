@@ -216,6 +216,7 @@ class ToolchainResolver:
         raw_program = program.strip().lower()
         kind = _PROGRAM_KINDS.get(raw_program, "")
         directory = self._project_directory(cwd)
+        identity_directory = directory
         requirements: list[dict[str, str]] = []
 
         if kind == "node":
@@ -226,10 +227,10 @@ class ToolchainResolver:
                     requirements.append(self._requirement(version_file, "runtime_version", value))
             node_engine_found = False
             package_manager_found = False
-            for ancestor in self._project_ancestors(directory):
-                package_json = ancestor / "package.json"
-                if not package_json.is_file():
-                    continue
+            node_manifests = self._node_package_manifests(directory)
+            if directory == self.workspace and len(node_manifests) == 1:
+                identity_directory = node_manifests[0].parent
+            for package_json in node_manifests:
                 try:
                     payload = json.loads(package_json.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError):
@@ -317,7 +318,7 @@ class ToolchainResolver:
                         ))
 
         try:
-            relative_cwd = str(directory.relative_to(self.workspace)) or "."
+            relative_cwd = str(identity_directory.relative_to(self.workspace)) or "."
         except ValueError:
             relative_cwd = "."
         identity = {
@@ -387,6 +388,51 @@ class ToolchainResolver:
                 break
             current = parent
         return result
+
+    def _node_package_manifests(self, directory: Path) -> list[Path]:
+        """Return nearby Node manifests without scanning outside the workspace.
+
+        Commands inside a JS package use ancestor metadata. Workspace-level
+        discovery additionally performs a bounded depth-two scan so repositories
+        whose root is not a Node project can still expose an embedded web package.
+        """
+        manifests = [
+            ancestor / "package.json"
+            for ancestor in self._project_ancestors(directory)
+            if (ancestor / "package.json").is_file()
+        ]
+        if manifests or directory != self.workspace:
+            return manifests
+
+        ignored = {".git", ".venv", "node_modules", "dist", "build", "vendor"}
+        queue: list[tuple[Path, int]] = [(self.workspace, 0)]
+        visited = 0
+        discovered: list[Path] = []
+        while queue and visited < 512:
+            current, depth = queue.pop(0)
+            visited += 1
+            try:
+                entries = sorted(
+                    current.iterdir(),
+                    key=lambda item: item.name.casefold(),
+                )[:256]
+            except OSError:
+                continue
+            for entry in entries:
+                if entry.name in ignored or entry.name.startswith("."):
+                    continue
+                try:
+                    if entry.is_symlink() or not entry.is_dir():
+                        continue
+                    entry.resolve(strict=True).relative_to(self.workspace)
+                except (OSError, ValueError):
+                    continue
+                package_json = entry / "package.json"
+                if package_json.is_file():
+                    discovered.append(package_json)
+                if depth < 1:
+                    queue.append((entry, depth + 1))
+        return discovered
 
     def _requirement(self, path: Path, requirement_type: str, value: str) -> dict[str, str]:
         try:

@@ -99,12 +99,12 @@ function subNavClass(name: AppRouteName): string[] {
       <Button
         variant="ghost"
         size="sm"
-        :class="navClass('services')"
-        :title="collapsed ? '服务' : undefined"
-        @click="router.push({ name: 'services' })"
+        :class="navClass('work')"
+        :title="collapsed ? 'Work' : undefined"
+        @click="router.push({ name: 'work' })"
       >
         <Server class="flex-none" :size="16" :stroke-width="1.8" />
-        <span v-if="!collapsed" class="leading-none">服务</span>
+        <span v-if="!collapsed" class="leading-none">Work</span>
       </Button>
       <Button
         variant="ghost"

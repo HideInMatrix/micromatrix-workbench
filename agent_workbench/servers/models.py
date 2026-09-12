@@ -42,6 +42,7 @@ class MCPServerProfile:
     host: str = DEFAULT_HOST
     port: int = DEFAULT_PORT
     lifecycle: str = "persistent"
+    enabled: bool = False
     permission_mode: str = "safe"
     allow_network: bool = False
     enable_view_image: bool = True
@@ -60,6 +61,7 @@ class MCPServerProfile:
         host: str = DEFAULT_HOST,
         port: int = DEFAULT_PORT,
         lifecycle: str | None = None,
+        enabled: bool = False,
         permission_mode: str = "safe",
         allow_network: bool = False,
         enable_view_image: bool = True,
@@ -76,6 +78,7 @@ class MCPServerProfile:
             host=host,
             port=port,
             lifecycle=lifecycle or default_lifecycle(resolved_network),
+            enabled=bool(enabled),
             permission_mode=permission_mode,
             allow_network=allow_network,
             enable_view_image=enable_view_image,
@@ -91,7 +94,7 @@ class MCPServerProfile:
 
         name = self.name.strip()
         if not name:
-            raise ValueError("服务名称不能为空。")
+            raise ValueError("Work 名称不能为空。")
 
         host = self.host.strip() or DEFAULT_HOST
         if not 1 <= int(self.port) <= 65535:
@@ -117,6 +120,7 @@ class MCPServerProfile:
             host=host,
             port=int(self.port),
             lifecycle=lifecycle,
+            enabled=bool(self.enabled),
             permission_mode=permission_mode,
             allow_network=bool(self.allow_network),
             enable_view_image=bool(self.enable_view_image),
@@ -150,6 +154,7 @@ class MCPServerProfile:
             "host": profile.host,
             "port": profile.port,
             "lifecycle": profile.lifecycle,
+            "enabled": profile.enabled,
             "permission_mode": profile.permission_mode,
             "allow_network": profile.allow_network,
             "enable_view_image": profile.enable_view_image,
@@ -180,6 +185,7 @@ class MCPServerProfile:
                 host=str(raw.get("host", DEFAULT_HOST)),
                 port=int(raw.get("port", DEFAULT_PORT)),
                 lifecycle=str(raw.get("lifecycle", "persistent")),
+                enabled=bool(raw.get("enabled", False)),
                 permission_mode=str(raw.get("permission_mode", "safe")),
                 allow_network=bool(raw.get("allow_network", False)),
                 enable_view_image=bool(raw.get("enable_view_image", True)),

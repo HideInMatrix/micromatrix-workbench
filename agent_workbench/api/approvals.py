@@ -15,10 +15,6 @@ class ApprovalAPI:
     def list_permission_requests(self) -> list[dict[str, object]]:
         requests = self.permission_broker.pending()
         names = {profile.server_id: profile.name for profile in self.store.list()}
-        for gateway in self.gateway_store.list():
-            names.update(
-                {member.server_id: member.name for member in gateway.members}
-            )
         payload = [
             {
                 **item,
@@ -59,16 +55,10 @@ class ApprovalAPI:
             proposal = item["arguments"]
             server_id = item["server_id"]
             profile = self.store.get(server_id)
-            gateway = None
             if profile is None:
-                gateway = next((g for g in self.gateway_store.list()
-                                if any(m.server_id == server_id for m in g.runtime_members)), None)
-                if gateway is not None:
-                    profile = next(m for m in gateway.runtime_members if m.server_id == server_id)
-            if profile is None:
-                raise ValueError("发起请求的 Profile 已删除或未参与运行。")
+                raise ValueError("发起请求的 Work 已删除或未参与运行。")
             if str(profile.workspace.resolve()) != proposal.get("workspace"):
-                raise ValueError("运行 Workspace 与保存的 Profile 不一致，请先保存服务配置。")
+                raise ValueError("运行目录与保存的 Work 不一致，请先保存 Work 配置。")
             displayed_fingerprint = str(proposal.get("proposal_fingerprint") or "")
             if not displayed_fingerprint or fingerprint(
                 str(proposal["executable"]),
@@ -87,27 +77,17 @@ class ApprovalAPI:
                 ),
             )
             # Reload after fingerprinting so a concurrent profile edit cannot be overwritten.
-            if gateway is None:
-                current = self.store.get(server_id)
-            else:
-                gateway = self.gateway_store.get(gateway.gateway_id)
-                current = next((m for m in gateway.runtime_members if m.server_id == server_id), None) if gateway else None
+            current = self.store.get(server_id)
             if current is None or current.workspace != profile.workspace:
-                raise ValueError("Profile 已变化，请重新发起工具请求。")
+                raise ValueError("Work 已变化，请重新发起工具请求。")
             records = tuple(r for r in current.toolchains if r["program"] != record["program"]) + (record,)
             updated = replace(current, toolchains=records)
-            if gateway is None:
-                self.store.save(updated)
-            else:
-                self.gateway_store.save(replace(gateway, members=tuple(
-                    updated if m.server_id == server_id else m for m in gateway.members)))
+            self.store.save(updated)
             return self.permission_broker.respond(request_id, "remember", registration=record)
 
     def list_resource_authorizations(self) -> list[dict[str, object]]:
         rules = self.permission_broker.resource_authorizations.list()
         names = {profile.server_id: profile.name for profile in self.store.list()}
-        for gateway in self.gateway_store.list():
-            names.update({member.server_id: member.name for member in gateway.members})
         return [
             {
                 **item,
@@ -121,8 +101,6 @@ class ApprovalAPI:
 
     def stop_all_desktop_input(self) -> dict[str, object]:
         server_ids = {profile.server_id for profile in self.store.list()}
-        for gateway in self.gateway_store.list():
-            server_ids.update(member.server_id for member in gateway.runtime_members)
         results = {
             server_id: bool(self.permission_broker.stop_desktop_input(server_id))
             for server_id in sorted(server_ids)
@@ -136,10 +114,6 @@ class ApprovalAPI:
     def list_workflow_approvals(self) -> list[dict[str, object]]:
         requests = self.permission_broker.pending_workflow_approvals()
         names = {profile.server_id: profile.name for profile in self.store.list()}
-        for gateway in self.gateway_store.list():
-            names.update(
-                {member.server_id: member.name for member in gateway.members}
-            )
         payload = [
             {
                 **item,

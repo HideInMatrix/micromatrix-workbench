@@ -34,20 +34,48 @@ class ToolchainHandlers:
                     for item in requirements
                 )
             )
+            has_node_project_context = (
+                kind == "node"
+                and isinstance(requirements, list)
+                and any(
+                    isinstance(item, dict)
+                    and item.get("type") in {
+                        "runtime_version",
+                        "node_engine",
+                        "package_manager",
+                    }
+                    for item in requirements
+                )
+            )
             selected = current.get("selected") if isinstance(current, dict) else None
             selected_source = (
                 str(selected.get("source") or "")
                 if isinstance(selected, dict)
                 else ""
             )
-            if selected is not None and not (
-                has_python_venv and selected_source != "registered"
-            ):
+            needs_project_registration = (
+                (has_python_venv or has_node_project_context)
+                and selected_source != "registered"
+            )
+            if selected is not None and not needs_project_registration:
                 continue
             try:
-                if has_python_venv:
+                if has_python_venv or has_node_project_context:
+                    if has_node_project_context:
+                        host_shell_resolution_attempted = True
+                    resolution_cwd = self.workspace.root
+                    if has_node_project_context:
+                        context_cwd = str(project_context.get("cwd") or ".")
+                        candidate_cwd = (self.workspace.root / context_cwd).resolve()
+                        try:
+                            candidate_cwd.relative_to(self.workspace.root)
+                        except ValueError:
+                            pass
+                        else:
+                            if candidate_cwd.is_dir():
+                                resolution_cwd = candidate_cwd
                     proposal = self._resolve_host_tool_proposal(
-                        primary[kind], cwd=self.workspace.root
+                        primary[kind], cwd=resolution_cwd
                     )
                     self._register_missing_toolchain(
                         primary[kind], proposal=proposal

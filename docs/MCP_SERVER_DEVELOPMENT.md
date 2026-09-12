@@ -1,7 +1,7 @@
 # MicroMatrix Workbench 自研服务端开发文档
 
 框架分层、ToolRegistry、Capability 与 PermissionProfile 的当前设计见
-`MCP_SERVER_FRAMEWORK.md`。新工具和后续 Local MCP Gateway 都应建立在该框架上，
+`MCP_SERVER_FRAMEWORK.md`。新工具和 Work Runtime 都应建立在该框架上，
 不要重新把工具按权限等级拆分。
 
 `agent_runtime` 是本仓库独立维护的 MCP Server 实现。MCP 协议、工具 Schema、OAuth、Workspace 隔离、Patch、进程管理、HTTP Server、权限 Broker 与沙箱能力都由本项目定义、实现和测试。
@@ -37,7 +37,7 @@ agent-runtime 0.2.0
 - 文件读取、目录/搜索、Patch、命令生命周期、TTY、输出分页、Git 返回结构；
 - 客户端可读取的结构化错误码、分页字段和 `next_action`；
 - Safe / Trusted / Dangerous 权限模式、Permission Broker、Workspace confinement 与 OS sandbox 行为；
-- 多 Server Profile、Network Provider 与后续 Local MCP Gateway 的隔离规则。
+- 多 Work、Network Provider 与独立 Runtime 的隔离规则。
 
 Server Contract 的来源按优先级分为：
 
