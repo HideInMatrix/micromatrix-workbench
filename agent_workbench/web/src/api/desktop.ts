@@ -1,6 +1,7 @@
 import type {
   ToolchainProposal,
   ToolchainRegistration,
+  BootstrapDto,
   CapabilityCatalogDto,
   DesktopBridge,
   LogEntryDto,
@@ -30,6 +31,7 @@ let bridgePromise: Promise<DesktopBridge> | null = null
 function isBridgeReady(api: Partial<DesktopBridge> | undefined): api is DesktopBridge {
   return Boolean(
     api
+      && typeof api.bootstrap === 'function'
       && typeof api.get_app_version === 'function'
       && typeof api.list_servers === 'function',
   )
@@ -56,6 +58,9 @@ function bridge(): Promise<DesktopBridge> {
 }
 
 export const desktopApi = {
+  async bootstrap(): Promise<BootstrapDto> {
+    return (await bridge()).bootstrap()
+  },
   async inspectToolchain(program: string, executable: string, roots: string[]): Promise<ToolchainProposal> {
     return (await bridge()).inspect_toolchain(program, executable, roots)
   },

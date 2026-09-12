@@ -405,6 +405,7 @@ export interface WorkflowApprovalDto {
 }
 
 export interface DesktopBridge {
+  bootstrap(): Promise<BootstrapDto>
   inspect_toolchain(program: string, executable: string, roots: string[]): Promise<ToolchainProposal>
   register_toolchain(program: string, executable: string, roots: string[]): Promise<ToolchainRegistration>
   get_app_version(): Promise<string>

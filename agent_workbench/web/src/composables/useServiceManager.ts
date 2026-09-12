@@ -20,21 +20,28 @@ function cloneToolchains(server: ServerDto) {
   }))
 }
 
-export function useServiceManager() {
-  const servers = ref<ServerDto[]>([])
-  const networkProviders = ref<NetworkProviderDto[]>([])
-  const selectedKey = ref('')
-  const draft = ref<ServerDraft>(emptyWorkDraft(8234))
-  const isNew = ref(true)
-  const busy = ref(false)
-  const lifecycleBusy = ref(false)
-  const togglingId = ref('')
-  const errorMessage = ref('')
-  const copiedUrl = ref('')
-  const tunnelTokenVisible = ref(false)
-  const oauthPasswordVisible = ref(false)
-  const pollTimer = ref(0)
+// Work state intentionally lives outside the route component. Router switches
+// unmount ServiceView, but startup/bootstrap may still be in flight. Keeping
+// the state here prevents a route change from discarding the completed
+// bootstrap result and forcing the page back into an empty "new Work" state.
+const servers = ref<ServerDto[]>([])
+const networkProviders = ref<NetworkProviderDto[]>([])
+const selectedKey = ref('')
+const draft = ref<ServerDraft>(emptyWorkDraft(8234))
+const isNew = ref(true)
+const ready = ref(false)
+const initializing = ref(false)
+const busy = ref(false)
+const lifecycleBusy = ref(false)
+const togglingId = ref('')
+const errorMessage = ref('')
+const copiedUrl = ref('')
+const tunnelTokenVisible = ref(false)
+const oauthPasswordVisible = ref(false)
+let pollTimer = 0
+let initializePromise: Promise<void> | null = null
 
+export function useServiceManager() {
   const works = computed<WorkItem[]>(() => servers.value.map(server => ({
     key: `work:${server.server_id}`,
     id: server.server_id,
@@ -57,7 +64,7 @@ export function useServiceManager() {
     if (!isNew.value) selectedKey.value = works.value[0]?.key || ''
   }
 
-  async function selectWork(key: string) {
+  async function selectWork(key: string, persistSelection = true) {
     const work = works.value.find(item => item.key === key)
     if (!work) return
     selectedKey.value = key
@@ -65,6 +72,13 @@ export function useServiceManager() {
     tunnelTokenVisible.value = false
     oauthPasswordVisible.value = false
     draft.value = workDraft(work.server)
+    if (persistSelection) {
+      try {
+        await desktopApi.selectServer(work.id)
+      } catch (error) {
+        errorMessage.value = error instanceof Error ? error.message : String(error)
+      }
+    }
   }
 
   async function createNew() {
@@ -177,6 +191,10 @@ export function useServiceManager() {
   }
 
   async function pollWorks() {
+    if (!ready.value) {
+      await initialize()
+      return
+    }
     if (busy.value || lifecycleBusy.value || togglingId.value) return
     try {
       await refreshWorks(true)
@@ -184,15 +202,38 @@ export function useServiceManager() {
   }
 
   async function initialize() {
-    try {
-      networkProviders.value = await desktopApi.networkProviders()
-      await refreshWorks(false)
-      if (works.value.length) await selectWork(works.value[0].key)
-      else await createNew()
-    } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : String(error)
-    }
-    pollTimer.value = window.setInterval(() => void pollWorks(), 1000)
+    if (ready.value) return
+    if (initializePromise) return initializePromise
+    initializing.value = true
+    initializePromise = (async () => {
+      try {
+        const snapshot = await desktopApi.bootstrap()
+        servers.value = snapshot.servers
+        networkProviders.value = snapshot.network_providers
+
+        const preferredKey = snapshot.selected_server_id
+          ? `work:${snapshot.selected_server_id}`
+          : works.value[0]?.key || ''
+        const preferred = works.value.find(item => item.key === preferredKey) || works.value[0]
+        if (preferred) {
+          await selectWork(preferred.key, false)
+        } else {
+          selectedKey.value = ''
+          isNew.value = true
+          tunnelTokenVisible.value = false
+          oauthPasswordVisible.value = false
+          draft.value = emptyWorkDraft(snapshot.next_default_port)
+        }
+        ready.value = true
+        errorMessage.value = ''
+      } catch (error) {
+        errorMessage.value = error instanceof Error ? error.message : String(error)
+      } finally {
+        initializing.value = false
+        initializePromise = null
+      }
+    })()
+    return initializePromise
   }
 
   async function syncRegisteredToolchain(event: Event) {
@@ -210,10 +251,14 @@ export function useServiceManager() {
 
   onMounted(() => {
     void initialize()
+    if (!pollTimer) pollTimer = window.setInterval(() => void pollWorks(), 1000)
     window.addEventListener('toolchain-registered', syncRegisteredToolchain)
   })
   onBeforeUnmount(() => {
-    window.clearInterval(pollTimer.value)
+    if (pollTimer) {
+      window.clearInterval(pollTimer)
+      pollTimer = 0
+    }
     window.removeEventListener('toolchain-registered', syncRegisteredToolchain)
   })
 
@@ -223,6 +268,8 @@ export function useServiceManager() {
     selectedKey,
     draft,
     isNew,
+    ready,
+    initializing,
     busy,
     lifecycleBusy,
     togglingId,

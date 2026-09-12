@@ -278,11 +278,7 @@ class DesktopHostCapability:
                         stage="system_permission",
                     )
             elif action in {"click", "type", "keypress", "scroll", "drag"}:
-                target = self._validate_control_observation(
-                    session,
-                    parameters,
-                    consume=False,
-                )
+                target = self._validate_control_observation(session, parameters)
                 self._ensure_target_control_allowed(target)
                 if (
                     bool(parameters.get("observe_after", True))
@@ -520,8 +516,6 @@ class DesktopHostCapability:
         self,
         session: DesktopSession,
         parameters: dict[str, Any],
-        *,
-        consume: bool,
     ) -> DesktopTarget:
         if session.mode != "control":
             raise HostCapabilityError(
@@ -570,9 +564,20 @@ class DesktopHostCapability:
                 code="DESKTOP_TARGET_NOT_FOCUSED" if focused is False else "DESKTOP_FOCUS_UNVERIFIED",
                 stage="focus",
             )
-        if consume:
-            session.observations.pop(observation_id, None)
         return current
+
+    @staticmethod
+    def _consume_control_observation(
+        session: DesktopSession,
+        parameters: dict[str, Any],
+    ) -> None:
+        observation_id = str(parameters.get("observation_id") or "")
+        if not observation_id or session.observations.pop(observation_id, None) is None:
+            raise HostCapabilityError(
+                "Desktop observation_id 已过期；请重新 observe 后再执行输入动作。",
+                code="STALE_DESKTOP_OBSERVATION",
+                stage="validation",
+            )
 
     def _image_to_global(self, session: DesktopSession, x: int, y: int) -> tuple[float, float]:
         bounds = session.last_bounds
@@ -616,7 +621,7 @@ class DesktopHostCapability:
         return int(round(x)), int(round(y))
 
     def _click(self, session: DesktopSession, parameters: dict[str, Any]) -> dict[str, Any]:
-        target = self._validate_control_observation(session, parameters, consume=True)
+        target = self._validate_control_observation(session, parameters)
         input_epoch = self._input_epoch(session.server_id)
         element_ref = str(parameters.get("element_ref") or "").strip()
         if element_ref:
@@ -629,6 +634,7 @@ class DesktopHostCapability:
         click_count = max(1, min(int(parameters.get("click_count", 1)), 3))
         with self._input_lock:
             self._assert_input_epoch(session.server_id, input_epoch)
+            self._consume_control_observation(session, parameters)
             self._driver.click(
                 target,
                 x=global_x,
@@ -645,11 +651,12 @@ class DesktopHostCapability:
         }
 
     def _type(self, session: DesktopSession, parameters: dict[str, Any]) -> dict[str, Any]:
-        target = self._validate_control_observation(session, parameters, consume=True)
+        target = self._validate_control_observation(session, parameters)
         input_epoch = self._input_epoch(session.server_id)
         text = str(parameters.get("text") or "")
         with self._input_lock:
             self._assert_input_epoch(session.server_id, input_epoch)
+            self._consume_control_observation(session, parameters)
             self._driver.type_text(target, text)
         return {
             "session_id": session.session_id,
@@ -658,16 +665,17 @@ class DesktopHostCapability:
         }
 
     def _keypress(self, session: DesktopSession, parameters: dict[str, Any]) -> dict[str, Any]:
-        target = self._validate_control_observation(session, parameters, consume=True)
+        target = self._validate_control_observation(session, parameters)
         input_epoch = self._input_epoch(session.server_id)
         key = str(parameters.get("key") or "")
         with self._input_lock:
             self._assert_input_epoch(session.server_id, input_epoch)
+            self._consume_control_observation(session, parameters)
             self._driver.keypress(target, key)
         return {"session_id": session.session_id, "pressed": key}
 
     def _scroll(self, session: DesktopSession, parameters: dict[str, Any]) -> dict[str, Any]:
-        target = self._validate_control_observation(session, parameters, consume=True)
+        target = self._validate_control_observation(session, parameters)
         input_epoch = self._input_epoch(session.server_id)
         x_value = parameters.get("x")
         y_value = parameters.get("y")
@@ -691,6 +699,7 @@ class DesktopHostCapability:
             )
         with self._input_lock:
             self._assert_input_epoch(session.server_id, input_epoch)
+            self._consume_control_observation(session, parameters)
             self._driver.scroll(
                 target,
                 delta_x=delta_x,
@@ -706,7 +715,7 @@ class DesktopHostCapability:
         }
 
     def _drag(self, session: DesktopSession, parameters: dict[str, Any]) -> dict[str, Any]:
-        target = self._validate_control_observation(session, parameters, consume=True)
+        target = self._validate_control_observation(session, parameters)
         input_epoch = self._input_epoch(session.server_id)
         raw_path = parameters.get("path")
         if not isinstance(raw_path, list) or len(raw_path) < 2:
@@ -728,6 +737,7 @@ class DesktopHostCapability:
         duration_ms = max(0, min(int(parameters.get("duration_ms", 300)), 10_000))
         with self._input_lock:
             self._assert_input_epoch(session.server_id, input_epoch)
+            self._consume_control_observation(session, parameters)
             self._driver.drag(
                 target,
                 path=path,

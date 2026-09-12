@@ -25,17 +25,21 @@ const manager = useServiceManager()
     <div class="grid grid-cols-1 gap-2 lg:grid-cols-2">
       <div class="min-h-28 rounded-lg bg-card p-4">
         <span class="block text-xs leading-5 text-muted-foreground">Work</span>
-        <strong class="mt-2.5 block min-h-8 text-2xl leading-8 font-medium tracking-[-0.03em] tabular-nums">{{ manager.stats.value.works }}</strong>
+        <strong class="mt-2.5 block min-h-8 text-2xl leading-8 font-medium tracking-[-0.03em] tabular-nums">{{ manager.ready.value ? manager.stats.value.works : '—' }}</strong>
         <small class="mt-1 block text-[11px] leading-4 text-muted-foreground">独立域名与 Runtime</small>
       </div>
       <div class="min-h-28 rounded-lg bg-card p-4">
         <span class="block text-xs leading-5 text-muted-foreground">正在运行</span>
-        <strong class="mt-2.5 block min-h-8 text-2xl leading-8 font-medium tracking-[-0.03em] tabular-nums">{{ manager.stats.value.running }}</strong>
+        <strong class="mt-2.5 block min-h-8 text-2xl leading-8 font-medium tracking-[-0.03em] tabular-nums">{{ manager.ready.value ? manager.stats.value.running : '—' }}</strong>
         <small class="mt-1 block text-[11px] leading-4 text-muted-foreground">当前 Runtime 状态</small>
       </div>
     </div>
 
-    <div class="grid items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+    <div v-if="!manager.ready.value" class="flex min-h-72 items-center justify-center rounded-lg border border-border bg-card text-sm text-muted-foreground">
+      {{ manager.initializing.value ? '正在加载 Work…' : '等待 Work 数据…' }}
+    </div>
+
+    <div v-else class="grid items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
       <ServiceListPanel
         :works="manager.works.value"
         :selected-key="manager.selectedKey.value"
