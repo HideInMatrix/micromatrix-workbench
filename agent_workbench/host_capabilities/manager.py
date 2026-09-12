@@ -5,6 +5,8 @@ from typing import Any, Iterable
 
 from agent_workbench.host_execution import HostProcessSupervisor
 
+from .application import ApplicationHostCapability
+from .artifact import HostArtifactCapability
 from .base import HostCapabilityError, HostCapabilityProvider
 from .browser import BrowserHostCapability
 from .desktop import DesktopHostCapability
@@ -30,12 +32,29 @@ class HostCapabilityManager:
             else (
                 BrowserHostCapability(self._processes, generation=generation),
                 DesktopHostCapability(generation=generation),
+                ApplicationHostCapability(generation=generation),
+                HostArtifactCapability(),
             )
         )
         self._providers = {provider.descriptor.name: provider for provider in values}
 
     def catalog(self) -> list[dict[str, Any]]:
-        return [provider.descriptor.to_dict() for provider in self._providers.values()]
+        values: list[dict[str, Any]] = []
+        for provider in self._providers.values():
+            try:
+                values.append(provider.descriptor.to_dict())
+            except Exception as exc:
+                values.append(
+                    {
+                        "name": getattr(getattr(provider, "descriptor", None), "name", "unknown"),
+                        "provider": type(provider).__name__,
+                        "session_based": False,
+                        "operations": [],
+                        "status": "degraded",
+                        "error": type(exc).__name__,
+                    }
+                )
+        return values
 
     def invoke(
         self,

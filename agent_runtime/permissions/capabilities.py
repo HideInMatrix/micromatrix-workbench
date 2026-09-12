@@ -40,14 +40,15 @@ class OperationPermission(StrEnum):
     BROWSER_CONTROL = "browser_control"
     DESKTOP_OBSERVE = "desktop_observe"
     DESKTOP_CONTROL = "desktop_control"
+    APPLICATION_LAUNCH = "application_launch"
+    APPLICATION_CONTROL = "application_control"
+    HOST_ARTIFACT_READ = "host_artifact_read"
     HOST_IDENTITY_USE = "host_identity_use"
     HOST_MANAGE = "host_manage"
 
 
 PERMISSION_MODES = ("safe", "trusted", "dangerous")
-ELICITABLE_PERMISSIONS = frozenset(
-    permission.value for permission in OperationPermission
-)
+ELICITABLE_PERMISSIONS = frozenset(permission.value for permission in OperationPermission)
 SESSION_GRANTABLE_PERMISSIONS = frozenset(
     permission.value
     for permission in OperationPermission
@@ -56,6 +57,9 @@ SESSION_GRANTABLE_PERMISSIONS = frozenset(
         OperationPermission.BROWSER_CONTROL,
         OperationPermission.DESKTOP_OBSERVE,
         OperationPermission.DESKTOP_CONTROL,
+        OperationPermission.APPLICATION_LAUNCH,
+        OperationPermission.APPLICATION_CONTROL,
+        OperationPermission.HOST_ARTIFACT_READ,
         OperationPermission.HOST_IDENTITY_USE,
         OperationPermission.HOST_MANAGE,
     }
@@ -89,10 +93,7 @@ _DANGEROUS_AUTO_GRANTED_OPERATIONS = frozenset({
 
 
 _PROFILES = {
-    "safe": PermissionProfile(
-        name="safe",
-        capabilities=_BASE_CAPABILITIES,
-    ),
+    "safe": PermissionProfile(name="safe", capabilities=_BASE_CAPABILITIES),
     "trusted": PermissionProfile(
         name="trusted",
         capabilities=_BASE_CAPABILITIES,

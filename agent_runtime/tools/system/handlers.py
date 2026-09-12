@@ -62,7 +62,19 @@ class SystemHandlers:
                 "events": [],
                 "ok": True,
             }
-        return dict(diagnostics(max_events=int(args.get("max_events", 20))))
+        try:
+            return dict(diagnostics(max_events=int(args.get("max_events", 20))))
+        except Exception as exc:
+            return {
+                "status": self.host_status({}),
+                "supervisor": {},
+                "providers": [],
+                "active": [],
+                "events": [],
+                "partial": True,
+                "errors": [{"source": "diagnostics", "error": type(exc).__name__}],
+                "ok": True,
+            }
 
     def host_restart(self, _args: dict[str, Any]) -> dict[str, Any]:
         if not self._permission_granted("host_manage"):

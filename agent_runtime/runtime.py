@@ -38,6 +38,8 @@ from .permissions.state import arguments_digest
 from .results import make_tool_result
 from .sandbox import build_sandbox_profile, create_process_sandbox
 from .tools import build_tool_registry
+from .tools.application.handlers import ApplicationHandlers
+from .tools.artifact.handlers import ArtifactHandlers
 from .tools.browser.handlers import BrowserHandlers
 from .tools.desktop.handlers import DesktopHandlers
 from .tools.filesystem.handlers import FilesystemHandlers
@@ -66,6 +68,8 @@ class Runtime(
     FilesystemHandlers,
     BrowserHandlers,
     DesktopHandlers,
+    ApplicationHandlers,
+    ArtifactHandlers,
     ProcessHandlers,
     GitHandlers,
     SystemHandlers,

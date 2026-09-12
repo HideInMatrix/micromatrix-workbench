@@ -234,6 +234,9 @@ class PermissionSession:
             "browser_control": "启动并控制由 Workbench Desktop Host 托管的隔离浏览器会话；不会复用用户日常浏览器 Profile。",
             "desktop_observe": "观察已明确绑定的桌面应用窗口并读取窗口截图/可用辅助功能信息；不会授予鼠标或键盘控制权限。",
             "desktop_control": "控制已明确绑定的桌面应用窗口，包括鼠标、键盘、滚动或拖拽；不会授权其他未绑定应用或窗口。",
+            "application_launch": "启动或激活已通过 Desktop Host 解析并绑定身份指纹的桌面应用；不会授权其他应用。",
+            "application_control": "请求退出已通过 Desktop Host 解析并绑定身份指纹的桌面应用；可能影响未保存内容。",
+            "host_artifact_read": "读取外部应用在宿主用户临时目录生成的单个受限产物；不会授予任意 Host 文件读取能力。",
             "host_identity_use": "允许当前完全相同的结构化进程调用使用 Desktop Host 用户身份上下文；Host 环境和凭据不会作为 Tool Result 返回给 AI。",
             "host_manage": "允许重启 Workbench 自有的 Desktop Host Worker；不会操作任意系统进程或用户应用。",
         }

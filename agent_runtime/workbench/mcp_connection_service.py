@@ -50,13 +50,128 @@ class MCPConnectionService:
     def delete(self, connection_id: str) -> bool:
         return self.store.delete(connection_id)
 
-    def test(self, connection_id: str, *, timeout: float = 8.0) -> MCPConnectionProbe:
+    def test(
+        self,
+        connection_id: str,
+        *,
+        timeout: float = 8.0,
+        deep: bool = False,
+    ) -> MCPConnectionProbe:
         definition = self.store.get(connection_id)
         if definition is None:
             raise KeyError(f"找不到 MCP Connection: {connection_id}")
         if not definition.enabled:
             raise ValueError("MCP Connection 已禁用")
-        return probe_connection(definition, discover_tools=False, timeout=timeout)
+        started = time.monotonic()
+        probe = probe_connection(definition, discover_tools=deep, timeout=timeout)
+        if not probe.ok:
+            return replace(
+                probe,
+                health={
+                    "transport": {"status": "error", "kind": definition.transport},
+                    "protocol": {"status": "error"},
+                    "discovery": {"status": "not_checked"},
+                    "backend": {"status": "not_checked"},
+                    "overall": "unavailable",
+                },
+            )
+        health: dict[str, Any] = {
+            "transport": {"status": "ok", "kind": definition.transport},
+            "protocol": {"status": "ok", "version": probe.protocol_version},
+            "discovery": (
+                {"status": "ok", "tool_count": len(probe.tools)}
+                if deep else {"status": "not_checked"}
+            ),
+            "backend": {"status": "not_checked"},
+            "overall": "protocol_ready",
+        }
+        if not deep:
+            return replace(probe, health=health)
+        health_tool = definition.health_tool.strip()
+        if not health_tool:
+            health["backend"] = {
+                "status": "unknown",
+                "reason": "no_read_only_health_tool_configured",
+            }
+            health["overall"] = "protocol_ready_backend_unverified"
+            return replace(probe, health=health)
+        discovered = next((item for item in probe.tools if item.name == health_tool), None)
+        if discovered is None:
+            health["backend"] = {
+                "status": "error",
+                "tool": health_tool,
+                "code": "MCP_HEALTH_TOOL_NOT_FOUND",
+            }
+            health["overall"] = "degraded"
+            return replace(
+                probe,
+                ok=False,
+                error=f"配置的 MCP health_tool 未发现: {health_tool}",
+                health=health,
+                elapsed_ms=int((time.monotonic() - started) * 1000),
+            )
+        if (
+            discovered.annotations.get("readOnlyHint") is not True
+            or discovered.annotations.get("destructiveHint") is True
+        ):
+            health["backend"] = {
+                "status": "error",
+                "tool": health_tool,
+                "code": "MCP_HEALTH_TOOL_NOT_READ_ONLY",
+            }
+            health["overall"] = "degraded"
+            return replace(
+                probe,
+                ok=False,
+                error=f"MCP health_tool 必须声明 readOnlyHint 且不能是 destructive: {health_tool}",
+                health=health,
+                elapsed_ms=int((time.monotonic() - started) * 1000),
+            )
+        arguments = dict(definition.health_arguments)
+        try:
+            validate_value(arguments, discovered.input_schema)
+            result = call_connection_tool(
+                definition,
+                health_tool,
+                arguments,
+                timeout=max(1.0, timeout),
+            )
+        except Exception as exc:
+            health["backend"] = {
+                "status": "error",
+                "tool": health_tool,
+                "code": "MCP_BACKEND_UNREACHABLE",
+                "message": str(exc)[:1000],
+            }
+            health["overall"] = "degraded"
+            return replace(
+                probe,
+                ok=False,
+                error=str(exc),
+                health=health,
+                elapsed_ms=int((time.monotonic() - started) * 1000),
+            )
+        if bool(result.get("isError")):
+            health["backend"] = {
+                "status": "error",
+                "tool": health_tool,
+                "code": "MCP_BACKEND_HEALTH_FAILED",
+            }
+            health["overall"] = "degraded"
+            return replace(
+                probe,
+                ok=False,
+                error=f"MCP backend health tool returned isError: {health_tool}",
+                health=health,
+                elapsed_ms=int((time.monotonic() - started) * 1000),
+            )
+        health["backend"] = {"status": "ok", "tool": health_tool}
+        health["overall"] = "ready"
+        return replace(
+            probe,
+            health=health,
+            elapsed_ms=int((time.monotonic() - started) * 1000),
+        )
 
     def discover(
         self,

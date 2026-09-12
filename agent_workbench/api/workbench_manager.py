@@ -221,16 +221,19 @@ class DesktopWorkbenchManager:
         connection_id: str,
         *,
         timeout_seconds: int = 8,
+        deep: bool = False,
     ) -> dict[str, object]:
         probe = self._mcp_connection_service().test(
             connection_id.strip(),
             timeout=float(timeout_seconds),
+            deep=bool(deep),
         )
         return {
             "ok": probe.ok,
             "connection_id": connection_id.strip(),
             "protocol_version": probe.protocol_version,
             "elapsed_ms": probe.elapsed_ms,
+            "health": probe.health,
             "error": probe.error,
         }
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 from typing import Any
 
@@ -462,17 +464,26 @@ class WorkbenchHandlers:
         probe = self.mcp_connections.test(
             connection_id,
             timeout=float(arguments.get("timeout_seconds", 8)),
+            deep=bool(arguments.get("deep", False)),
         )
         if not probe.ok:
+            backend = probe.health.get("backend") if isinstance(probe.health, dict) else None
+            failure_code = (
+                str(backend.get("code") or "")
+                if isinstance(backend, dict)
+                else ""
+            )
             raise ToolError(
-                "MCP_CONNECTION_TEST_FAILED",
+                failure_code or "MCP_CONNECTION_TEST_FAILED",
                 probe.error or "MCP Connection Test failed",
                 retryable=True,
+                details={"health": probe.health},
             )
         return {
             "connection_id": connection_id,
             "protocol_version": probe.protocol_version,
             "elapsed_ms": probe.elapsed_ms,
+            "health": probe.health,
             "ok": True,
         }
 
@@ -534,12 +545,35 @@ class WorkbenchHandlers:
                 str(exc),
                 retryable=True,
             ) from exc
-        return {
+        payload = {
             "connection_id": connection_id,
             "tool_name": tool_name,
             "result": result,
             "ok": not bool(result.get("isError")),
         }
+        content = result.get("content")
+        if isinstance(content, list):
+            sanitized: list[Any] = []
+            attached = False
+            for item in content:
+                if not isinstance(item, dict) or item.get("type") != "image":
+                    sanitized.append(item)
+                    continue
+                encoded = str(item.get("data") or "")
+                mime_type = str(item.get("mimeType") or item.get("mime_type") or "image/png")
+                try:
+                    data = base64.b64decode(encoded, validate=True)
+                except (binascii.Error, ValueError):
+                    sanitized.append({"type": "image", "mimeType": mime_type, "invalid": True})
+                    continue
+                if len(data) > 25 * 1024 * 1024:
+                    raise ToolError("OUTPUT_TOO_LARGE", "External MCP image 超过 25 MiB 限制。", "runtime")
+                sanitized.append({"type": "image", "mimeType": mime_type, "bytes": len(data), "data_omitted": True})
+                if not attached:
+                    payload["_image"] = (mime_type, encoded)
+                    attached = True
+            payload["result"] = {**result, "content": sanitized}
+        return payload
 
     def mcp_connection_manage(self, arguments: dict[str, Any]) -> dict[str, Any]:
         action = str(arguments.get("action") or "").strip()

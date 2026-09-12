@@ -408,39 +408,57 @@ class LocalPermissionBrokerClient:
 
     def host_diagnostics(self, *, max_events: int = 20) -> dict[str, Any]:
         limit = max(1, min(int(max_events), 50))
-        supervisor = self._read_signed_file(
-            self.directory / HOST_SUPERVISOR_FILE,
-            kind=HOST_SUPERVISOR_KIND,
-        ) or {}
-        worker = self._read_signed_file(
-            self.directory / HOST_DIAGNOSTICS_FILE,
-            kind=HOST_DIAGNOSTICS_KIND,
-        ) or {}
-        status = self.host_status()
+        errors: list[dict[str, str]] = []
+        try:
+            supervisor = self._read_signed_file(
+                self.directory / HOST_SUPERVISOR_FILE,
+                kind=HOST_SUPERVISOR_KIND,
+            ) or {}
+        except Exception as exc:
+            supervisor = {}
+            errors.append({"source": "supervisor", "error": type(exc).__name__})
+        try:
+            worker = self._read_signed_file(
+                self.directory / HOST_DIAGNOSTICS_FILE,
+                kind=HOST_DIAGNOSTICS_KIND,
+            ) or {}
+        except Exception as exc:
+            worker = {}
+            errors.append({"source": "worker", "error": type(exc).__name__})
+        try:
+            status = self.host_status()
+        except Exception as exc:
+            status = {
+                "contract_version": 2,
+                "supported": True,
+                "configured": True,
+                "connection": {"state": "degraded"},
+                "invocation": {"state": "unknown", "reasons": [{"code": "HOST_DIAGNOSTICS_PARTIAL"}]},
+                "ok": True,
+            }
+            errors.append({"source": "status", "error": type(exc).__name__})
+        supervisor_events = supervisor.get("events")
+        worker_events = worker.get("events")
+        providers = worker.get("providers")
+        active = worker.get("active")
         return {
             "status": status,
             "supervisor": {
                 key: supervisor.get(key)
                 for key in (
-                    "host_instance_id",
-                    "state",
-                    "generation",
-                    "generation_index",
-                    "supervisor_pid",
-                    "worker_pid",
-                    "worker_alive",
-                    "restart_count",
-                    "circuit_open",
-                    "heartbeat_at_ms",
-                    "updated_at_ms",
+                    "host_instance_id", "state", "generation", "generation_index",
+                    "supervisor_pid", "worker_pid", "worker_alive", "restart_count",
+                    "circuit_open", "heartbeat_at_ms", "updated_at_ms",
                 )
             },
-            "providers": list(worker.get("providers") or []),
-            "active": list(worker.get("active") or [])[:16],
+            "providers": list(providers) if isinstance(providers, list) else [],
+            "active": (list(active)[:16] if isinstance(active, list) else []),
             "events": (
-                list(supervisor.get("events") or [])[-limit:]
-                + list(worker.get("events") or [])[-limit:]
+                (list(supervisor_events)[-limit:] if isinstance(supervisor_events, list) else [])
+                + (list(worker_events)[-limit:] if isinstance(worker_events, list) else [])
             )[-limit:],
+            "partial": bool(errors),
+            "errors": errors,
             "ok": True,
         }
 

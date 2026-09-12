@@ -36,6 +36,20 @@ def _reject_plain_secrets(value: Mapping[str, str], *, field_name: str) -> None:
             )
 
 
+def _reject_nested_plain_secrets(value: Any, *, field_name: str) -> None:
+    if isinstance(value, Mapping):
+        for raw_key, raw_value in value.items():
+            key = str(raw_key)
+            if SENSITIVE_KEY_PATTERN.search(key) and raw_value is not None and raw_value != "" and raw_value is not False:
+                raise ValueError(
+                    f"{field_name}.{key} looks secret-bearing; health probe arguments must not persist secrets"
+                )
+            _reject_nested_plain_secrets(raw_value, field_name=f"{field_name}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            _reject_nested_plain_secrets(item, field_name=f"{field_name}[{index}]")
+
+
 @dataclass(frozen=True, slots=True)
 class DiscoveredMCPTool:
     name: str
@@ -82,6 +96,8 @@ class MCPConnectionDefinition:
     environment_refs: dict[str, str] = field(default_factory=dict)
     headers: dict[str, str] = field(default_factory=dict)
     header_refs: dict[str, str] = field(default_factory=dict)
+    health_tool: str = ""
+    health_arguments: dict[str, Any] = field(default_factory=dict)
     enabled: bool = True
     version: int = 1
     schema_version: int = 1
@@ -137,6 +153,14 @@ class MCPConnectionDefinition:
             field_name="environment_refs",
         )
         header_refs = _string_mapping(value.get("header_refs"), field_name="header_refs")
+        health_tool = str(value.get("health_tool") or "").strip()
+        raw_health_arguments = value.get("health_arguments", {})
+        if not isinstance(raw_health_arguments, Mapping):
+            raise ValueError("MCP connection health_arguments must be an object")
+        health_arguments = dict(raw_health_arguments)
+        if health_arguments and not health_tool:
+            raise ValueError("MCP connection health_arguments require health_tool")
+        _reject_nested_plain_secrets(health_arguments, field_name="health_arguments")
 
         raw_tools = value.get("tools", [])
         if not isinstance(raw_tools, list):
@@ -165,6 +189,8 @@ class MCPConnectionDefinition:
             environment_refs=environment_refs,
             headers=headers,
             header_refs=header_refs,
+            health_tool=health_tool,
+            health_arguments=health_arguments,
             enabled=bool(value.get("enabled", True)),
             version=version,
             schema_version=schema_version,
@@ -187,6 +213,7 @@ class MCPConnectionDefinition:
             "tool_count": len(self.tools),
             "last_discovered_at": self.last_discovered_at,
             "last_error": self.last_error,
+            "health_tool": self.health_tool,
             "scope": self.scope.value,
         }
 
@@ -199,6 +226,8 @@ class MCPConnectionDefinition:
             "environment_refs": dict(self.environment_refs),
             "headers": dict(self.headers),
             "header_refs": dict(self.header_refs),
+            "health_tool": self.health_tool,
+            "health_arguments": dict(self.health_arguments),
             "tools": [item.to_dict() for item in self.tools],
             "source": self.source,
         }

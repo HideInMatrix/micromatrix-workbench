@@ -280,6 +280,7 @@ export interface MCPDiscoveredToolDto {
   name: string
   description: string
   input_schema: Record<string, unknown>
+  annotations?: Record<string, unknown>
 }
 
 export interface MCPConnectionSummaryDto {
@@ -293,6 +294,7 @@ export interface MCPConnectionSummaryDto {
   tool_count: number
   last_discovered_at: number
   last_error: string
+  health_tool: string
   scope: 'global'
 }
 
@@ -303,6 +305,7 @@ export interface MCPConnectionDefinitionDto extends MCPConnectionSummaryDto {
   environment_refs: Record<string, string>
   headers: Record<string, string>
   header_refs: Record<string, string>
+  health_arguments: Record<string, unknown>
   tools: MCPDiscoveredToolDto[]
   source?: string
 }
@@ -332,6 +335,7 @@ export interface MCPConnectionProbeDto {
   effective_tools?: EffectiveToolDto[]
   protocol_version: string
   elapsed_ms: number
+  health?: Record<string, unknown>
   error: string
 }
 
@@ -545,7 +549,7 @@ export interface DesktopBridge {
   validate_workbench_mcp_connection(connection: MCPConnectionDefinitionDto): Promise<MCPConnectionValidationDto>
   save_workbench_mcp_connection(connection: MCPConnectionDefinitionDto, expectedVersion: number): Promise<MCPConnectionValidationDto>
   delete_workbench_mcp_connection(connectionId: string): Promise<boolean>
-  test_workbench_mcp_connection(connectionId: string, timeoutSeconds?: number): Promise<MCPConnectionProbeDto>
+  test_workbench_mcp_connection(connectionId: string, timeoutSeconds?: number, deep?: boolean): Promise<MCPConnectionProbeDto>
   discover_workbench_mcp_connection_tools(connectionId: string, timeoutSeconds?: number): Promise<MCPConnectionProbeDto>
   get_workbench_skill(skillId: string): Promise<SkillDefinitionDto>
   validate_workbench_skill(skill: SkillDefinitionDto): Promise<SkillValidationDto>

@@ -41,10 +41,12 @@ class WorkbenchAPI:
         self,
         connection_id: str,
         timeout_seconds: int = 8,
+        deep: bool = False,
     ) -> dict[str, object]:
         return self.workbench_manager.test_mcp_connection(
             str(connection_id),
             timeout_seconds=int(timeout_seconds),
+            deep=bool(deep),
         )
 
     def discover_workbench_mcp_connection_tools(

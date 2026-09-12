@@ -9,7 +9,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 try:
@@ -31,6 +31,7 @@ class MCPConnectionProbe:
     tools: tuple[DiscoveredMCPTool, ...] = ()
     error: str = ""
     elapsed_ms: int = 0
+    health: dict[str, Any] = field(default_factory=dict)
 
 
 def _https_context() -> ssl.SSLContext:

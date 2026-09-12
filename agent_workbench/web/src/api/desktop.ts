@@ -190,8 +190,8 @@ export const desktopApi = {
   async deleteWorkbenchMCPConnection(connectionId: string): Promise<boolean> {
     return (await bridge()).delete_workbench_mcp_connection(connectionId)
   },
-  async testWorkbenchMCPConnection(connectionId: string, timeoutSeconds = 8): Promise<MCPConnectionProbeDto> {
-    return (await bridge()).test_workbench_mcp_connection(connectionId, timeoutSeconds)
+  async testWorkbenchMCPConnection(connectionId: string, timeoutSeconds = 8, deep = false): Promise<MCPConnectionProbeDto> {
+    return (await bridge()).test_workbench_mcp_connection(connectionId, timeoutSeconds, deep)
   },
   async discoverWorkbenchMCPConnectionTools(connectionId: string, timeoutSeconds = 8): Promise<MCPConnectionProbeDto> {
     return (await bridge()).discover_workbench_mcp_connection_tools(connectionId, timeoutSeconds)

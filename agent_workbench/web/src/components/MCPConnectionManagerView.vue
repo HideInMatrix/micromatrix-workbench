@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { CheckCircle2, Plus, RefreshCw, Save, Server, Trash2 } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { FormField } from '@/components/ui/form'
+import MCPDiscoveredToolsPanel from './MCPDiscoveredToolsPanel.vue'
+import MCPHealthCheckField from './MCPHealthCheckField.vue'
 import { desktopApi } from '../api/desktop'
 import type {
   CapabilityCatalogDto,
@@ -34,12 +36,14 @@ function emptyConnection(): MCPConnectionDefinitionDto {
     tool_count: 0,
     last_discovered_at: 0,
     last_error: '',
+    health_tool: '',
     scope: 'global',
     arguments: [],
     environment: {},
     environment_refs: {},
     headers: {},
     header_refs: {},
+    health_arguments: {},
     tools: [],
   }
 }
@@ -195,9 +199,10 @@ async function testConnection() {
   busy.value = true
   error.value = ''
   try {
-    const result = await desktopApi.testWorkbenchMCPConnection(selectedId.value)
+    const result = await desktopApi.testWorkbenchMCPConnection(selectedId.value, 8, true)
     if (!result.ok) throw new Error(result.error || 'MCP 服务连接失败。')
-    notice.value = `连接成功 · MCP ${result.protocol_version || '未知'} · ${result.elapsed_ms}ms`
+    const overall = String(result.health?.overall || 'protocol_ready')
+    notice.value = `连接成功 · MCP ${result.protocol_version || '未知'} · ${overall} · ${result.elapsed_ms}ms`
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
@@ -341,27 +346,8 @@ onMounted(load)
             </FormField>
           </template>
 
-          <div class="grid gap-2">
-            <div class="flex items-center justify-between">
-              <span class="text-[11px] font-medium">已发现工具</span>
-              <span class="text-[10px] text-muted-foreground">{{ draft.tools.length }} 个工具</span>
-            </div>
-            <div class="max-h-64 overflow-y-auto rounded-md border border-border bg-background">
-              <div
-                v-for="tool in draft.tools"
-                :key="tool.name"
-                class="border-b border-border px-3 py-2 last:border-b-0"
-              >
-                <div class="font-mono text-[11px] font-medium">{{ tool.name }}</div>
-                <div v-if="tool.description" class="mt-0.5 text-[10px] leading-4 text-muted-foreground">
-                  {{ tool.description }}
-                </div>
-              </div>
-              <div v-if="!draft.tools.length" class="px-3 py-6 text-center text-[10px] text-muted-foreground">
-                保存连接后点击“发现工具”。
-              </div>
-            </div>
-          </div>
+          <MCPHealthCheckField v-model="draft.health_tool" :tools="draft.tools" />
+          <MCPDiscoveredToolsPanel :tools="draft.tools" />
 
           <div class="flex items-center justify-between border-t border-border pt-3">
             <div class="text-[10px] text-muted-foreground">

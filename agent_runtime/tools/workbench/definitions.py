@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ...core.tool import ToolAnnotations, ToolDefinition
 from ...permissions.capabilities import Capability
-from ...schemas import I, S, obj
+from ...schemas import B, I, S, obj
 
 
 WORKFLOW_OBJECT = {"type": "object", "additionalProperties": True}
@@ -163,6 +163,7 @@ WORKBENCH_TOOLS = (
             {
                 "connection_id": {**S, "minLength": 1},
                 "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30},
+                "deep": {**B, "default": False},
             },
             ("connection_id",),
         ),
@@ -380,6 +381,7 @@ _WORKBENCH_MCP_FACADES = (
                 "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 120},
                 "tool_name": S,
                 "arguments": {"type": "object", "additionalProperties": True},
+                "deep": {**B, "default": False},
             },
             ("action",),
         ),
