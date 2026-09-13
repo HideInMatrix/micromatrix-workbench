@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ChevronDown, Plus, Search, Server, Settings2, Sparkles, Wrench } from '@lucide/vue'
+import { ChevronDown, Plus, Search, Server, Settings2, Sparkles } from '@lucide/vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { desktopApi } from '../api/desktop'
 import type { CapabilityCatalogDto, MCPConnectionSummaryDto } from '../types'
 
-type Tab = 'plugins' | 'apps' | 'mcp' | 'skills'
+type Tab = 'plugins' | 'mcp' | 'skills'
 type InstalledItem = {
   key: string
-  kind: 'app' | 'mcp' | 'skill'
+  kind: 'mcp' | 'skill'
   name: string
   description: string
   id: string
@@ -20,7 +20,6 @@ const route = useRoute()
 const router = useRouter()
 const tabs: Array<{ id: Tab; label: string }> = [
   { id: 'plugins', label: '插件' },
-  { id: 'apps', label: '应用' },
   { id: 'mcp', label: 'MCP' },
   { id: 'skills', label: '技能' },
 ]
@@ -33,10 +32,6 @@ const togglingId = ref('')
 const error = ref('')
 const addMenuOpen = ref(false)
 
-const appItems = computed<InstalledItem[]>(() => (catalog.value?.capabilities ?? [])
-  .filter(item => item.type === 'builtin_tool')
-  .map(item => ({ key: item.id, kind: 'app', name: item.name, description: item.description, id: item.id })))
-
 const mcpItems = computed<InstalledItem[]>(() => (catalog.value?.mcp_connections ?? [])
   .map(item => ({
     key: `mcp:${item.id}`,
@@ -47,12 +42,11 @@ const mcpItems = computed<InstalledItem[]>(() => (catalog.value?.mcp_connections
   })))
 
 const skillItems = computed<InstalledItem[]>(() => (catalog.value?.skills ?? [])
+  .filter(item => item.scope !== 'built-in')
   .map(item => ({ key: `skill:${item.id}`, kind: 'skill', name: item.name, description: item.description, id: item.id })))
 
-const allItems = computed(() => [...mcpItems.value, ...skillItems.value, ...appItems.value])
-const tabItems = computed(() => activeTab.value === 'apps'
-  ? appItems.value
-  : activeTab.value === 'mcp'
+const allItems = computed(() => [...mcpItems.value, ...skillItems.value])
+const tabItems = computed(() => activeTab.value === 'mcp'
     ? mcpItems.value
     : activeTab.value === 'skills'
       ? skillItems.value
@@ -66,7 +60,6 @@ const filteredItems = computed(() => {
 
 const counts = computed(() => ({
   plugins: allItems.value.length,
-  apps: appItems.value.length,
   mcp: mcpItems.value.length,
   skills: skillItems.value.length,
 }))
@@ -119,7 +112,7 @@ onMounted(refresh)
 </script>
 
 <template>
-  <section class="mx-auto flex w-full max-w-[790px] flex-1 flex-col px-4 pt-7 pb-12">
+  <section class="flex w-full max-w-[790px] flex-1 flex-col px-4 pt-7 pb-12">
     <header class="flex items-start justify-between gap-4">
       <div>
         <h1 class="m-0 text-2xl font-semibold tracking-[-0.03em]">插件</h1>
@@ -185,11 +178,10 @@ onMounted(refresh)
 
     <div v-else class="mt-5 divide-y divide-border">
       <div v-for="item in filteredItems" :key="item.key" class="flex min-h-[54px] items-center gap-3 px-1">
-        <button type="button" class="flex min-w-0 flex-1 items-center gap-3 text-left" :class="item.kind === 'app' ? 'cursor-default' : ''" @click="openItem(item)">
+        <button type="button" class="flex min-w-0 flex-1 items-center justify-start gap-3 text-left" @click="openItem(item)">
           <div class="grid size-9 flex-none place-items-center rounded-xl border border-border bg-card shadow-sm">
             <Server v-if="item.kind === 'mcp'" :size="17" />
-            <Sparkles v-else-if="item.kind === 'skill'" :size="17" />
-            <Wrench v-else :size="17" />
+            <Sparkles v-else :size="17" />
           </div>
           <div class="min-w-0 flex-1">
             <div class="truncate text-xs font-medium">{{ item.name }}</div>
@@ -201,7 +193,6 @@ onMounted(refresh)
             <Switch :model-value="Boolean(connection(item.id)?.enabled)" :disabled="Boolean(togglingId)" @update:model-value="value => handleConnectionToggle(item.id, value)" />
           </div>
         </template>
-        <span v-else-if="item.kind === 'app'" class="rounded-full bg-secondary px-2 py-1 text-[9px] text-muted-foreground">内置</span>
         <span v-else class="rounded-full bg-secondary px-2 py-1 text-[9px] text-muted-foreground">已安装</span>
       </div>
       <div v-if="!filteredItems.length" class="py-12 text-center text-xs text-muted-foreground">没有匹配的已安装项目</div>

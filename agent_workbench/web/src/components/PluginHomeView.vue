@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Boxes, Plus, RefreshCw, Search, Server, Settings2, Sparkles, Wrench } from '@lucide/vue'
+import { Boxes, Plus, RefreshCw, Search, Server, Settings2, Sparkles } from '@lucide/vue'
 import { useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import { desktopApi } from '../api/desktop'
@@ -21,17 +21,11 @@ const installedItems = computed(() => {
       name: item.name,
       description: item.transport === 'http' ? item.endpoint : item.command,
     })),
-    ...(catalog.value?.skills ?? []).map(item => ({
-      key: `skill:${item.id}`,
-      type: 'skill' as const,
-      name: item.name,
-      description: item.description,
-    })),
-    ...(catalog.value?.capabilities ?? [])
-      .filter(item => item.type === 'builtin_tool')
+    ...(catalog.value?.skills ?? [])
+      .filter(item => item.scope !== 'built-in')
       .map(item => ({
-        key: item.id,
-        type: 'app' as const,
+        key: `skill:${item.id}`,
+        type: 'skill' as const,
         name: item.name,
         description: item.description,
       })),
@@ -54,7 +48,7 @@ async function refresh() {
   }
 }
 
-function openInstalled(type?: 'plugins' | 'apps' | 'mcp' | 'skills') {
+function openInstalled(type?: 'plugins' | 'mcp' | 'skills') {
   if (type) {
     router.push({ name: 'plugins-installed', query: { tab: type } })
     return
@@ -66,7 +60,7 @@ onMounted(refresh)
 </script>
 
 <template>
-  <section class="mx-auto flex w-full max-w-[760px] flex-1 flex-col px-4 pt-7 pb-12">
+  <section class="flex w-full max-w-[760px] flex-1 flex-col px-4 pt-7 pb-12">
     <header class="flex items-start justify-between gap-4">
       <div>
         <h1 class="m-0 text-2xl font-semibold tracking-[-0.03em]">插件</h1>
@@ -112,17 +106,16 @@ onMounted(refresh)
       <button
         v-if="installedItems.length"
         type="button"
-        class="flex w-full flex-wrap items-start gap-4 rounded-xl border-0 bg-transparent p-0 text-left"
+        class="flex w-full flex-wrap items-start justify-start gap-4 rounded-xl border-0 bg-transparent p-0 text-left"
         aria-label="查看已安装插件"
         @click="openInstalled()"
       >
-        <div v-for="item in installedItems.slice(0, 12)" :key="item.key" class="group flex w-[48px] flex-col items-center gap-1.5">
+        <div v-for="item in installedItems.slice(0, 12)" :key="item.key" class="group flex w-[64px] flex-col items-start gap-1.5">
           <div class="grid size-10 place-items-center rounded-xl border border-border bg-card shadow-sm transition-transform group-hover:-translate-y-0.5">
             <Server v-if="item.type === 'mcp'" :size="19" />
-            <Sparkles v-else-if="item.type === 'skill'" :size="19" />
-            <Wrench v-else :size="19" />
+            <Sparkles v-else :size="19" />
           </div>
-          <span class="w-full truncate text-center text-[9px] text-muted-foreground">{{ item.name }}</span>
+          <span class="w-full truncate text-left text-[9px] text-muted-foreground">{{ item.name }}</span>
         </div>
       </button>
       <button v-else type="button" class="flex min-h-28 w-full items-center justify-center rounded-xl border border-dashed border-border text-xs text-muted-foreground" @click="openInstalled()">
@@ -131,7 +124,7 @@ onMounted(refresh)
     </section>
 
     <div class="mt-9 border-t border-border pt-5 text-[11px] leading-5 text-muted-foreground">
-      在线插件目录暂未开放。当前页面只管理本机已经存在的内置能力、Skills 和 MCP Connections，不展示热门或推荐内容。
+      在线插件目录暂未开放。当前页面只展示本机安装或创建的 Skills 和 MCP Connections，不展示内置能力、热门或推荐内容。
     </div>
   </section>
 </template>

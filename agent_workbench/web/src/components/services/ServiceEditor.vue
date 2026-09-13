@@ -164,7 +164,6 @@ const emit = defineEmits<{
       <Button v-if="!isNew" variant="destructiveOutline" size="sm" :disabled="busy || locked" @click="emit('delete')">删除</Button>
       <div class="ml-auto flex items-center gap-2">
         <Button
-          v-if="!isNew"
           :variant="selectedRunning ? 'destructiveOutline' : 'default'"
           size="sm"
           :disabled="busy || lifecycleBusy"

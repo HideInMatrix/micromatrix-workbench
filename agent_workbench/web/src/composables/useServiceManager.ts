@@ -95,18 +95,16 @@ export function useServiceManager() {
     if (value) draft.value.workspace = value
   }
 
-  async function persistDraft(): Promise<string> {
+  async function persistDraft(): Promise<ServerDto> {
     const value = normalizedWorkDraft(draft.value)
     if (!value.name) throw new Error('Work 名称不能为空。')
     if (!value.workspace) throw new Error('Work 必须选择工作目录。')
     if (isNew.value) {
-      const created = await desktopApi.createServer(value)
-      return `work:${created.server_id}`
+      return desktopApi.createServer(value)
     }
     const current = selected.value
     if (!current) throw new Error('找不到当前 Work。')
-    const updated = await desktopApi.updateServer(current.id, value)
-    return `work:${updated.server_id}`
+    return desktopApi.updateServer(current.id, value)
   }
 
   async function saveWork() {
@@ -114,7 +112,8 @@ export function useServiceManager() {
     busy.value = true
     errorMessage.value = ''
     try {
-      const key = await persistDraft()
+      const persisted = await persistDraft()
+      const key = `work:${persisted.server_id}`
       isNew.value = false
       await refreshWorks(false)
       await selectWork(key)
@@ -160,21 +159,23 @@ export function useServiceManager() {
   }
 
   async function toggleRunning() {
+    if (busy.value || lifecycleBusy.value) return
     const current = selected.value
-    if (!current || isNew.value || lifecycleBusy.value) return
-    const key = current.key
     lifecycleBusy.value = true
     errorMessage.value = ''
     try {
-      if (current.server.running) {
+      if (!isNew.value && current?.server.running) {
         await desktopApi.stopServer(current.id)
+        await refreshWorks(true)
+        await selectWork(current.key)
       } else {
-        const runtimeDraft = normalizedWorkDraft(draft.value)
-        await persistDraft()
-        await desktopApi.startServer(current.id, runtimeDraft)
+        const persisted = await persistDraft()
+        const key = `work:${persisted.server_id}`
+        isNew.value = false
+        await desktopApi.startServer(persisted.server_id)
+        await refreshWorks(false)
+        await selectWork(key)
       }
-      await refreshWorks(true)
-      await selectWork(key)
     } catch (error) {
       errorMessage.value = error instanceof Error ? error.message : String(error)
       await refreshWorks(true)
