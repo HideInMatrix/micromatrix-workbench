@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { Boxes, Plus, RefreshCw, Search, Server, Settings2, Sparkles } from '@lucide/vue'
 import { useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
+import { Popover } from '@/components/ui/popover'
 import { desktopApi } from '../api/desktop'
 import type { CapabilityCatalogDto } from '../types'
 
@@ -11,7 +12,6 @@ const catalog = ref<CapabilityCatalogDto | null>(null)
 const query = ref('')
 const busy = ref(false)
 const error = ref('')
-const addMenuOpen = ref(false)
 
 const installedItems = computed(() => {
   const values = [
@@ -70,19 +70,19 @@ onMounted(refresh)
         <Button variant="ghost" size="icon" class="h-8 w-8" :disabled="busy" title="刷新" @click="refresh">
           <RefreshCw :size="15" />
         </Button>
-        <div class="relative">
-          <Button size="sm" class="gap-1.5" @click="addMenuOpen = !addMenuOpen">
-            <Plus :size="14" />添加
-          </Button>
-          <div v-if="addMenuOpen" class="absolute right-0 top-[calc(100%+6px)] z-30 w-40 rounded-lg border border-border bg-popover p-1 shadow-lg">
-            <button type="button" class="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-secondary" @click="router.push({ name: 'plugins-skills-manage' }); addMenuOpen = false">
-              <Sparkles :size="14" />创建技能
-            </button>
-            <button type="button" class="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-secondary" @click="router.push({ name: 'plugins-mcp-manage' }); addMenuOpen = false">
-              <Server :size="14" />添加 MCP 服务器
-            </button>
-          </div>
-        </div>
+        <Popover content-class="w-40 p-1">
+          <template #trigger>
+            <Button size="sm" class="gap-1.5">
+              <Plus :size="14" />添加
+            </Button>
+          </template>
+          <button type="button" class="flex w-full items-center justify-start gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-secondary" @click="router.push({ name: 'plugins-skills-manage' })">
+            <Sparkles :size="14" />创建技能
+          </button>
+          <button type="button" class="flex w-full items-center justify-start gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-secondary" @click="router.push({ name: 'plugins-mcp-manage' })">
+            <Server :size="14" />添加 MCP 服务器
+          </button>
+        </Popover>
       </div>
     </header>
 
