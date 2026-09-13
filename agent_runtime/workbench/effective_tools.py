@@ -34,7 +34,6 @@ class EffectiveTool:
             "description": self.description,
             "input_schema": dict(self.input_schema),
             "key": self.key,
-            "workflow_executable": True,
             "required_capabilities": list(self.required_capabilities),
             "required_operation_permissions": list(self.required_operation_permissions),
             "operation_permission_variants": [

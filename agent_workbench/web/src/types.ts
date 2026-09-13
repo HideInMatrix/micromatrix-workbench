@@ -130,28 +130,6 @@ export interface PermissionRequestDto {
   session_authorization_available?: boolean
 }
 
-export type WorkflowNodeKind =
-  | 'skill'
-  | 'tool'
-  | 'approval'
-  | 'condition'
-  | 'artifact'
-
-export interface WorkbenchTargetDto {
-  target_id: string
-  server_id: string
-  service_name: string
-  profile_name: string
-  workspace: string
-  running: boolean
-}
-
-export interface ToolReferenceDto {
-  provider: 'system' | 'mcp'
-  tool_name: string
-  connection_id?: string
-}
-
 export interface SkillSummaryDto {
   id: string
   name: string
@@ -221,7 +199,6 @@ export interface EffectiveToolDto {
   description: string
   input_schema: Record<string, unknown>
   key: string
-  workflow_executable: boolean
   connection_id?: string
   connection_name?: string
 }
@@ -238,73 +215,9 @@ export interface MCPConnectionProbeDto {
   error: string
 }
 
-export interface WorkflowSummaryDto {
-  id: string
-  name: string
-  description: string
-  version: number
-  scope: 'built-in' | 'global' | 'workspace'
-  inputs_schema: Record<string, unknown>
-  tags: string[]
-  node_count: number
-  edge_count: number
-}
-
-export interface WorkflowNodeDto {
-  id: string
-  type: WorkflowNodeKind
-  name: string
-  position: { x: number; y: number }
-  config: Record<string, unknown>
-  policy: {
-    approval: 'none' | 'required'
-    on_error: 'stop' | 'continue'
-  }
-}
-
-export interface WorkflowEdgeDto {
-  id: string
-  source: string
-  target: string
-  condition: 'success' | 'failure' | 'approved' | 'rejected' | 'true' | 'false'
-}
-
-export interface WorkflowDefinitionDto {
-  schema_version: number
-  id: string
-  name: string
-  description: string
-  version: number
-  entry_node_id: string
-  inputs_schema: Record<string, unknown>
-  tags: string[]
-  nodes: WorkflowNodeDto[]
-  edges: WorkflowEdgeDto[]
-  metadata: Record<string, unknown>
-  scope?: 'built-in' | 'global' | 'workspace'
-}
-
-export interface WorkflowValidationDto {
-  ok: boolean
-  errors: Array<{ code: string; message: string; subject?: string }>
-  warnings: Array<{ code: string; message: string; subject?: string }>
-  workflow: WorkflowDefinitionDto
-  saved?: boolean
-}
-
-export interface WorkbenchCatalogDto {
-  target: WorkbenchTargetDto
-  skills: SkillSummaryDto[]
-  tools: string[]
-  effective_tools: EffectiveToolDto[]
-  mcp_connections: MCPConnectionSummaryDto[]
-  workflows: WorkflowSummaryDto[]
-  capabilities: CapabilityDto[]
-}
-
 export interface CapabilityDto {
   id: string
-  type: 'builtin_tool' | 'skill' | 'mcp_tool' | 'workflow'
+  type: 'builtin_tool' | 'skill' | 'mcp_tool'
   name: string
   description: string
   usage_hint?: string
@@ -336,7 +249,7 @@ export interface CapabilityDto {
     }>
   }
   execution: {
-    owner: 'workbench_runtime' | 'external_mcp' | 'ai_client' | 'workflow_runtime'
+    owner: 'workbench_runtime' | 'desktop_host' | 'external_mcp' | 'ai_client'
     required_capabilities: string[]
     required_operation_permissions: string[]
     annotations: {
@@ -360,50 +273,6 @@ export interface CapabilityCatalogDto {
   revision: string
 }
 
-export interface WorkflowRunDto {
-  run_id: string
-  workflow_id: string
-  workflow_version: number
-  workflow_scope: string
-  workspace: string
-  status:
-    | 'pending'
-    | 'running'
-    | 'waiting_model'
-    | 'waiting_approval'
-    | 'succeeded'
-    | 'failed'
-    | 'cancelled'
-  engine_state: {
-    activated: string[]
-    ready: string[]
-    completed: string[]
-    outcomes: Record<string, string>
-    outputs: Record<string, unknown>
-  }
-  inputs: Record<string, unknown>
-  node_states: Record<string, { status?: string; outcome?: string; error?: string }>
-  artifacts: Array<Record<string, unknown>>
-  approvals: Array<Record<string, unknown>>
-  pending_action: Record<string, unknown> | null
-  error: string
-  created_at: number
-  updated_at: number
-}
-
-export interface WorkflowApprovalDto {
-  request_id: string
-  server_id: string
-  server_name: string
-  run_id: string
-  node_id: string
-  approval_id: string
-  title: string
-  description: string
-  created_at: number
-  expires_at: number
-}
-
 export interface DesktopBridge {
   bootstrap(): Promise<BootstrapDto>
   inspect_toolchain(program: string, executable: string, roots: string[]): Promise<ToolchainProposal>
@@ -425,10 +294,6 @@ export interface DesktopBridge {
   list_permission_requests(): Promise<PermissionRequestDto[]>
   respond_permission_request(requestId: string, decision: 'deny' | 'once' | 'session' | 'resource_session' | 'remember'): Promise<boolean>
   stop_all_desktop_input(): Promise<{ requested: number; stopped: number; results: Record<string, boolean> }>
-  list_workflow_approvals(): Promise<WorkflowApprovalDto[]>
-  respond_workflow_approval(requestId: string, approved: boolean): Promise<boolean>
-  list_workbench_targets(): Promise<WorkbenchTargetDto[]>
-  get_workbench_catalog(targetId: string): Promise<WorkbenchCatalogDto>
   get_workbench_capability_catalog(): Promise<CapabilityCatalogDto>
   get_workbench_mcp_connection(connectionId: string): Promise<MCPConnectionDefinitionDto>
   validate_workbench_mcp_connection(connection: MCPConnectionDefinitionDto): Promise<MCPConnectionValidationDto>
@@ -440,11 +305,6 @@ export interface DesktopBridge {
   validate_workbench_skill(skill: SkillDefinitionDto): Promise<SkillValidationDto>
   save_workbench_skill(skill: SkillDefinitionDto, expectedVersion: number): Promise<SkillValidationDto>
   delete_workbench_skill(skillId: string): Promise<boolean>
-  get_workbench_workflow(targetId: string, workflowId: string): Promise<WorkflowDefinitionDto>
-  validate_workbench_workflow(targetId: string, workflow: WorkflowDefinitionDto): Promise<WorkflowValidationDto>
-  save_workbench_workflow(targetId: string, workflow: WorkflowDefinitionDto, expectedVersion: number): Promise<WorkflowValidationDto>
-  delete_workbench_workflow(targetId: string, workflowId: string): Promise<boolean>
-  list_workbench_runs(targetId: string): Promise<WorkflowRunDto[]>
   get_logs(after?: number): Promise<{ cursor: number; entries: LogEntryDto[] }>
   clear_logs(): Promise<number>
   detect_executable(product: string, configured?: string): Promise<{ path: string; source: string; version: string }>

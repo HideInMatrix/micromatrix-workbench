@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -8,158 +7,53 @@ from agent_runtime.tools import build_tool_registry
 from agent_runtime.workbench import (
     CapabilityAssetService,
     MCPConnectionService,
-    RunStore,
-    WorkflowDefinition,
-    WorkflowStore,
     build_capability_catalog,
     build_effective_tool_catalog,
-    build_workflow_registry,
     capability_catalog_revision,
     is_workbench_control_tool,
     validate_capability_references,
-    validate_workflow,
 )
-
-from ..servers.manager import MCPServerManager
-from ..servers.store import ServerProfileStore
-
-
-@dataclass(frozen=True, slots=True)
-class WorkbenchTarget:
-    target_id: str
-    server_id: str
-    service_name: str
-    profile_name: str
-    workspace: Path
-    running: bool
-    enable_view_image: bool
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "target_id": self.target_id,
-            "server_id": self.server_id,
-            "service_name": self.service_name,
-            "profile_name": self.profile_name,
-            "workspace": str(self.workspace),
-            "running": self.running,
-        }
-
 
 class DesktopWorkbenchManager:
     def __init__(
         self,
         *,
-        server_store: ServerProfileStore,
-        server_manager: MCPServerManager,
         global_root: Path | None = None,
     ) -> None:
-        self.server_store = server_store
-        self.server_manager = server_manager
         self.global_root = global_root.resolve() if global_root is not None else None
 
-    def targets(self) -> tuple[WorkbenchTarget, ...]:
-        targets: list[WorkbenchTarget] = []
-        for profile in self.server_store.list():
-            targets.append(
-                WorkbenchTarget(
-                    target_id=f"server:{profile.server_id}",
-                    server_id=profile.server_id,
-                    service_name=profile.name,
-                    profile_name="Work",
-                    workspace=profile.workspace.resolve(),
-                    running=self.server_manager.is_running(profile.server_id),
-                    enable_view_image=profile.enable_view_image,
-                )
-            )
-        return tuple(targets)
-
-    def target(self, target_id: str) -> WorkbenchTarget:
-        for target in self.targets():
-            if target.target_id == target_id.strip():
-                return target
-        raise KeyError(f"找不到 Workbench Target: {target_id}")
-
     @staticmethod
-    def _tool_names(*, enable_view_image: bool) -> set[str]:
+    def _tool_names() -> set[str]:
         return {
             item.name
-            for item in DesktopWorkbenchManager._system_tool_definitions(
-                enable_view_image=enable_view_image
-            )
+            for item in DesktopWorkbenchManager._system_tool_definitions()
         }
 
     @staticmethod
-    def _system_tool_definitions(*, enable_view_image: bool):
-        features = frozenset({"view_image"}) if enable_view_image else frozenset()
+    def _system_tool_definitions():
         return tuple(
             item
-            for item in build_tool_registry().definitions(enabled_features=features)
+            for item in build_tool_registry().definitions(enabled_features=frozenset({"view_image"}))
             if not is_workbench_control_tool(item.name)
         )
-
-    @staticmethod
-    def _all_system_tool_names() -> set[str]:
-        return DesktopWorkbenchManager._tool_names(enable_view_image=True)
 
     def _mcp_connection_service(self) -> MCPConnectionService:
         return MCPConnectionService(global_root=self.global_root)
 
     def _global_asset_service(self) -> tuple[CapabilityAssetService, set[str]]:
-        tool_names = self._all_system_tool_names()
+        tool_names = self._tool_names()
         return CapabilityAssetService(global_root=self.global_root), tool_names
-
-    def _asset_service(
-        self,
-        target: WorkbenchTarget,
-    ) -> tuple[CapabilityAssetService, set[str]]:
-        tool_names = self._tool_names(
-            enable_view_image=target.enable_view_image,
-        )
-        assets = CapabilityAssetService(global_root=self.global_root)
-        return assets, tool_names
-
-    def _context(self, target: WorkbenchTarget):
-        assets, tool_names = self._asset_service(target)
-        skills = assets.skill_registry
-        store = WorkflowStore(target.workspace)
-        workflows = build_workflow_registry(store=store)
-        return skills, tool_names, store, workflows
-
-    def catalog(self, target_id: str) -> dict[str, object]:
-        target = self.target(target_id)
-        skills, tools, _store, workflows = self._context(target)
-        connections = self._mcp_connection_service().list()
-        effective_tools = build_effective_tool_catalog(
-            self._system_tool_definitions(enable_view_image=target.enable_view_image),
-            connections,
-        )
-        capabilities = build_capability_catalog(
-            tools=effective_tools,
-            skills=skills.list(),
-            workflows=workflows.list(),
-        )
-        return {
-            "target": target.to_dict(),
-            "skills": [item.summary() for item in skills.list()],
-            "tools": sorted(tools),
-            "effective_tools": [item.to_dict() for item in effective_tools],
-            "mcp_connections": [item.summary() for item in connections],
-            "workflows": [item.summary() for item in workflows.list()],
-            "capabilities": list(capabilities),
-            "revision": capability_catalog_revision(capabilities),
-        }
 
     def capability_catalog(self) -> dict[str, object]:
         assets, tools = self._global_asset_service()
         connections = self._mcp_connection_service().list()
         effective_tools = build_effective_tool_catalog(
-            self._system_tool_definitions(enable_view_image=True),
+            self._system_tool_definitions(),
             connections,
         )
         capabilities = build_capability_catalog(
             tools=effective_tools,
             skills=assets.skill_registry.list(),
-            workflows=(),
         )
         return {
             "skills": [item.summary() for item in assets.skill_registry.list()],
@@ -228,7 +122,7 @@ class DesktopWorkbenchManager:
             timeout=float(timeout_seconds),
         )
         effective_tools = build_effective_tool_catalog(
-            self._system_tool_definitions(enable_view_image=True),
+            self._system_tool_definitions(),
             service.list(),
         )
         return {
@@ -282,71 +176,5 @@ class DesktopWorkbenchManager:
         assets, _tool_names = self._global_asset_service()
         return assets.delete_skill(skill_id.strip())
 
-    def get_workflow(self, target_id: str, workflow_id: str) -> dict[str, object]:
-        target = self.target(target_id)
-        *_prefix, workflows = self._context(target)
-        workflow = workflows.get(workflow_id.strip())
-        if workflow is None:
-            raise KeyError(f"找不到 Workflow: {workflow_id}")
-        return {**workflow.to_dict(), "scope": workflow.scope.value}
 
-    def validate_workflow(
-        self,
-        target_id: str,
-        raw: dict[str, Any],
-    ) -> dict[str, object]:
-        target = self.target(target_id)
-        skills, tools, _store, _workflows = self._context(target)
-        effective_tools = build_effective_tool_catalog(
-            self._system_tool_definitions(enable_view_image=target.enable_view_image),
-            self._mcp_connection_service().list(),
-        )
-        workflow = WorkflowDefinition.from_mapping(raw)
-        result = validate_workflow(
-            workflow,
-            skill_ids={item.id for item in skills.list()},
-            tool_names=set(tools),
-            tool_keys={item.key for item in effective_tools},
-        )
-        return {**result.to_dict(), "workflow": workflow.to_dict()}
-
-    def save_workflow(
-        self,
-        target_id: str,
-        raw: dict[str, Any],
-        *,
-        expected_version: int,
-    ) -> dict[str, object]:
-        target = self.target(target_id)
-        skills, tools, store, _workflows = self._context(target)
-        effective_tools = build_effective_tool_catalog(
-            self._system_tool_definitions(enable_view_image=target.enable_view_image),
-            self._mcp_connection_service().list(),
-        )
-        workflow = WorkflowDefinition.from_mapping(raw)
-        result = validate_workflow(
-            workflow,
-            skill_ids={item.id for item in skills.list()},
-            tool_names=set(tools),
-            tool_keys={item.key for item in effective_tools},
-        )
-        if not result.ok:
-            return {
-                **result.to_dict(),
-                "saved": False,
-                "workflow": workflow.to_dict(),
-            }
-        saved = store.save(workflow, expected_version=expected_version)
-        return {**result.to_dict(), "saved": True, "workflow": saved.to_dict()}
-
-    def delete_workflow(self, target_id: str, workflow_id: str) -> bool:
-        return WorkflowStore(self.target(target_id).workspace).delete(workflow_id)
-
-    def runs(self, target_id: str) -> list[dict[str, object]]:
-        return [
-            run.public_dict()
-            for run in RunStore(self.target(target_id).workspace).list()
-        ]
-
-
-__all__ = ["DesktopWorkbenchManager", "WorkbenchTarget"]
+__all__ = ["DesktopWorkbenchManager"]

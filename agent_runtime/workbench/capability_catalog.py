@@ -7,11 +7,10 @@ from typing import Any, Iterable
 
 from .effective_tools import EffectiveTool
 from .skills import SkillDefinition
-from .workflows import WorkflowDefinition
 
 
 CAPABILITY_ID_PATTERN = re.compile(
-    r"^(?:system:[a-zA-Z0-9_.-]+|skill:[a-zA-Z0-9_.-]+|workflow:[a-zA-Z0-9_.-]+|mcp:[a-zA-Z0-9_.-]+:[a-zA-Z0-9_.-]+)$"
+    r"^(?:system:[a-zA-Z0-9_.-]+|skill:[a-zA-Z0-9_.-]+|mcp:[a-zA-Z0-9_.-]+:[a-zA-Z0-9_.-]+)$"
 )
 
 
@@ -47,7 +46,6 @@ def build_capability_catalog(
     *,
     tools: Iterable[EffectiveTool],
     skills: Iterable[SkillDefinition],
-    workflows: Iterable[WorkflowDefinition],
 ) -> tuple[dict[str, Any], ...]:
     """Build the AI-facing capability catalog.
 
@@ -57,8 +55,6 @@ def build_capability_catalog(
     """
 
     values: list[dict[str, Any]] = []
-    tool_by_key = {tool.key: tool for tool in tools}
-
     for tool in tools:
         source: dict[str, Any] = {"provider": tool.provider}
         if tool.provider == "mcp":
@@ -181,100 +177,6 @@ def build_capability_catalog(
                     "mcp_tool": "skill_manage",
                     "arguments": {"action": "get", "skill_id": skill.id},
                     "execution_owner": "ai_client",
-                },
-            }
-        )
-
-    for workflow in workflows:
-        has_approval = any(node.type == "approval" for node in workflow.nodes)
-        workflow_tools: list[EffectiveTool] = []
-        for node in workflow.nodes:
-            if node.type != "tool":
-                continue
-            provider = str(node.config.get("provider") or "system")
-            tool_name = str(node.config.get("tool_name") or "")
-            if provider == "mcp":
-                connection_id = str(node.config.get("connection_id") or "")
-                key = f"mcp:{connection_id}:{tool_name}"
-            else:
-                key = f"system:{tool_name}"
-            tool = tool_by_key.get(key)
-            if tool is not None:
-                workflow_tools.append(tool)
-        required_capabilities = sorted(
-            {
-                capability
-                for tool in workflow_tools
-                for capability in tool.required_capabilities
-            }
-        )
-        dependency_by_id: dict[str, dict[str, Any]] = {}
-        for tool in workflow_tools:
-            dependency_by_id[tool.key] = {
-                "capability_id": tool.key,
-                "relation": "workflow_tool",
-                "required": True,
-            }
-        for node in workflow.nodes:
-            if node.type != "skill":
-                continue
-            skill_id = str(node.config.get("skill_id") or "").strip()
-            if not skill_id:
-                continue
-            capability_id = f"skill:{skill_id}"
-            dependency_by_id[capability_id] = {
-                "capability_id": capability_id,
-                "relation": "workflow_skill",
-                "required": True,
-            }
-        required_operation_permissions = sorted(
-            {
-                permission
-                for tool in workflow_tools
-                for permission in tool.required_operation_permissions
-            }
-        )
-        has_tool = bool(workflow_tools)
-        all_read_only = bool(workflow_tools) and all(
-            tool.annotations.get("read_only", False) for tool in workflow_tools
-        )
-        destructive = any(
-            tool.annotations.get("destructive", False) for tool in workflow_tools
-        )
-        open_world = any(
-            tool.annotations.get("open_world", False) for tool in workflow_tools
-        )
-        values.append(
-            {
-                "id": f"workflow:{workflow.id}",
-                "type": "workflow",
-                "name": workflow.name,
-                "description": workflow.description,
-                "input_schema": dict(workflow.inputs_schema),
-                "tags": list(workflow.tags),
-                "dependencies": list(dependency_by_id.values()),
-                "source": {"scope": workflow.scope.value, "workflow_id": workflow.id},
-                "availability": {"status": "available", "reasons": []},
-                "execution": {
-                    "owner": "workflow_runtime",
-                    "required_capabilities": required_capabilities,
-                    "required_operation_permissions": required_operation_permissions,
-                    "annotations": {
-                        "read_only": not has_tool or all_read_only,
-                        "destructive": destructive,
-                        "idempotent": False,
-                        "open_world": open_world,
-                    },
-                    "permission_boundary": "per_node_runtime_permissions",
-                    "approval_boundary": "workflow_approval_nodes" if has_approval else "none_declared",
-                },
-                "invocation": {
-                    "mcp_tool": "workflow_run",
-                    "arguments": {
-                        "action": "start",
-                        "workflow_id": workflow.id,
-                        "inputs": "<capability input>",
-                    },
                 },
             }
         )

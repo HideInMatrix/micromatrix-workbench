@@ -2,43 +2,46 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 
 export type AppRouteName =
   | 'work'
-  | 'workbench'
-  | 'workbench-workflows'
-  | 'workbench-skills'
-  | 'workbench-mcp-connections'
+  | 'plugins'
+  | 'plugins-installed'
+  | 'plugins-mcp-detail'
+  | 'plugins-skills-manage'
+  | 'plugins-mcp-manage'
   | 'logs'
   | 'about'
 
 export const router = createRouter({
   history: createWebHashHistory(),
   routes: [
-    {
-      path: '/',
-      redirect: '/work',
-    },
+    { path: '/', redirect: '/work' },
     {
       path: '/work',
       name: 'work',
       component: () => import('../components/ServiceView.vue'),
     },
     {
-      path: '/workbench',
-      name: 'workbench',
-      component: () => import('../components/CapabilityWorkbenchView.vue'),
+      path: '/plugins',
+      name: 'plugins',
+      component: () => import('../components/PluginHomeView.vue'),
     },
     {
-      path: '/workbench/workflows',
-      name: 'workbench-workflows',
-      component: () => import('../components/WorkflowWorkbenchView.vue'),
+      path: '/plugins/installed',
+      name: 'plugins-installed',
+      component: () => import('../components/PluginInstalledView.vue'),
     },
     {
-      path: '/workbench/skills',
-      name: 'workbench-skills',
+      path: '/plugins/mcp/:connectionId',
+      name: 'plugins-mcp-detail',
+      component: () => import('../components/PluginMCPDetailView.vue'),
+    },
+    {
+      path: '/plugins/skills/manage',
+      name: 'plugins-skills-manage',
       component: () => import('../components/SkillManagerView.vue'),
     },
     {
-      path: '/workbench/mcp-connections',
-      name: 'workbench-mcp-connections',
+      path: '/plugins/mcp/manage',
+      name: 'plugins-mcp-manage',
       component: () => import('../components/MCPConnectionManagerView.vue'),
     },
     {
@@ -51,9 +54,6 @@ export const router = createRouter({
       name: 'about',
       component: () => import('../components/AboutRouteView.vue'),
     },
-    {
-      path: '/:pathMatch(.*)*',
-      redirect: '/work',
-    },
+    { path: '/:pathMatch(.*)*', redirect: '/work' },
   ],
 })

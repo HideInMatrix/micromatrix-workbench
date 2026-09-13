@@ -7,6 +7,24 @@ import { InputGroup, InputGroupButton, InputGroupInput } from '@/components/ui/i
 import type { NetworkProviderDto, ServerDraft } from '../../types'
 import ToolchainEditor from './ToolchainEditor.vue'
 
+const permissionModeOptions = [
+  {
+    value: 'safe' as const,
+    label: '请求批准',
+    description: '编辑外部文件和使用互联网时始终询问',
+  },
+  {
+    value: 'trusted' as const,
+    label: '帮我批准',
+    description: '仅对检测到的风险操作请求批准',
+  },
+  {
+    value: 'dangerous' as const,
+    label: '完全访问权限',
+    description: '可不受限制地访问互联网和你电脑上的任何文件',
+  },
+]
+
 const draft = defineModel<ServerDraft>('draft', { required: true })
 const tunnelTokenVisible = defineModel<boolean>('tunnelTokenVisible', { required: true })
 
@@ -142,14 +160,6 @@ const emit = defineEmits<{
         </InputGroup>
       </FormField>
 
-      <FormField label="权限模式">
-        <select v-model="draft.permission_mode" :disabled="locked">
-          <option value="safe">安全</option>
-          <option value="trusted">受信任</option>
-          <option value="dangerous">危险</option>
-        </select>
-      </FormField>
-
       <CheckField><input v-model="draft.allow_network" :disabled="locked" type="checkbox" /><span>允许网络</span></CheckField>
       <CheckField><input v-model="draft.enable_view_image" :disabled="locked" type="checkbox" /><span>启用图片工具</span></CheckField>
       <CheckField span="2"><input v-model="draft.remember_secrets" type="checkbox" /><span>在本机保存网络令牌与 OAuth 密码</span></CheckField>
@@ -157,6 +167,56 @@ const emit = defineEmits<{
         <ToolchainEditor v-model="draft.toolchains" :locked="locked" :mode="draft.permission_mode" />
       </div>
     </FormGrid>
+
+    <section class="mt-4 rounded-lg border border-border bg-background/60 p-3.5">
+      <div class="mb-2.5">
+        <h3 class="m-0 text-xs font-medium">权限模式</h3>
+        <p class="mt-1 mb-0 text-[11px] leading-4 text-muted-foreground">应如何批准 Work 的操作？</p>
+      </div>
+
+      <div class="overflow-hidden rounded-lg border border-border bg-popover">
+        <button
+          v-for="option in permissionModeOptions"
+          :key="option.value"
+          type="button"
+          :disabled="locked"
+          :class="[
+            'flex w-full items-start gap-3 border-b border-border px-3 py-2.5 text-left last:border-b-0',
+            'transition-colors hover:bg-secondary/60 disabled:cursor-not-allowed disabled:opacity-60',
+            draft.permission_mode === option.value ? 'bg-secondary/50' : 'bg-transparent',
+          ]"
+          @click="draft.permission_mode = option.value"
+        >
+          <span
+            :class="[
+              'mt-0.5 grid size-4 flex-none place-items-center rounded-full border text-[10px]',
+              draft.permission_mode === option.value
+                ? option.value === 'dangerous'
+                  ? 'border-destructive bg-destructive text-destructive-foreground'
+                  : 'border-primary bg-primary text-primary-foreground'
+                : 'border-border bg-background text-transparent',
+            ]"
+          >
+            <Check :size="10" :stroke-width="3" />
+          </span>
+
+          <span class="min-w-0 flex-1">
+            <strong
+              :class="[
+                'block text-xs font-medium',
+                option.value === 'dangerous' ? 'text-destructive' : 'text-foreground',
+              ]"
+            >{{ option.label }}</strong>
+            <small
+              :class="[
+                'mt-0.5 block text-[10px] leading-4',
+                option.value === 'dangerous' ? 'text-destructive' : 'text-muted-foreground',
+              ]"
+            >{{ option.description }}</small>
+          </span>
+        </button>
+      </div>
+    </section>
 
     <div v-if="runtimeUrl" class="mt-4 flex items-center gap-2 rounded-md border border-border bg-secondary/50 px-3 py-[9px]">
       <code class="min-w-0 flex-1 truncate text-[11px] font-medium text-blue-600 dark:text-blue-400">{{ runtimeUrl }}</code>

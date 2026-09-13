@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { CheckCircle2, Plus, RefreshCw, Save, Trash2 } from '@lucide/vue'
+import { useRoute } from 'vue-router'
 import { desktopApi } from '../api/desktop'
 import { Button } from '@/components/ui/button'
 import { FormField } from '@/components/ui/form'
@@ -10,6 +11,7 @@ import type {
 } from '../types'
 
 const catalog = ref<CapabilityCatalogDto | null>(null)
+const route = useRoute()
 const selectedId = ref('')
 const draft = ref<SkillDefinitionDto>(emptySkill())
 const artifactsText = ref('')
@@ -149,7 +151,7 @@ async function deleteSkill() {
   }
 }
 
-onMounted(() => refreshCatalog())
+onMounted(() => refreshCatalog(String(route.query.skill || '')))
 </script>
 
 <template>

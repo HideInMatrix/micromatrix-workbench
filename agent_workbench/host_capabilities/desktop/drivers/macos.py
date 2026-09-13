@@ -639,6 +639,33 @@ class MacOSDesktopDriver:
             return current.identity == target.identity
         return None
 
+    def focus_target(self, target: DesktopTarget) -> bool:
+        """Bring the explicitly authorized target application to foreground.
+
+        The provider still performs a full window-level ``is_focused`` check
+        after this call, so activating an application cannot make a different
+        window inherit the attached target's authorization.
+        """
+        try:
+            from AppKit import (
+                NSApplicationActivateAllWindows,
+                NSApplicationActivateIgnoringOtherApps,
+                NSRunningApplication,
+            )
+
+            application = NSRunningApplication.runningApplicationWithProcessIdentifier_(
+                target.owner_pid
+            )
+            if application is None:
+                return False
+            options = (
+                NSApplicationActivateAllWindows
+                | NSApplicationActivateIgnoringOtherApps
+            )
+            return bool(application.activateWithOptions_(options))
+        except Exception:
+            return False
+
     def _ensure_control_permission(self) -> None:
         permission = self.check_control_permission()
         if permission is False:

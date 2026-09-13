@@ -558,6 +558,26 @@ class DesktopHostCapability:
                 stage="geometry",
             )
         focused = self._driver.is_focused(current)
+        if focused is False:
+            focus_target = getattr(self._driver, "focus_target", None)
+            if callable(focus_target) and bool(focus_target(current)):
+                # Keep activation and input in the same provider request so a
+                # separate UI/tool round-trip cannot steal focus in between.
+                # Then re-resolve the exact attached window and re-run the
+                # geometry/control checks before accepting input.
+                time.sleep(0.05)
+                current = self._refresh_session_target(session)
+                self._ensure_target_control_allowed(current)
+                if (
+                    session.last_bounds is None
+                    or not self._bounds_equal(session.last_bounds, current.bounds)
+                ):
+                    raise HostCapabilityError(
+                        "目标窗口位置或尺寸已变化；请重新 observe 获取新的坐标映射。",
+                        code="STALE_DESKTOP_OBSERVATION",
+                        stage="geometry",
+                    )
+                focused = self._driver.is_focused(current)
         if focused is not True:
             raise HostCapabilityError(
                 "无法确认当前前台窗口仍是已授权 Desktop 目标；为避免输入落到其他应用，请先将目标窗口置于前台并重新 observe。",

@@ -15,7 +15,7 @@ agent_workbench/
 ├── api/
 │   ├── desktop.py              # DesktopAPI Mixin Facade
 │   ├── base.py                 # 生命周期、日志、设置、OS bridge
-│   ├── approvals.py            # Permission/Workflow Approval
+│   ├── approvals.py            # Permission Broker
 │   ├── workbench.py            # Workbench bridge
 │   ├── workbench_manager.py    # Workbench Target/Capability 编排
 │   ├── services.py             # Server/Gateway bridge
@@ -138,7 +138,7 @@ from agent_workbench.updates.release import fetch_latest_release
 - Permission Broker 默认权限和 Workspace 边界；
 - Network Provider 的公网暴露方式；
 - Update checksum、平台安装和回滚流程；
-- Workbench Skill、Workflow、Run 与 MCP Connection 资产位置。
+- Workbench Skill 与 MCP Connection 资产位置。
 
 目录移动不能作为改变这些协议或持久化格式的理由。
 

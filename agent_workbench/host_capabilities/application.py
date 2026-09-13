@@ -290,6 +290,38 @@ class ApplicationHostCapability:
                 stage="application_launch",
             )
 
+    def _activate(self, target: _ApplicationTarget) -> None:
+        """Bring an already-running macOS application to the foreground.
+
+        ``open <bundle>`` is reliable for launching applications, but macOS is
+        allowed to leave an already-running application in the background.  A
+        Desktop control caller needs a deterministic foreground transition
+        without introducing Apple Events/Automation permission, so prefer the
+        native NSRunningApplication activation API and fall back to ``open``
+        only when the application is not currently running or AppKit is not
+        available.
+        """
+        try:
+            from AppKit import (
+                NSApplicationActivateAllWindows,
+                NSApplicationActivateIgnoringOtherApps,
+                NSRunningApplication,
+            )
+
+            options = (
+                NSApplicationActivateAllWindows
+                | NSApplicationActivateIgnoringOtherApps
+            )
+            applications = NSRunningApplication.runningApplicationsWithBundleIdentifier_(
+                target.bundle_id
+            )
+            for application in applications or ():
+                if bool(application.activateWithOptions_(options)):
+                    return
+        except Exception:
+            pass
+        self._open(target)
+
     def invoke(
         self,
         action: str,
@@ -350,7 +382,7 @@ class ApplicationHostCapability:
             self._open(target, new_instance=bool(parameters.get("new_instance", False)))
             return {**self._public(ref, target), "launched": True}
         if action == "activate":
-            self._open(target)
+            self._activate(target)
             return {**self._public(ref, target), "activated": True}
         if action == "quit":
             osascript = self._tool("osascript")

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { CheckCircle2, Plus, RefreshCw, Save, Server, Trash2 } from '@lucide/vue'
+import { useRoute } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import { FormField } from '@/components/ui/form'
 import MCPDiscoveredToolsPanel from './MCPDiscoveredToolsPanel.vue'
@@ -12,6 +13,7 @@ import type {
 } from '../types'
 
 const catalog = ref<CapabilityCatalogDto | null>(null)
+const route = useRoute()
 const selectedId = ref('')
 const draft = ref<MCPConnectionDefinitionDto>(emptyConnection())
 const argumentsText = ref('[]')
@@ -231,7 +233,22 @@ async function discoverTools() {
   }
 }
 
-onMounted(load)
+onMounted(async () => {
+  const preferred = String(route.query.connection || '')
+  if (!preferred) {
+    await load()
+    return
+  }
+  busy.value = true
+  error.value = ''
+  try {
+    await refreshCatalog(preferred)
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    busy.value = false
+  }
+})
 </script>
 
 <template>
@@ -240,7 +257,7 @@ onMounted(load)
       <div>
         <h1 class="m-0 text-xl font-medium tracking-[-0.02em]">MCP 服务</h1>
         <p class="mt-1 mb-0 text-xs leading-[18px] text-muted-foreground">
-          管理全局外部 MCP 能力来源。连接成功后可发现工具，供技能和工作流引用。
+          管理全局外部 MCP 能力来源。连接成功后可发现工具，供宿主 AI 和技能使用。
         </p>
       </div>
       <div class="flex items-center gap-2">

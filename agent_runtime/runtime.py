@@ -20,7 +20,6 @@ from .core.dispatcher import ToolDispatcher
 from .errors import RpcError, ToolError
 from .processes import CommandManager
 from .project_context import ProjectContext, load_project_context
-from .local_permission_broker import LocalWorkflowApprovalBrokerClient
 from .oauth_service import OAuthService
 from .protocol import ACTIVE_REQUEST_CONTEXT, RequestContext, current_request_context
 from .permissions.capabilities import (
@@ -54,11 +53,7 @@ from .toolchains.registration import (normalize_registrations, fingerprint,
 from .toolchains.paths import system_read_roots
 from .workspace import Workspace
 from .workbench.capability_assets import CapabilityAssetService
-from .workbench.engine import WorkflowEngine
 from .workbench.mcp_connection_service import MCPConnectionService
-from .workbench.registry import build_workflow_registry
-from .workbench.runs import WorkflowRunManager
-from .workbench.store import WorkflowStore
 
 
 LOGGER = logging.getLogger(__name__)
@@ -103,23 +98,6 @@ class Runtime(
         self.mcp_connections = MCPConnectionService(global_root=global_asset_root)
         self.capability_assets = CapabilityAssetService(global_root=global_asset_root)
         self.skill_registry = self.capability_assets.skill_registry
-        self.workflow_store = WorkflowStore(self.workspace.root)
-        workflow_migration = self.workflow_store.migrate_legacy_tool_references()
-        if workflow_migration.get("unsupported"):
-            report = (
-                self.workspace.root
-                / ".micromatrix-workbench"
-                / "migrations"
-                / "browser-host-contract-reset"
-                / "report.json"
-            )
-            raise RuntimeError(
-                "检测到无法自动迁移的旧 Workflow 工具引用；未启用运行时兼容入口。"
-                f"请检查迁移报告: {report}"
-            )
-        self.workflow_registry = build_workflow_registry(
-            store=self.workflow_store,
-        )
         self.permission_mode = permission_mode
         self.permission_profile = permission_profile(permission_mode)
         self.permission_policy = PermissionPolicy(self.permission_profile)
@@ -229,13 +207,6 @@ class Runtime(
                 separators=(",", ":"),
             ).encode("utf-8")
         ).hexdigest()[:16]
-        self.workflow_engine = WorkflowEngine(self)
-        self.workflow_runs = WorkflowRunManager(
-            self.workspace.root,
-            engine=self.workflow_engine,
-            registry=self.workflow_registry,
-            approval_broker=LocalWorkflowApprovalBrokerClient.from_env(),
-        )
 
     def _install_registered_toolchain(self, record: dict[str, Any]) -> None:
         """Hot-add approved roots; old commands keep their immutable policy generation."""
@@ -353,9 +324,7 @@ class Runtime(
         return {"name": SERVER_NAME, "title": SERVER_TITLE, "version": version}
 
     def server_instructions(self) -> str:
-        """Return MCP guidance with the latest user-authored Workflow catalog."""
-        self._refresh_workspace_workflows()
-        return self.project_context.server_instructions(self.workflow_registry.list())
+        return self.project_context.server_instructions()
 
     def auth_enabled(self) -> bool:
         return bool(self.auth_token or self.oauth_service)

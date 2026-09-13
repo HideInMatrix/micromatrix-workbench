@@ -93,10 +93,8 @@ Protected Resource Metadata 同时兼容：
 当前核心 Contract 包括：
 
 ```text
-MCP 对外工具面控制在 20 个以内（当前 19 个）
-内部 Runtime 保留细粒度 Tool，并通过领域聚合 Facade 暴露给 MCP Client
+当前公共工具表由 Tool Registry 统一生成（当前 33 个）
 process_control / git_inspect
-workflow_authoring_context / workflow_manage / workflow_run
 skill_manage / mcp_connection_manage
 MCP legacy initialize
 MCP 2026-07-28 modern request
@@ -117,17 +115,12 @@ view_image
 
 内部实现则完全模块化。
 
-### 1.1 MCP Tool Surface 与内部 Runtime Tool 分离
+### 1.1 MCP Tool Surface 与领域聚合工具
 
-Workbench 不再要求 MCP Tool 与内部 Application Command 1:1 对应。
-`Runtime`、Desktop、Workflow Engine 和测试仍可使用细粒度命令，例如
-`workflow_save`、`workflow_start`、`skill_save`、`git_log` 和 `write_stdin`；
-这些命令通过 `ToolDefinition.mcp_exposed=False` 从远端 MCP Tool Surface 隐藏。
-
-MCP Client 只看到领域聚合工具。聚合 Handler 再调用已有细粒度 Handler，避免复制
-业务逻辑，并保留原有的 Workspace、权限、网络和 Workflow 安全检查。协议层的
-`tools/call` 同样检查 `mcp_exposed`，因此被隐藏的内部工具不能仅通过猜测名称绕过
-聚合 Facade 直接调用。
+Workbench 的文件、Git、进程、Browser、Desktop 等能力直接以真实公共 Tool Contract
+暴露；Skill 与 MCP Connection 使用稳定的领域聚合 Facade。Capability Catalog 只负责
+描述和发现，不建立第二套执行引擎。所有调用继续经过 Runtime Permission、Sandbox、
+Host Capability 与 MCP Connection 的真实安全边界。
 
 ## 2. 当前源码结构
 
@@ -424,7 +417,7 @@ ttlMs = 0
 cacheScope = private
 ```
 
-公共 `tools/list` 在一个 Runtime 生命周期内保持不可变，`capabilities.tools.listChanged=false`。Skill、Workflow、外部 MCP 等动态内容只改变 `capability_catalog.revision`，不热增删顶层 MCP Tool。`toolContractRevision` 对当前完整公共 Tool Contract 做稳定哈希；版本/构建改变 Tool schema 后 revision 随新 Runtime 改变。MCP `serverInfo.version` 会把该 revision 作为 SemVer build metadata 暴露，使仅按 Server identity 缓存 Tool schema 的客户端也能在 Runtime 更新后自然失效旧 Contract；modern 响应仍同时携带 `_meta.com.micromatrix.workbench/toolContractRevision`。Server 不通过私有 header 或伪 session 强迫 2026 客户端刷新本地 schema 缓存。
+公共 `tools/list` 在一个 Runtime 生命周期内保持不可变，`capabilities.tools.listChanged=false`。Skill 与外部 MCP 等动态内容只改变 `capability_catalog.revision`，不热增删顶层 MCP Tool。`toolContractRevision` 对当前完整公共 Tool Contract 做稳定哈希；版本/构建改变 Tool schema 后 revision 随新 Runtime 改变。MCP `serverInfo.version` 会把该 revision 作为 SemVer build metadata 暴露，使仅按 Server identity 缓存 Tool schema 的客户端也能在 Runtime 更新后自然失效旧 Contract；modern 响应仍同时携带 `_meta.com.micromatrix.workbench/toolContractRevision`。Server 不通过私有 header 或伪 session 强迫 2026 客户端刷新本地 schema 缓存。
 
 对于 `*_manage` 这类长期稳定的 domain facade，新增 action-specific 可选参数时必须保留已有可扩展对象的兼容入口，不能只依赖新增顶层 schema 字段。部分 MCP 客户端会跨 Runtime 更新继续使用旧 Tool schema；Server 应允许旧 schema 表达同一操作，同时让显式的新字段在刷新后的客户端中保持优先级。例如 `mcp_connection_manage(action="test")` 同时接受新版顶层 `deep` 与旧 facade 已存在的 `arguments.deep`，顶层字段存在时优先。
 

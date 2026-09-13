@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import base64
 import binascii
-import json
 from typing import Any
 
 from ...errors import ToolError
-from ...protocol import current_request_context
 from ...workbench.capability_catalog import (
     build_capability_catalog,
     capability_catalog_revision,
@@ -15,11 +13,8 @@ from ...workbench.capability_catalog import (
 )
 from ...workbench.effective_tools import build_effective_tool_catalog
 from ...workbench.mcp_connection_store import MCPConnectionVersionConflictError
-from ...workbench.models import ResourceScope
 from ...workbench.skill_store import SkillVersionConflictError
-from ...workbench.store import WorkflowVersionConflictError
 from ...workbench.tool_references import is_workbench_control_tool
-from ...workbench.workflows import WorkflowDefinition, validate_workflow
 
 
 def _contains_plain_secret(value: Any, *, parent_key: str = "") -> bool:
@@ -45,22 +40,8 @@ class WorkbenchHandlers:
         if assets is not None:
             assets.refresh()
 
-    def _refresh_workspace_workflows(self) -> None:
-        """Reload workspace workflows without replacing the registry object.
-
-        Desktop Workbench writes through WorkflowStore while a running MCP
-        Runtime keeps the registry in memory. Refreshing the workspace layer in
-        place keeps workflow_list/get/start synchronized with Desktop saves,
-        updates, and deletes while preserving references held by RunManager.
-        """
-        self.workflow_registry.replace_scope(
-            self.workflow_store.list(),
-            scope=ResourceScope.WORKSPACE,
-        )
-
     def _current_capabilities(self) -> tuple[dict[str, Any], ...]:
         self._refresh_capability_assets()
-        self._refresh_workspace_workflows()
         system_tools = [
             definition
             for definition in self._tools
@@ -73,7 +54,6 @@ class WorkbenchHandlers:
         return build_capability_catalog(
             tools=effective_tools,
             skills=self.skill_registry.list(),
-            workflows=self.workflow_registry.list(),
         )
 
     def capability_catalog(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -127,10 +107,6 @@ class WorkbenchHandlers:
             skill_id = str(capability["source"]["skill_id"])
             skill = self.skill_registry.get(skill_id)
             detail = skill.to_dict() if skill is not None else None
-        elif capability["type"] == "workflow":
-            workflow_id = str(capability["source"]["workflow_id"])
-            workflow = self.workflow_registry.get(workflow_id)
-            detail = workflow.to_dict() if workflow is not None else None
 
         return {
             "schema_version": 1,
@@ -169,94 +145,6 @@ class WorkbenchHandlers:
                     }
                 )
         return affected
-
-    def workflow_authoring_context(self, _arguments: dict[str, Any]) -> dict[str, Any]:
-        self._refresh_capability_assets()
-        self._refresh_workspace_workflows()
-        system_tools = [
-            definition
-            for definition in self._tools
-            if not is_workbench_control_tool(definition.name)
-        ]
-        connections = self.mcp_connections.list()
-        effective_tools = build_effective_tool_catalog(system_tools, connections)
-        capabilities = build_capability_catalog(
-            tools=effective_tools,
-            skills=self.skill_registry.list(),
-            workflows=self.workflow_registry.list(),
-        )
-        return {
-            "schema_version": 1,
-            "capability_contract": {
-                "decision_owner": "ai_client",
-                "routing": "descriptive_only",
-                "stable_id_field": "id",
-                "detail_tool": "capability_get",
-                "catalog_tool": "capability_catalog",
-            },
-            "workflow_contract": {
-                "required_fields": [
-                    "id",
-                    "name",
-                    "description",
-                    "entry_node_id",
-                    "nodes",
-                    "edges",
-                ],
-                "discovery_fields": ["description", "inputs_schema", "tags"],
-                "inputs_schema": {
-                    "root_type": "object",
-                    "purpose": "Defines and validates workflow_start.inputs",
-                },
-            },
-            "node_types": {
-                "skill": {"required_config": ["skill_id"], "optional_config": []},
-                "tool": {
-                    "required_config": ["provider", "tool_name"],
-                    "optional_config": ["connection_id", "arguments"],
-                },
-                "approval": {"required_config": ["title"], "optional_config": ["description"]},
-                "condition": {"required_config": ["expression"], "optional_config": []},
-                "artifact": {
-                    "required_config": ["artifact_id", "source_node_id"],
-                    "optional_config": ["format"],
-                },
-            },
-            "edge_conditions": [
-                "success",
-                "failure",
-                "approved",
-                "rejected",
-                "true",
-                "false",
-            ],
-            "condition_language": [
-                "true",
-                "false",
-                "path.to.value",
-                "!path.to.value",
-                'path.to.value == "literal"',
-                'path.to.value != "literal"',
-            ],
-            "skills": [item.summary() for item in self.skill_registry.list()],
-            "tools": [item.to_dict() for item in effective_tools],
-            "mcp_connections": [item.summary() for item in connections],
-            "workflows": [item.summary() for item in self.workflow_registry.list()],
-            "capabilities": list(capabilities),
-            "rules": [
-                "Use Capability IDs from capability_catalog/capability_get as the AI-facing discovery contract; skills/tools/workflows fields here are authoring compatibility views.",
-                "Workflow must be a DAG and every node must be reachable from entry_node_id.",
-                "Workflow Tool nodes cannot call Workbench control-plane tools.",
-                "Use provider=system for MicroMatrix Workbench tools and provider=mcp + connection_id for discovered external MCP tools.",
-                "Workspace Workflow description is required and should explain when the AI should use it.",
-                "Define inputs_schema so workflow_list exposes a machine-readable workflow_start input contract.",
-                "Plain passwords, tokens, secrets, and API keys are forbidden; use *_ref references.",
-                "Run workflow_validate before workflow_save.",
-                "workflow_save requires expected_version; use 0 for a new Workspace workflow or first Workspace override.",
-                "If WORKFLOW_VERSION_CONFLICT is returned, reload the workflow and merge before saving again.",
-            ],
-            "ok": True,
-        }
 
     def skill_list(self, _arguments: dict[str, Any]) -> dict[str, Any]:
         self._refresh_capability_assets()
@@ -335,7 +223,7 @@ class WorkbenchHandlers:
         if affected:
             raise ToolError(
                 "CAPABILITY_DEPENDENCY_CONFLICT",
-                "Skill 被 Workflow 作为必需 Capability 引用，删除会破坏现有 Workflow。",
+                "Skill 被其他必需 Capability 引用，删除会破坏现有能力关系。",
                 category="conflict",
                 details={"dependents": affected},
             )
@@ -447,7 +335,7 @@ class WorkbenchHandlers:
         if affected:
             raise ToolError(
                 "CAPABILITY_DEPENDENCY_CONFLICT",
-                "MCP Connection 提供的 Tool 被 Workflow 作为必需 Capability 引用，删除会破坏现有 Workflow。",
+                "MCP Connection 提供的 Tool 被其他必需 Capability 引用，删除会破坏现有能力关系。",
                 category="conflict",
                 details={"dependents": affected},
             )
@@ -605,275 +493,3 @@ class WorkbenchHandlers:
         if handler is None:
             raise ToolError("INVALID_ARGUMENT", f"unsupported mcp_connection_manage action: {action}", "validation")
         return handler(payload)
-
-    def _parse_workflow(self, arguments: dict[str, Any]) -> WorkflowDefinition:
-        raw = arguments.get("workflow")
-        if not isinstance(raw, dict):
-            raise ToolError("WORKFLOW_INVALID", "workflow must be an object")
-        if _contains_plain_secret(raw):
-            raise ToolError(
-                "WORKFLOW_SECRET",
-                "Workflow 不能保存 Password/Token/Secret/API Key 明文；请使用 *_ref 引用。"
-            )
-        try:
-            return WorkflowDefinition.from_mapping(raw)
-        except (TypeError, ValueError) as exc:
-            raise ToolError("WORKFLOW_INVALID", f"Workflow 定义无效: {exc}") from exc
-
-    def _workflow_validation(self, workflow: WorkflowDefinition):
-        effective = build_effective_tool_catalog(
-            [
-                definition
-                for definition in self._tools
-                if not is_workbench_control_tool(definition.name)
-            ],
-            self.mcp_connections.list(),
-        )
-        return validate_workflow(
-            workflow,
-            skill_ids={item.id for item in self.skill_registry.list()},
-            tool_names={
-                definition.name
-                for definition in self._tools
-                if not is_workbench_control_tool(definition.name)
-            },
-            tool_keys={item.key for item in effective},
-        )
-
-    def workflow_list(self, _arguments: dict[str, Any]) -> dict[str, Any]:
-        self._refresh_workspace_workflows()
-        definitions = self.workflow_registry.list()
-        return {
-            "workflows": [item.summary() for item in definitions],
-            "count": len(definitions),
-            "ok": True,
-        }
-
-    def workflow_get(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        self._refresh_workspace_workflows()
-        workflow_id = str(arguments.get("workflow_id") or "").strip()
-        definition = self.workflow_registry.get(workflow_id)
-        if definition is None:
-            raise ToolError("WORKFLOW_NOT_FOUND", f"找不到 Workflow: {workflow_id}")
-        return {
-            "workflow": {
-                **definition.to_dict(),
-                "scope": definition.scope.value,
-                "source": definition.source,
-            },
-            "ok": True,
-        }
-
-    def workflow_validate(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        self._refresh_capability_assets()
-        workflow = self._parse_workflow(arguments)
-        result = self._workflow_validation(workflow)
-        return {**result.to_dict(), "workflow": workflow.to_dict()}
-
-    def workflow_save(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        self._refresh_capability_assets()
-        workflow = self._parse_workflow(arguments)
-        validation = self._workflow_validation(workflow)
-        if not validation.ok:
-            return {**validation.to_dict(), "saved": False, "workflow": workflow.to_dict()}
-        expected_version = int(arguments.get("expected_version", 0))
-        try:
-            persisted = self.workflow_store.save(
-                workflow,
-                expected_version=expected_version,
-            )
-        except WorkflowVersionConflictError as exc:
-            raise ToolError(
-                "WORKFLOW_VERSION_CONFLICT",
-                str(exc),
-                category="conflict",
-                details={
-                    "workflow_id": exc.workflow_id,
-                    "expected_version": exc.expected,
-                    "actual_version": exc.actual,
-                },
-            ) from exc
-        self.workflow_registry.register(persisted, replace=True)
-        return {
-            **validation.to_dict(),
-            "saved": True,
-            "workflow": persisted.to_dict(),
-            "ok": True,
-        }
-
-    def workflow_delete(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        workflow_id = str(arguments.get("workflow_id") or "").strip()
-        try:
-            deleted = self.workflow_store.delete(workflow_id)
-        except ValueError as exc:
-            raise ToolError("WORKFLOW_INVALID_ID", str(exc)) from exc
-        if deleted:
-            self.workflow_registry.remove(
-                workflow_id,
-                scope=ResourceScope.WORKSPACE,
-            )
-        return {
-            "workflow_id": workflow_id,
-            "deleted": deleted,
-            "ok": True,
-        }
-
-    def workflow_export(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        self._refresh_workspace_workflows()
-        workflow_id = str(arguments.get("workflow_id") or "").strip()
-        definition = self.workflow_registry.get(workflow_id)
-        if definition is None:
-            raise ToolError("WORKFLOW_NOT_FOUND", f"找不到 Workflow: {workflow_id}")
-        return {
-            "workflow_id": workflow_id,
-            "document": json.dumps(
-                definition.to_dict(),
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-            ),
-            "ok": True,
-        }
-
-    def workflow_import(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        document = str(arguments.get("document") or "")
-        try:
-            raw = json.loads(document)
-        except json.JSONDecodeError as exc:
-            raise ToolError(
-                "WORKFLOW_IMPORT_INVALID_JSON",
-                f"Workflow import JSON 无效: {exc}",
-            ) from exc
-        if not isinstance(raw, dict):
-            raise ToolError(
-                "WORKFLOW_IMPORT_INVALID",
-                "Workflow import document 必须是 JSON object",
-            )
-        return self.workflow_save(
-            {
-                "workflow": raw,
-                "expected_version": int(arguments.get("expected_version", 0)),
-            }
-        )
-
-    def workflow_manage(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        action = str(arguments.get("action") or "").strip()
-        payload = {key: value for key, value in arguments.items() if key != "action"}
-        handlers = {
-            "list": self.workflow_list,
-            "get": self.workflow_get,
-            "validate": self.workflow_validate,
-            "save": self.workflow_save,
-            "delete": self.workflow_delete,
-            "export": self.workflow_export,
-            "import": self.workflow_import,
-        }
-        handler = handlers.get(action)
-        if handler is None:
-            raise ToolError("INVALID_ARGUMENT", f"unsupported workflow_manage action: {action}", "validation")
-        return handler(payload)
-
-    def workflow_run_list(self, _arguments: dict[str, Any]) -> dict[str, Any]:
-        runs = self.workflow_runs.list()
-        return {
-            "runs": [run.public_dict() for run in runs],
-            "count": len(runs),
-            "ok": True,
-        }
-
-    def workflow_start(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        self._refresh_capability_assets()
-        self._refresh_workspace_workflows()
-        workflow_id = str(arguments.get("workflow_id") or "").strip()
-        raw_inputs = arguments.get("inputs")
-        inputs = raw_inputs if isinstance(raw_inputs, dict) else {}
-        try:
-            run = self.workflow_runs.start(
-                workflow_id,
-                inputs=inputs,
-                context=current_request_context(),
-            )
-        except KeyError as exc:
-            raise ToolError("WORKFLOW_NOT_FOUND", f"找不到 Workflow: {workflow_id}") from exc
-        except ValueError as exc:
-            raise ToolError("WORKFLOW_START_FAILED", str(exc)) from exc
-        return {"run": run.public_dict(), "ok": True}
-
-    def workflow_status(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        run_id = str(arguments.get("run_id") or "").strip()
-        try:
-            run = self.workflow_runs.get(run_id)
-        except ValueError as exc:
-            raise ToolError("WORKFLOW_RUN_INVALID_ID", str(exc)) from exc
-        if run is None:
-            raise ToolError("WORKFLOW_RUN_NOT_FOUND", f"找不到 Workflow Run: {run_id}")
-        return {"run": run.public_dict(), "ok": True}
-
-    def workflow_continue(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        run_id = str(arguments.get("run_id") or "").strip()
-        node_id = str(arguments.get("node_id") or "").strip()
-        outcome = str(arguments.get("outcome") or "").strip()
-        output = arguments.get("output")
-        try:
-            current = self.workflow_runs.get(run_id)
-            if current is None:
-                raise KeyError(run_id)
-            if current.status == "waiting_approval" and any(
-                key in arguments for key in ("node_id", "outcome", "output")
-            ):
-                raise ValueError(
-                    "waiting_approval does not accept decision fields; "
-                    "respond in the Desktop UI first"
-                )
-            run = self.workflow_runs.continue_pending(
-                run_id,
-                node_id=node_id,
-                outcome=outcome,
-                output=output,
-                context=current_request_context(),
-            )
-        except KeyError as exc:
-            raise ToolError("WORKFLOW_RUN_NOT_FOUND", f"找不到 Workflow Run: {run_id}") from exc
-        except ValueError as exc:
-            raise ToolError("WORKFLOW_CONTINUE_FAILED", str(exc)) from exc
-        return {"run": run.public_dict(), "ok": True}
-
-    def workflow_retry(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        run_id = str(arguments.get("run_id") or "").strip()
-        try:
-            run = self.workflow_runs.retry(
-                run_id,
-                context=current_request_context(),
-            )
-        except KeyError as exc:
-            raise ToolError("WORKFLOW_RUN_NOT_FOUND", f"找不到 Workflow Run: {run_id}") from exc
-        except ValueError as exc:
-            raise ToolError("WORKFLOW_RETRY_FAILED", str(exc)) from exc
-        return {"run": run.public_dict(), "ok": True}
-
-    def workflow_cancel(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        run_id = str(arguments.get("run_id") or "").strip()
-        try:
-            run = self.workflow_runs.cancel(run_id)
-        except KeyError as exc:
-            raise ToolError("WORKFLOW_RUN_NOT_FOUND", f"找不到 Workflow Run: {run_id}") from exc
-        except ValueError as exc:
-            raise ToolError("WORKFLOW_RUN_INVALID_ID", str(exc)) from exc
-        return {"run": run.public_dict(), "ok": True}
-
-    def workflow_run(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        action = str(arguments.get("action") or "").strip()
-        payload = {key: value for key, value in arguments.items() if key != "action"}
-        handlers = {
-            "list": self.workflow_run_list,
-            "start": self.workflow_start,
-            "status": self.workflow_status,
-            "continue": self.workflow_continue,
-            "retry": self.workflow_retry,
-            "cancel": self.workflow_cancel,
-        }
-        handler = handlers.get(action)
-        if handler is None:
-            raise ToolError("INVALID_ARGUMENT", f"unsupported workflow_run action: {action}", "validation")
-        return handler(payload)
-

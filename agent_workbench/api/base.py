@@ -46,8 +46,6 @@ class DesktopBaseAPI:
             permission_broker=self.permission_broker,
         )
         self.workbench_manager = DesktopWorkbenchManager(
-            server_store=self.store,
-            server_manager=self.manager,
             global_root=settings_dir() / "workbench",
         )
         self.update_manager = UpdateManager(log=self._append_log)
@@ -56,7 +54,6 @@ class DesktopBaseAPI:
         self._latest_release = None
         self._window: Any | None = None
         self._permission_attention_id = ""
-        self._workflow_approval_attention_id = ""
         threading.Thread(
             target=self._restore_enabled_works,
             name="restore-enabled-works",

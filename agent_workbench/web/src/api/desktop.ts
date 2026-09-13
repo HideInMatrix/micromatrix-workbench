@@ -12,12 +12,6 @@ import type {
   PermissionRequestDto,
   SkillDefinitionDto,
   SkillValidationDto,
-  WorkbenchCatalogDto,
-  WorkbenchTargetDto,
-  WorkflowApprovalDto,
-  WorkflowDefinitionDto,
-  WorkflowRunDto,
-  WorkflowValidationDto,
   ReleaseDto,
   UpdateStatusDto,
   UpdateCheckStateDto,
@@ -118,18 +112,6 @@ export const desktopApi = {
   async stopAllDesktopInput(): Promise<{ requested: number; stopped: number; results: Record<string, boolean> }> {
     return (await bridge()).stop_all_desktop_input()
   },
-  async listWorkflowApprovals(): Promise<WorkflowApprovalDto[]> {
-    return (await bridge()).list_workflow_approvals()
-  },
-  async respondWorkflowApproval(requestId: string, approved: boolean): Promise<boolean> {
-    return (await bridge()).respond_workflow_approval(requestId, approved)
-  },
-  async listWorkbenchTargets(): Promise<WorkbenchTargetDto[]> {
-    return (await bridge()).list_workbench_targets()
-  },
-  async workbenchCatalog(targetId: string): Promise<WorkbenchCatalogDto> {
-    return (await bridge()).get_workbench_catalog(targetId)
-  },
   async capabilityCatalog(): Promise<CapabilityCatalogDto> {
     return (await bridge()).get_workbench_capability_catalog()
   },
@@ -162,21 +144,6 @@ export const desktopApi = {
   },
   async deleteWorkbenchSkill(skillId: string): Promise<boolean> {
     return (await bridge()).delete_workbench_skill(skillId)
-  },
-  async workbenchWorkflow(targetId: string, workflowId: string): Promise<WorkflowDefinitionDto> {
-    return (await bridge()).get_workbench_workflow(targetId, workflowId)
-  },
-  async validateWorkbenchWorkflow(targetId: string, workflow: WorkflowDefinitionDto): Promise<WorkflowValidationDto> {
-    return (await bridge()).validate_workbench_workflow(targetId, workflow)
-  },
-  async saveWorkbenchWorkflow(targetId: string, workflow: WorkflowDefinitionDto, expectedVersion: number): Promise<WorkflowValidationDto> {
-    return (await bridge()).save_workbench_workflow(targetId, workflow, expectedVersion)
-  },
-  async deleteWorkbenchWorkflow(targetId: string, workflowId: string): Promise<boolean> {
-    return (await bridge()).delete_workbench_workflow(targetId, workflowId)
-  },
-  async listWorkbenchRuns(targetId: string): Promise<WorkflowRunDto[]> {
-    return (await bridge()).list_workbench_runs(targetId)
   },
   async logs(after = 0): Promise<{ cursor: number; entries: LogEntryDto[] }> {
     return (await bridge()).get_logs(after)

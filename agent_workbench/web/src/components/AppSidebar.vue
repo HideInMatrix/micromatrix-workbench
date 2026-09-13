@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import {
+  Boxes,
   Info,
   PanelLeftClose,
   PanelLeftOpen,
   ScrollText,
   Server,
-  Sparkles,
-  Workflow,
 } from '@lucide/vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
@@ -32,27 +31,18 @@ function toggleCollapsed() {
   try {
     window.localStorage.setItem('app-sidebar-collapsed', collapsed.value ? '1' : '0')
   } catch {
-    // WebView storage may be unavailable; the in-memory state still works.
+    // Keep the in-memory state if WebView storage is unavailable.
   }
 }
 
 function navClass(name: AppRouteName): string[] {
-  const active = name === 'workbench'
-    ? String(route.name ?? '').startsWith('workbench')
+  const active = name === 'plugins'
+    ? String(route.name ?? '').startsWith('plugins')
     : route.name === name
   return [
     'group w-full text-xs font-normal',
     collapsed.value ? 'justify-center px-0' : 'justify-start gap-2 px-2.5',
     active
-      ? 'bg-secondary text-foreground'
-      : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
-  ]
-}
-
-function subNavClass(name: AppRouteName): string[] {
-  return [
-    'w-full justify-start gap-2 px-2.5 pl-8 text-[11px] font-normal',
-    route.name === name
       ? 'bg-secondary text-foreground'
       : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
   ]
@@ -72,84 +62,34 @@ function subNavClass(name: AppRouteName): string[] {
           <img src="/workbench-mark.svg" alt="" class="size-6 dark:invert" />
         </div>
       </div>
-      <div v-if="!collapsed" class="flex items-center gap-1">
-        <Button variant="ghost" size="icon" class="h-7 w-7" title="收起侧边栏" @click="toggleCollapsed">
-          <PanelLeftClose :size="15" />
-        </Button>
-      </div>
-      <div v-else class="flex items-center justify-center">
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8"
-          title="展开侧边栏"
-          aria-label="展开侧边栏"
-          aria-controls="app-sidebar-navigation"
-          :aria-expanded="!collapsed"
-          @click="toggleCollapsed"
-        >
-          <PanelLeftOpen :size="16" />
-        </Button>
-      </div>
+      <Button v-if="!collapsed" variant="ghost" size="icon" class="h-7 w-7" title="收起侧边栏" @click="toggleCollapsed">
+        <PanelLeftClose :size="15" />
+      </Button>
+      <Button
+        v-else
+        variant="ghost"
+        size="icon"
+        class="h-8 w-8"
+        title="展开侧边栏"
+        aria-label="展开侧边栏"
+        aria-controls="app-sidebar-navigation"
+        :aria-expanded="!collapsed"
+        @click="toggleCollapsed"
+      >
+        <PanelLeftOpen :size="16" />
+      </Button>
     </div>
 
     <nav id="app-sidebar-navigation" class="mt-5 grid gap-1" aria-label="主导航">
-      <Button
-        variant="ghost"
-        size="sm"
-        :class="navClass('work')"
-        :title="collapsed ? 'Work' : undefined"
-        @click="router.push({ name: 'work' })"
-      >
+      <Button variant="ghost" size="sm" :class="navClass('work')" :title="collapsed ? 'Work' : undefined" @click="router.push({ name: 'work' })">
         <Server class="flex-none" :size="16" :stroke-width="1.8" />
         <span v-if="!collapsed" class="leading-none">Work</span>
       </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        :class="navClass('workbench')"
-        :title="collapsed ? '能力工作台' : undefined"
-        @click="router.push({ name: 'workbench' })"
-      >
-        <Workflow class="flex-none" :size="16" :stroke-width="1.8" />
-        <span v-if="!collapsed" class="leading-none">能力工作台</span>
+      <Button variant="ghost" size="sm" :class="navClass('plugins')" :title="collapsed ? '插件' : undefined" @click="router.push({ name: 'plugins' })">
+        <Boxes class="flex-none" :size="16" :stroke-width="1.8" />
+        <span v-if="!collapsed" class="leading-none">插件</span>
       </Button>
-      <template v-if="!collapsed">
-        <Button
-          variant="ghost"
-          size="sm"
-          :class="subNavClass('workbench-workflows')"
-          @click="router.push({ name: 'workbench-workflows' })"
-        >
-          <Workflow class="flex-none" :size="14" :stroke-width="1.8" />
-          <span class="leading-none">Workflows</span>
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          :class="subNavClass('workbench-skills')"
-          @click="router.push({ name: 'workbench-skills' })"
-        >
-          <Sparkles class="flex-none" :size="14" :stroke-width="1.8" />
-          <span class="leading-none">Skills</span>
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          :class="subNavClass('workbench-mcp-connections')"
-          @click="router.push({ name: 'workbench-mcp-connections' })"
-        >
-          <Server class="flex-none" :size="14" :stroke-width="1.8" />
-          <span class="leading-none">外部 MCP</span>
-        </Button>
-      </template>
-      <Button
-        variant="ghost"
-        size="sm"
-        :class="navClass('logs')"
-        :title="collapsed ? '运行日志' : undefined"
-        @click="router.push({ name: 'logs' })"
-      >
+      <Button variant="ghost" size="sm" :class="navClass('logs')" :title="collapsed ? '运行日志' : undefined" @click="router.push({ name: 'logs' })">
         <ScrollText class="flex-none" :size="16" :stroke-width="1.8" />
         <span v-if="!collapsed" class="leading-none">运行日志</span>
       </Button>
@@ -166,11 +106,7 @@ function subNavClass(name: AppRouteName): string[] {
       >
         <Info class="flex-none" :size="16" :stroke-width="1.8" />
         <span v-if="!collapsed" class="leading-none">关于</span>
-        <span
-          v-if="updateAvailable"
-          :class="['size-1.5 rounded-full bg-destructive', collapsed ? 'absolute top-1 right-1' : 'ml-auto']"
-          aria-hidden="true"
-        />
+        <span v-if="updateAvailable" :class="['size-1.5 rounded-full bg-destructive', collapsed ? 'absolute top-1 right-1' : 'ml-auto']" aria-hidden="true" />
       </Button>
     </div>
   </aside>

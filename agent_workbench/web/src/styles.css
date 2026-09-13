@@ -19,21 +19,6 @@ body { font-size: 14px; text-rendering: optimizeLegibility; }
 button, input, select { font: inherit; }
 button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .5; }
-.workflow-handle {
-  width: 8px !important;
-  height: 8px !important;
-  border: 1px solid oklch(var(--background)) !important;
-  border-radius: 9999px !important;
-  background: oklch(var(--foreground)) !important;
-  box-shadow: 0 0 0 1px oklch(var(--border));
-  transition: background 120ms ease, box-shadow 120ms ease;
-}
-.workflow-handle:hover,
-.workflow-handle.connectingfrom,
-.workflow-handle.connectingto {
-  background: oklch(var(--primary)) !important;
-  box-shadow: 0 0 0 1px oklch(var(--primary));
-}
 * { scrollbar-width: thin; scrollbar-color: oklch(var(--border)) transparent; }
 *::-webkit-scrollbar { width: 5px; height: 5px; }
 *::-webkit-scrollbar-track { background: transparent; }
