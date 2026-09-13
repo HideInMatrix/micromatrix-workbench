@@ -169,7 +169,9 @@ export function useServiceManager() {
       if (current.server.running) {
         await desktopApi.stopServer(current.id)
       } else {
-        await desktopApi.startServer(current.id, normalizedWorkDraft(draft.value))
+        const runtimeDraft = normalizedWorkDraft(draft.value)
+        await persistDraft()
+        await desktopApi.startServer(current.id, runtimeDraft)
       }
       await refreshWorks(true)
       await selectWork(key)

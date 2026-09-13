@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..core.config import LaunchConfig, NetworkConfig, default_lifecycle
+from agent_runtime.toolchains.registration import normalize_registrations
+
+from ..core.config import DEFAULT_HOST, LaunchConfig, NetworkConfig, default_lifecycle
 from ..servers.models import MCPServerProfile
 
 
@@ -11,6 +13,34 @@ SENSITIVE_NETWORK_OPTIONS = {"tunnel_token", "authtoken"}
 
 class ServiceAPI:
     """Work payload conversion, CRUD and lifecycle APIs."""
+
+    @staticmethod
+    def _runtime_payload_matches_profile(
+        profile: MCPServerProfile,
+        runtime_payload: dict[str, object],
+        runtime_network: NetworkConfig,
+    ) -> bool:
+        try:
+            workspace = Path(str(runtime_payload.get("workspace") or "")).expanduser()
+            host = str(runtime_payload.get("host") or DEFAULT_HOST).strip() or DEFAULT_HOST
+            port = int(runtime_payload.get("port") or 0)
+            permission_mode = str(runtime_payload.get("permission_mode") or "").strip().lower()
+            toolchains = normalize_registrations(
+                runtime_payload.get("toolchains", profile.toolchains)
+            )
+        except (TypeError, ValueError):
+            return False
+        return bool(
+            workspace == profile.workspace.expanduser()
+            and host == profile.host
+            and port == profile.port
+            and permission_mode == profile.permission_mode
+            and bool(runtime_payload.get("allow_network", False)) == profile.allow_network
+            and bool(runtime_payload.get("enable_view_image", True)) == profile.enable_view_image
+            and toolchains == profile.toolchains
+            and runtime_network.provider == profile.network.provider
+            and runtime_network.public_url == profile.network.public_url
+        )
 
     def _network_from_payload(self, raw: object) -> NetworkConfig:
         value = raw if isinstance(raw, dict) else {}
@@ -156,9 +186,10 @@ class ServiceAPI:
             raw_network = runtime_payload.get("network")
             network_payload = raw_network if isinstance(raw_network, dict) else {}
             runtime_network = self._network_from_payload(network_payload)
-            if (
-                runtime_network.provider != profile.network.provider
-                or runtime_network.public_url != profile.network.public_url
+            if not self._runtime_payload_matches_profile(
+                profile,
+                runtime_payload,
+                runtime_network,
             ):
                 raise ValueError("运行配置与已保存 Work 不一致，请先保存配置。")
             merged_options = dict(profile.network.options)
