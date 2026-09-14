@@ -54,11 +54,6 @@ class DesktopBaseAPI:
         self._latest_release = None
         self._window: Any | None = None
         self._permission_attention_id = ""
-        threading.Thread(
-            target=self._restore_enabled_works,
-            name="restore-enabled-works",
-            daemon=True,
-        ).start()
 
     def _bind_window(self, window: Any) -> None:
         self._window = window
@@ -102,18 +97,6 @@ class DesktopBaseAPI:
             "servers": [self._profile_payload(profile) for profile in profiles],
             "network_providers": network_provider_catalog(),
         }
-
-    def _restore_enabled_works(self) -> None:
-        for profile in self.store.list():
-            if not profile.enabled or self.manager.is_running(profile.server_id):
-                continue
-            try:
-                self.manager.start(profile.server_id)
-                self._append_log(f"[Work:{profile.name}] 已按启用状态恢复启动。")
-            except Exception as exc:
-                self._append_log(
-                    f"[Work:{profile.name}] 自动启动失败: {type(exc).__name__}: {exc}"
-                )
 
     def list_network_providers(self) -> list[dict[str, object]]:
         return network_provider_catalog()
