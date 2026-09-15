@@ -281,7 +281,9 @@ class MCPHTTPController:
     def post(self, handler: MCPHTTPContext) -> None:
         origin = handler.headers.get("Origin")
         if origin and not _allowed_origin(origin):
-            handler._json(403, {"error": "origin_not_allowed"})
+            handler._json(
+                403, {"error": "origin_not_allowed"}, {"Connection": "close"}
+            )
             return
         auth_error = self._auth_error(handler)
         if auth_error is not None:
@@ -437,7 +439,10 @@ class MCPHTTPController:
                     },
                 },
             },
-            {"WWW-Authenticate": challenge},
+            # Authentication is checked before reading the request body. Never
+            # reuse this HTTP/1.1 connection: leftover body bytes would be
+            # parsed as the next request line by BaseHTTPRequestHandler.
+            {"WWW-Authenticate": challenge, "Connection": "close"},
         )
 
     @staticmethod
