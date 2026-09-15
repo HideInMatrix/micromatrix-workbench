@@ -532,7 +532,7 @@ def create_process_sandbox(
     network: bool,
 ) -> ProcessSandboxBackend:
     preference = os.environ.get("AGENT_RUNTIME_OS_SANDBOX", "auto").strip().lower()
-    if preference not in {"auto", "off", "require"}:
+    if preference not in {"auto", "off", "require-process", "require"}:
         preference = "auto"
     if mode == "dangerous" or preference == "off":
         return ProcessSandboxBackend(
@@ -544,7 +544,7 @@ def create_process_sandbox(
             )
         )
 
-    enabled = preference in {"auto", "require"}
+    enabled = preference in {"auto", "require-process", "require"}
     system = platform.system().lower()
     if system == "darwin":
         backend: ProcessSandboxBackend = MacSeatbeltBackend(
@@ -579,7 +579,7 @@ def create_process_sandbox(
     if backend.state.enabled:
         passed, reason = _probe_backend(backend, workspace=workspace)
         if not passed:
-            if preference == "require":
+            if preference in {"require-process", "require"}:
                 raise RuntimeError(
                     f"OS sandbox is required but failed its probe: {reason}"
                 )
@@ -593,6 +593,12 @@ def create_process_sandbox(
                 network_isolation=False,
                 experimental_appcontainer_available=backend.state.experimental_appcontainer_available,
             )
+    if preference == "require-process" and not (
+        backend.state.enabled and backend.state.process_isolation
+    ):
+        raise RuntimeError(
+            f"OS 进程隔离不可用，拒绝降级启动: {backend.state.reason}"
+        )
     if preference == "require" and not (
         backend.state.enabled and backend.state.filesystem_isolation
         and backend.state.network_isolation

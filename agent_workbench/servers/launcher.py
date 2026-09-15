@@ -45,6 +45,19 @@ NAMED_TUNNEL_HEALTH_INTERVAL_SECONDS = 5.0
 NAMED_TUNNEL_FAILURE_THRESHOLD = 3
 
 
+def _desktop_os_sandbox_preference() -> str:
+    """Return the fail-closed sandbox level supported by this desktop OS.
+
+    Windows currently provides kernel-enforced process isolation through a
+    Restricted Token + Job Object, but does not yet provide the filesystem and
+    network confinement required by the full ``require`` policy.  Keep Windows
+    fail-closed at the process boundary instead of silently falling back to
+    application-only policy.
+    """
+
+    return "require-process" if os.name == "nt" else "require"
+
+
 class MCPLauncher:
     def __init__(
         self,
@@ -264,6 +277,7 @@ class MCPLauncher:
                 # example OS sandbox policy). LaunchConfig filters out values
                 # owned by the launcher before they reach this boundary.
                 env.update(config.runtime_environment)
+                sandbox_preference = _desktop_os_sandbox_preference()
                 env.update(
                     {
                         "AGENT_RUNTIME_OAUTH_PASSWORD": config.oauth_password,
@@ -276,9 +290,14 @@ class MCPLauncher:
                         "AGENT_RUNTIME_ALLOW_NETWORK": "1" if config.allow_network else "0",
                         "AGENT_RUNTIME_ENABLE_VIEW_IMAGE": "1" if config.enable_view_image else "0",
                         "AGENT_RUNTIME_TOOLCHAINS": json.dumps(config.toolchains),
-                        "AGENT_RUNTIME_OS_SANDBOX": "require",
+                        "AGENT_RUNTIME_OS_SANDBOX": sandbox_preference,
                     }
                 )
+                if sandbox_preference == "require-process":
+                    self._log(
+                        "Windows Runtime 强制 Restricted Token + Job Object 进程隔离；"
+                        "当前文件系统/网络隔离级别仍为 partial。"
+                    )
                 if route_probe_token:
                     env[ROUTE_PROBE_TOKEN_ENV] = route_probe_token
                 if self._permission_broker is not None:

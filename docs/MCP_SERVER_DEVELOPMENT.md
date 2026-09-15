@@ -645,9 +645,10 @@ Linux    bubblewrap (bwrap，可用时自动启用)
 Windows  Restricted Token + Job Object（进程权限降级/进程树约束）
 ```
 
-各 OS backend 在 Runtime 初始化时会先执行最小自检。默认 `auto` 模式下，自检失败会明确回退到 application-policy；如果要求 fail-closed，可设置：
+各 OS backend 在 Runtime 初始化时会先执行最小自检。默认 `auto` 模式下，自检失败会明确回退到 application-policy；如果要求 fail-closed，可按需要设置：
 
 ```text
+AGENT_RUNTIME_OS_SANDBOX=require-process
 AGENT_RUNTIME_OS_SANDBOX=require
 ```
 
@@ -656,8 +657,11 @@ AGENT_RUNTIME_OS_SANDBOX=require
 ```text
 auto     自动启用；不可用或自检失败时明确回退
 off      禁用 OS sandbox
-require  必须成功启用，否则 Runtime 启动失败
+require-process  必须成功启用 OS 进程隔离，否则 Runtime 启动失败
+require          必须同时具备进程、文件系统和网络隔离，否则 Runtime 启动失败
 ```
+
+Workbench 桌面端会按平台选择 fail-closed 门槛：macOS/Linux 使用 `require`；Windows 当前使用 `require-process`。这是因为 Windows Restricted Token + Job Object 已提供内核级进程权限/生命周期隔离，但尚未实现等价于 Seatbelt/bubblewrap 的完整文件系统与网络边界。
 
 safe/trusted 的 Workspace 本身可写，但 Workspace 根 `.git` 会在支持文件系统隔离的 OS sandbox backend 中叠加只读保护，避免普通构建进程直接改写 Git 元数据。
 
