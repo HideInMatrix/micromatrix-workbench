@@ -901,8 +901,8 @@ X-MicroMatrix-Origin: agent-runtime
 ```
 
 因此，缺少该 Header 的 `502/503/504` 表明响应没有由 Agent Runtime 生成，通常来自
-Cloudflare、ngrok、FRP 或其他中转层。该 Header 不是进程身份凭据；需要确认精确
-Workspace/进程时仍使用带随机 Token 和 Workspace fingerprint 的 route probe。
+Cloudflare、ngrok、FRP 或其他中转层。该 Header 只用于人工诊断，不是进程身份凭据；
+Workbench 不会根据 Public URL 的 502/超时结果自动重启 Network Provider。
 `MCPHTTPServer` 同时把 TCP accept backlog 从标准库默认的
 小队列提升到 `128`，减少 Tunnel 短连接突发在到达应用层之前被拒绝的概率。
 

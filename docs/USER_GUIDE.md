@@ -464,13 +464,13 @@ X-MicroMatrix-Origin: agent-runtime
 错误码、reason、Content-Length 和协议版本），同时把 cloudflared 这类行标成
 `[request-cancelled]`，不再把单条取消日志等同于 Tunnel 断线。
 
-对于固定 Public URL 的 Cloudflare Named Tunnel，Workbench 会持续使用带随机 nonce 的
-Runtime route probe 检查公网 hostname 是否仍然回源到当前 Workspace。单次 502/超时不会
-触发重启；只有连续多次不可用才会仅重启 cloudflared Provider，Agent Runtime、OAuth
-状态和 MCP Tool 执行状态保持不变。若探针被 Access/WAF 以 401/403 阻止，或 hostname
-命中了错误 Workspace，Workbench 不会盲目重启 Tunnel，而会保留服务并记录诊断日志。
-Quick Tunnel 因重启会改变随机 Public URL，不启用自动自愈。Tailscale Funnel 仍需要先
-从客户端输出发现 `.ts.net` 地址，因此首次启动可能存在很短的 provider-first 空窗。
+对于 Cloudflare Tunnel，Workbench 以 cloudflared 的原生就绪信号判定启动完成：
+Named Tunnel 必须先输出 `Registered tunnel connection`，Quick Tunnel 必须先生成
+`trycloudflare.com` 公网 URL。Workbench 不再对 Public URL 发起周期性 502/超时探测，
+也不会因这类探测失败自动重启 cloudflared。如果 provider 子进程实际退出，
+当前 Work 会停止并记录退出原因，避免只因 Runtime 进程存活而显示为已启动。
+Tailscale Funnel 仍需要先从客户端输出发现 `.ts.net` 地址，因此首次启动
+可能存在很短的 provider-first 空窗。
 
 只读请求可以在短暂 502 后重试。创建、修改、删除等非幂等操作不要盲目自动重试，
 因为请求可能已经执行，只是响应在返回途中丢失；应先读取状态确认。

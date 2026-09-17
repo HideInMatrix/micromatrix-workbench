@@ -2,22 +2,12 @@ from __future__ import annotations
 
 import json
 import os
-import secrets
-import ssl
 import threading
 import time
-import urllib.error
-import urllib.request
 from typing import TYPE_CHECKING
-
-try:
-    import certifi
-except ImportError:  # pragma: no cover - desktop requirements normally include it
-    certifi = None
 
 from ..core.config import LaunchConfig, LaunchInfo
 from ..network.base import NetworkProvider
-from ..network.cloudflare import probe_named_tunnel_route
 from ..network.factory import create_network_provider
 from ..oauth.persistence import (
     OAUTH_REGISTRY_FILE_ENV,
@@ -30,19 +20,9 @@ from ..oauth.persistence import (
 )
 from ..runtime.mcp_process import MCPServerProcess
 from ..runtime.process import LogCallback, check_port_available
-from agent_runtime.route_probe import (
-    ROUTE_PROBE_HEADER,
-    ROUTE_PROBE_PATH,
-    ROUTE_PROBE_TOKEN_ENV,
-    workspace_fingerprint,
-)
 
 if TYPE_CHECKING:
     from ..runtime.permission_broker import DesktopPermissionBroker
-
-
-NAMED_TUNNEL_HEALTH_INTERVAL_SECONDS = 5.0
-NAMED_TUNNEL_FAILURE_THRESHOLD = 3
 
 
 def _desktop_os_sandbox_preference() -> str:
@@ -73,129 +53,9 @@ class MCPLauncher:
         self._stopping = False
         self._exit_reason = ""
         self._permission_broker = permission_broker
-        self._active_config: LaunchConfig | None = None
-        self._route_probe_token = ""
-        self._provider_restarting = False
-        self._provider_failure_reported = False
 
     def _log(self, message: str) -> None:
         self._log_callback(message)
-
-    def _verify_named_tunnel_route(
-        self,
-        public_base_url: str,
-        route_probe_token: str,
-        *,
-        attempts: int = 6,
-    ) -> None:
-        """Verify that a Named Tunnel public URL routes to this process.
-
-        The per-process probe verifies that the configured public URL reaches
-        this exact MCP process without exposing the Tunnel token or OAuth
-        password.  It is only a post-start diagnostic and is not used for
-        cross-machine path routing.
-        """
-
-        context = ssl.create_default_context()
-        if certifi is not None:
-            try:
-                context.load_verify_locations(cafile=certifi.where())
-            except OSError:
-                pass
-
-        base = public_base_url.rstrip("/")
-        last_error = ""
-        successful_probes = 0
-        required_successes = 3
-        for attempt in range(1, attempts + 1):
-            nonce = secrets.token_urlsafe(8)
-            request = urllib.request.Request(
-                f"{base}{ROUTE_PROBE_PATH}?nonce={nonce}",
-                headers={
-                    ROUTE_PROBE_HEADER: route_probe_token,
-                    "Cache-Control": "no-cache",
-                    "Connection": "close",
-                    "User-Agent": "MicroMatrix-Workbench-Probe/1.0",
-                },
-                method="GET",
-            )
-            try:
-                with urllib.request.urlopen(request, timeout=4.0, context=context) as response:
-                    if response.status == 200:
-                        successful_probes += 1
-                        if successful_probes >= required_successes:
-                            self._log("Cloudflare Named Tunnel 公网路由校验通过，域名已回源到当前 MCP 进程。")
-                            return
-                    else:
-                        last_error = f"HTTP {response.status}"
-            except urllib.error.HTTPError as exc:
-                if exc.code == 404:
-                    raise RuntimeError(
-                        "Cloudflare Named Tunnel 公网路由没有回到当前 MCP 进程。"
-                        "请检查该 Public Hostname 是否绑定到当前电脑的独立 Tunnel，"
-                        "并确认没有与其他电脑复用同一个 hostname/Tunnel Token。"
-                    ) from exc
-                if exc.code in {401, 403}:
-                    self._log(
-                        f"Cloudflare 公网探针收到 HTTP {exc.code}；"
-                        "这通常表示 Access/WAF 等边缘安全策略拦截了内部诊断请求。"
-                        "已跳过精确回源校验，不据此判断 MCP 公网连接不可用。"
-                    )
-                    return
-                if exc.code in {502, 503, 504}:
-                    last_error = (
-                        f"HTTP {exc.code}（中转层未取得有效 Runtime 响应："
-                        "可能是连接、超时或重连；该状态不是 Agent Runtime 生成的）"
-                    )
-                else:
-                    last_error = f"HTTP {exc.code}"
-            except urllib.error.URLError as exc:
-                reason = exc.reason
-                if isinstance(reason, ssl.SSLCertVerificationError):
-                    raise RuntimeError(
-                        "Cloudflare Named Tunnel Public URL 的 TLS 证书校验失败。"
-                        "请检查该域名的 Cloudflare Edge Certificate、DNS 和证书链。"
-                    ) from exc
-                last_error = str(reason or exc)
-            except TimeoutError as exc:
-                last_error = str(exc)
-
-            if attempt < attempts:
-                time.sleep(0.4)
-
-        if successful_probes:
-            raise RuntimeError(
-                "Cloudflare Named Tunnel 路由校验结果不稳定：部分请求回到了当前 MCP 进程，"
-                "但无法连续确认。请检查 Public Hostname、Tunnel Origin 和是否存在 Token 复用。"
-            )
-        raise RuntimeError(
-            "Cloudflare Named Tunnel 已连接 Edge，但 Public URL 无法回源到当前 MCP Server"
-            f"（{last_error or '未知错误'}）。请确认当前 Public Hostname 已绑定到"
-            "这台电脑的独立 Tunnel，且该 Tunnel 的 Published Application 指向"
-            " http://127.0.0.1:<MCP端口>。"
-        )
-
-    def _verify_named_tunnel_route_background(
-        self,
-        public_base_url: str,
-        route_probe_token: str,
-    ) -> None:
-        """Run the public route probe as a non-fatal post-start diagnostic.
-
-        A Named Tunnel becoming connected to Cloudflare Edge and its public
-        hostname becoming reachable are two separate pieces of state.  DNS or
-        the published application may lag behind or be misconfigured.  None
-        of those cases should tear down an otherwise healthy local MCP process
-        and tunnel.
-        """
-
-        try:
-            self._verify_named_tunnel_route(public_base_url, route_probe_token)
-        except Exception as exc:  # noqa: BLE001 - diagnostic must never kill startup
-            self._log(
-                "警告：Cloudflare 公网回源校验未通过，但 MCP Server 与 Named Tunnel "
-                f"保持运行。公网 MCP 连接可能暂不可用：{exc}"
-            )
 
     @property
     def info(self) -> LaunchInfo | None:
@@ -217,9 +77,13 @@ class MCPLauncher:
 
     @property
     def is_running(self) -> bool:
+        provider = self._provider
         mcp = self._mcp.process
         return bool(
-            mcp
+            self._info
+            and provider
+            and provider.is_running
+            and mcp
             and mcp.poll() is None
             and not self._stopping
         )
@@ -229,17 +93,9 @@ class MCPLauncher:
             if self.is_running:
                 raise RuntimeError("MCP 服务已经在运行。")
             config = config.validated()
-            named_cloudflare = (
-                config.network.provider == "cloudflare"
-                and bool(config.network.public_url)
-            )
-            route_probe_token = secrets.token_urlsafe(32) if named_cloudflare else ""
             self._stopping = False
             self._exit_reason = ""
-            self._provider_failure_reported = False
             check_port_available(config.host, config.port)
-            self._active_config = config
-            self._route_probe_token = route_probe_token
             try:
                 self._provider = create_network_provider(
                     config.network.provider,
@@ -298,8 +154,6 @@ class MCPLauncher:
                         "Windows Runtime 强制 Restricted Token + Job Object 进程隔离；"
                         "当前文件系统/网络隔离级别仍为 partial。"
                     )
-                if route_probe_token:
-                    env[ROUTE_PROBE_TOKEN_ENV] = route_probe_token
                 if self._permission_broker is not None:
                     env.update(
                         self._permission_broker.child_environment(config.server_id)
@@ -348,19 +202,8 @@ class MCPLauncher:
                     public_mcp_url=f"{public_base_url}/mcp",
                     url_mode=network_info.mode_label,
                 )
-                self._log(f"MCP 已启动: {self._info.public_mcp_url}")
+                self._log(f"内网穿透已就绪，MCP 已启动: {self._info.public_mcp_url}")
                 threading.Thread(target=self._watch_children, daemon=True).start()
-                if named_cloudflare:
-                    threading.Thread(
-                        target=self._verify_named_tunnel_route_background,
-                        args=(public_base_url, route_probe_token),
-                        daemon=True,
-                    ).start()
-                    threading.Thread(
-                        target=self._watch_named_tunnel_health,
-                        args=(config, public_base_url, route_probe_token),
-                        daemon=True,
-                    ).start()
                 return self._info
             except Exception:
                 self._stop_locked()
@@ -376,13 +219,12 @@ class MCPLauncher:
                 if provider is None or mcp is None:
                     return
                 if not provider.is_running:
-                    if not self._provider_restarting and not self._provider_failure_reported:
-                        self._provider_failure_reported = True
-                        self._log(
-                            f"{provider.display_name} 已退出，退出码: {provider.exit_code}。"
-                            "Agent Runtime 保持运行；公网网络进入 degraded 状态，"
-                            "等待 Network Provider 自动恢复。"
-                        )
+                    self._exit_reason = (
+                        f"{provider.display_name} 已退出，退出码: {provider.exit_code}"
+                    )
+                    self._log(self._exit_reason)
+                    self._stop_locked()
+                    return
                 if mcp.poll() is not None:
                     self._exit_reason = (
                         f"Agent Runtime 已退出，退出码: {mcp.returncode}"
@@ -392,136 +234,12 @@ class MCPLauncher:
                     return
             time.sleep(0.5)
 
-    def _watch_named_tunnel_health(
-        self,
-        config: LaunchConfig,
-        public_base_url: str,
-        route_probe_token: str,
-    ) -> None:
-        """Self-heal a fixed Cloudflare Tunnel after sustained route loss."""
-
-        expected_fingerprint = workspace_fingerprint(config.workspace)
-        failures = 0
-        time.sleep(NAMED_TUNNEL_HEALTH_INTERVAL_SECONDS)
-        while True:
-            with self._lock:
-                if (
-                    self._stopping
-                    or self._active_config is not config
-                    or self._route_probe_token != route_probe_token
-                    or self._info is None
-                ):
-                    return
-                process = self._mcp.process
-                if process is None or process.poll() is not None:
-                    return
-
-            probe = probe_named_tunnel_route(
-                public_base_url,
-                route_probe_token,
-                expected_fingerprint,
-            )
-            if probe.ok:
-                failures = 0
-            elif probe.status == "blocked":
-                self._log(
-                    "Cloudflare Named Tunnel 自动健康检查被 Edge 安全策略阻止"
-                    f"（{probe.detail}）；保留 Tunnel，不执行自动重启。"
-                )
-                return
-            elif probe.status == "mismatch":
-                self._log(
-                    "Cloudflare Named Tunnel 公网 hostname 命中了错误 Runtime"
-                    f"（{probe.detail}）；重启 cloudflared 无法安全修复路由，"
-                    "已停止自动自愈，请检查 Public Hostname/Tunnel 绑定。"
-                )
-                return
-            else:
-                failures += 1
-                self._log(
-                    "Cloudflare Named Tunnel 公网健康检查失败 "
-                    f"({failures}/{NAMED_TUNNEL_FAILURE_THRESHOLD}): "
-                    f"{probe.detail or 'unavailable'}"
-                )
-                if failures >= NAMED_TUNNEL_FAILURE_THRESHOLD:
-                    restarted = self._restart_named_tunnel_provider(
-                        config,
-                        public_base_url,
-                    )
-                    if not restarted:
-                        with self._lock:
-                            process = self._mcp.process
-                            if (
-                                self._stopping
-                                or self._active_config is not config
-                                or process is None
-                                or process.poll() is not None
-                            ):
-                                return
-                        self._log(
-                            "Cloudflare Named Tunnel Provider 暂未恢复；"
-                            "Agent Runtime 继续运行，稍后重新探测并重试。"
-                        )
-                    failures = 0
-            time.sleep(NAMED_TUNNEL_HEALTH_INTERVAL_SECONDS)
-
-    def _restart_named_tunnel_provider(
-        self,
-        config: LaunchConfig,
-        public_base_url: str,
-    ) -> bool:
-        """Restart cloudflared without restarting the healthy Runtime."""
-
-        with self._lock:
-            if self._stopping or self._active_config is not config:
-                return False
-            provider = self._provider
-            process = self._mcp.process
-            if provider is None or process is None or process.poll() is not None:
-                return False
-            self._log(
-                "Cloudflare Named Tunnel 连续公网探针失败；"
-                "仅重启 Tunnel Provider，Agent Runtime 保持运行。"
-            )
-            self._provider_restarting = True
-            replacement: NetworkProvider | None = None
-            try:
-                provider.stop()
-                replacement = create_network_provider(config.network.provider, self._log)
-                network_info = replacement.start(
-                    config.host,
-                    config.port,
-                    config.network,
-                )
-                provider_url = canonical_oauth_issuer(network_info.public_base_url)
-                if provider_url != public_base_url:
-                    raise RuntimeError(
-                        "Cloudflare Provider 自愈后 Public URL 发生变化，拒绝替换。"
-                    )
-                self._provider = replacement
-                self._provider_restarting = False
-                self._provider_failure_reported = False
-                self._log("Cloudflare Named Tunnel Provider 自动重启完成。")
-                return True
-            except Exception as exc:
-                if replacement is not None:
-                    replacement.stop()
-                self._provider_restarting = False
-                self._provider_failure_reported = True
-                self._log(
-                    "Cloudflare Named Tunnel 自动重启失败: "
-                    f"{exc}。Agent Runtime 保持运行。"
-                )
-                return False
-
     def stop(self) -> None:
         with self._lock:
             self._stop_locked()
 
     def _stop_locked(self) -> None:
         self._stopping = True
-        self._provider_restarting = False
-        self._provider_failure_reported = False
         self._mcp.stop()
         if self._provider is not None:
             self._provider.stop()
@@ -530,8 +248,6 @@ class MCPLauncher:
         self._oauth_persistence = None
         self._provider = None
         self._info = None
-        self._active_config = None
-        self._route_probe_token = ""
 
     def wait(self) -> None:
         while self.is_running:
