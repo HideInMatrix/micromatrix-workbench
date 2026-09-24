@@ -168,6 +168,12 @@ https://company.mcp.example.com/mcp
 https://home.mcp.example.com/mcp
 ```
 
+选择 Cloudflare Tunnel 后，可以设置“传输协议”：`auto`（默认，优先 QUIC）、
+`quic`（UDP）或 `http2`（TCP）。如果日志持续出现
+`timeout: no recent network activity`，可先停止 Work，选择 HTTP/2，保存后重新启动，
+对比是否仍会断线。该设置同时适用于 Quick Tunnel 和 Named Tunnel；
+两种协议均连接 Cloudflare 的 7844 端口。
+
 Cloudflare 中对应的 Published Application Path 保持为空即可，不需要额外配置 Worker/Path Router。
 
 如果同一台机器需要运行多个 Work，每个 Work 都使用独立 Public Hostname、独立本地端口和独立 Runtime。固定 Cloudflare 地址时，每个 Work 也应使用独立 Named Tunnel 与独立 Tunnel Token。例如：

@@ -7,7 +7,9 @@ export type WorkItem = {
 }
 
 export function cloneNetwork(network: NetworkConfigDto): NetworkConfigDto {
-  return { ...network, options: { ...network.options } }
+  const options = { ...network.options }
+  if (network.provider === 'cloudflare') options.tunnel_protocol ||= 'auto'
+  return { ...network, options }
 }
 
 export function emptyWorkDraft(port: number): ServerDraft {
@@ -23,7 +25,7 @@ export function emptyWorkDraft(port: number): ServerDraft {
     allow_network: false,
     enable_view_image: true,
     toolchains: [],
-    network: { provider: 'cloudflare', public_url: '', options: {} },
+    network: { provider: 'cloudflare', public_url: '', options: { tunnel_protocol: 'auto' } },
   }
 }
 

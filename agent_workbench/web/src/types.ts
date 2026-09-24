@@ -21,6 +21,7 @@ export interface NetworkProviderOptionDto {
   label: string
   secret: boolean
   span: '1' | '2'
+  choices: { value: string; label: string }[]
 }
 
 export interface NetworkProviderDto {

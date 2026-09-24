@@ -45,9 +45,8 @@ class CloudflareProvider(ProcessNetworkProvider):
         public_url = config.public_url
         tunnel_token = config.options.get("tunnel_token", "").strip()
         executable = resolve_cloudflared()
-        # Keep Cloudflare's adaptive transport negotiation enabled. ``auto``
-        # prefers QUIC and falls back to HTTP/2 when UDP is unavailable.
-        tunnel_protocol = "auto"
+        tunnel_protocol = config.options.get("tunnel_protocol") or "auto"
+        self._log(f"Cloudflare 传输协议: {tunnel_protocol}")
         if public_url:
             self._log(f"启动 Cloudflare Named Tunnel: {executable}")
             self._log(f"固定 Public URL: {public_url}")

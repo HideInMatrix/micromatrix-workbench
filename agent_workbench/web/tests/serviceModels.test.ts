@@ -2,56 +2,30 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
-  emptyDraft,
-  emptyMember,
-  isDirectServiceDraft,
-  visibleProfiles,
-  serverDraft,
+  cloneNetwork,
+  emptyWorkDraft,
+  normalizedWorkDraft,
 } from '../src/components/services/serviceModels.ts'
 
-test('single workspace only displays the first profile without deleting saved profiles', () => {
-  const draft = emptyDraft(8234)
-  draft.members.push(emptyMember(1), emptyMember(2))
-
-  assert.deepEqual(visibleProfiles(draft), [draft.members[0]])
-  assert.equal(draft.members.length, 3)
+test('new Cloudflare Work defaults to automatic tunnel transport', () => {
+  const draft = emptyWorkDraft(8234)
+  assert.equal(draft.network.options.tunnel_protocol, 'auto')
 })
 
-test('multi workspace displays every configured profile', () => {
-  const draft = emptyDraft(8234)
-  draft.members.push(emptyMember(1), emptyMember(2))
-  draft.mode = 'multi'
+test('older Cloudflare settings display automatic transport without changing saved data', () => {
+  const saved = { provider: 'cloudflare', public_url: '', options: {} }
+  const copy = cloneNetwork(saved)
 
-  assert.deepEqual(visibleProfiles(draft), draft.members)
+  assert.equal(copy.options.tunnel_protocol, 'auto')
+  assert.deepEqual(saved.options, {})
 })
 
-test('single workspace remains a direct service when an unused child profile is retained', () => {
-  const draft = emptyDraft(8234)
-  draft.mode = 'multi'
-  draft.members.push(emptyMember(1))
-  draft.mode = 'single'
+test('chosen tunnel transport survives draft normalization', () => {
+  const draft = emptyWorkDraft(8234)
+  draft.network.options.tunnel_protocol = 'http2'
+  draft.network.public_url = ' https://mcp.example.com/ '
 
-  assert.equal(draft.members.length, 2)
-  assert.equal(isDirectServiceDraft(draft), true)
-})
-
-test('multi workspace with a child profile requires gateway persistence', () => {
-  const draft = emptyDraft(8234)
-  draft.mode = 'multi'
-  draft.members.push(emptyMember(1))
-
-  assert.equal(isDirectServiceDraft(draft), false)
-})
-
-test('toolchain registrations survive conversion to a direct service without sharing mutable roots', () => {
-  const draft = emptyDraft(8234)
-  draft.members[0].toolchains = [{
-    program: 'node', executable: '/tools/bin/node', read_roots: ['/tools'],
-    version: 'v25.0.0', fingerprint: 'a'.repeat(64),
-    runtime_target: '/tools/bin/node', runtime_fingerprint: 'b'.repeat(64),
-  }]
-  const direct = serverDraft(draft)
-  assert.deepEqual(direct.toolchains, draft.members[0].toolchains)
-  direct.toolchains![0].read_roots.push('/another')
-  assert.deepEqual(draft.members[0].toolchains[0].read_roots, ['/tools'])
+  const normalized = normalizedWorkDraft(draft)
+  assert.equal(normalized.network.options.tunnel_protocol, 'http2')
+  assert.equal(normalized.network.public_url, 'https://mcp.example.com')
 })

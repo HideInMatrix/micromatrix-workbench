@@ -125,10 +125,15 @@ class NetworkConfig:
         provider = self.provider.strip().lower() or "cloudflare"
         if provider not in NETWORK_PROVIDER_CHOICES:
             raise ValueError(f"不支持的网络提供方案: {provider}")
+        options = {str(key): str(value).strip() for key, value in self.options.items()}
+        if provider == "cloudflare":
+            protocol = options.get("tunnel_protocol") or "auto"
+            if protocol not in {"auto", "quic", "http2"}:
+                raise ValueError("Cloudflare 传输协议只支持 auto、quic 或 http2。")
         return NetworkConfig(
             provider=provider,
             public_url=normalize_server_url(self.public_url),
-            options={str(key): str(value).strip() for key, value in self.options.items()},
+            options=options,
         )
 
 

@@ -27,6 +27,10 @@ const selectedProvider = computed(() => (
   props.networkProviders.find(item => item.key === draft.value.network.provider)
 ))
 
+function setNetworkOption(key: string, event: Event) {
+  draft.value.network.options[key] = (event.target as HTMLSelectElement).value
+}
+
 const emit = defineEmits<{
   chooseWorkspace: []
   toggleOAuthPassword: []
@@ -103,7 +107,17 @@ const emit = defineEmits<{
         :label="field.label"
         :span="field.span"
       >
-        <InputGroup v-if="field.key === 'tunnel_token'">
+        <select
+          v-if="field.choices.length"
+          :value="draft.network.options[field.key] || field.choices[0]?.value"
+          :disabled="locked"
+          @change="setNetworkOption(field.key, $event)"
+        >
+          <option v-for="choice in field.choices" :key="choice.value" :value="choice.value">
+            {{ choice.label }}
+          </option>
+        </select>
+        <InputGroup v-else-if="field.key === 'tunnel_token'">
           <InputGroupInput
             v-model="draft.network.options[field.key]"
             :disabled="locked"

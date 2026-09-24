@@ -11,6 +11,7 @@ class NetworkOptionSpec:
     label: str
     secret: bool = False
     span: str = "1"
+    choices: tuple[tuple[str, str], ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -18,6 +19,9 @@ class NetworkOptionSpec:
             "label": self.label,
             "secret": self.secret,
             "span": self.span,
+            "choices": [
+                {"value": value, "label": label} for value, label in self.choices
+            ],
         }
 
 
@@ -44,7 +48,18 @@ NETWORK_PROVIDER_SPECS = (
         key="cloudflare",
         label="Cloudflare Tunnel",
         ephemeral_without_public_url=True,
-        options=(NetworkOptionSpec("tunnel_token", "隧道令牌", True, "2"),),
+        options=(
+            NetworkOptionSpec(
+                "tunnel_protocol",
+                "传输协议",
+                choices=(
+                    ("auto", "自动（优先 QUIC）"),
+                    ("quic", "QUIC（UDP）"),
+                    ("http2", "HTTP/2（TCP）"),
+                ),
+            ),
+            NetworkOptionSpec("tunnel_token", "隧道令牌", True, "2"),
+        ),
     ),
     NetworkProviderSpec(
         key="frp",
