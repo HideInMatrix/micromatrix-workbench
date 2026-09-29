@@ -21,7 +21,9 @@ MCP transport、Tunnel Provider 和 UI 不得实现文件、Shell 等业务工�
 
 MCP adapter 必须先调用 approval policy，再调用 `AgentTool.execute`。审批只允许本次调用或当前 Runtime 会话。传给 UI 的敏感参数必须递归脱敏。
 
-Workspace 只是 Pi tools 的默认 cwd，不是安全边界。需要文件系统隔离时，应在 BodyPlugin 的 operations 层或操作系统沙箱中实现，不能靠 UI 文案或审批模式暗示隔离已经存在。
+Workspace Tools 必须在 BodyPlugin 的 operations 层执行 canonical boundary 检查，拒绝指向外部的绝对路径、`..`、symlink 和 junction 逃逸。路径检查不能散落到 UI 或 MCP transport。
+
+这不是进程级沙箱：Shell Tool 不受 Workspace 路径边界约束，独立本地进程也可能制造 TOCTOU filesystem race。需要对抗本机恶意代码时必须使用容器或操作系统沙箱，不能靠审批模式暗示隔离已经存在。
 
 ## Separate control and data planes
 

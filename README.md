@@ -48,7 +48,9 @@ npm run tauri:dev
 | `trusted` | 自动允许 | 自动允许 | 本地审批 |
 | `dangerous` | 自动允许 | 自动允许 | 自动允许 |
 
-审批发生在 `AgentTool.execute` 之前。会话授权在 Runtime 停止或重启时清空。Workspace 是 Pi tools 的默认工作目录，不是操作系统沙箱；Pi 支持绝对路径，`safe` 也不等于文件系统隔离。`dangerous` 只适用于操作系统层面已经隔离的环境。
+审批发生在 `AgentTool.execute` 之前。会话授权在 Runtime 停止或重启时清空。Workspace Tools 会对路径和文件操作执行 canonical boundary 检查，拒绝指向 Workspace 外部的绝对路径、`..` 和 symlink/junction；Workspace 内部的绝对路径仍可使用。
+
+这层边界只覆盖 Workspace Tools，不是操作系统沙箱。可选 Shell Tool 仍能访问 Runtime 进程拥有权限的路径，并且独立本地进程可以制造 filesystem race；需要对抗本机恶意代码时必须使用容器或操作系统沙箱。`dangerous` 只适用于已经隔离的环境。
 
 ## 网络 Provider
 
