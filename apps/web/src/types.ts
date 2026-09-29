@@ -19,19 +19,16 @@ export interface NetworkProviderDto {
   options: NetworkProviderOptionDto[]
 }
 
-export interface ServerDto {
-  server_id: string
+export interface RuntimeDto {
+  runtime_id: string
   name: string
   workspace: string
   oauth_password: string
   has_saved_password: boolean
   host: string
   port: number
-  lifecycle: 'persistent' | 'ephemeral'
   enabled: boolean
   permission_mode: 'safe' | 'trusted' | 'dangerous'
-  created_at: number
-  updated_at: number
   network: NetworkConfigDto
   running: boolean
   public_mcp_url: string
@@ -39,7 +36,7 @@ export interface ServerDto {
   exit_reason: string
 }
 
-export interface ServerDraft {
+export interface RuntimeDraft {
   name: string
   workspace: string
   oauth_password: string
@@ -54,43 +51,8 @@ export interface ServerDraft {
 export interface BootstrapDto {
   app_name: string
   version: string
-  update_download_proxy_prefix: string
-  selected_server_id: string
-  next_default_port: number
-  servers: ServerDto[]
+  runtime: RuntimeDto
   network_providers: NetworkProviderDto[]
-}
-
-export interface ReleaseDto {
-  current_version: string
-  latest_version: string
-  tag_name: string
-  release_url: string
-  asset_name: string
-  download_url: string
-  update_asset_name: string
-  update_download_url: string
-  checksum_url: string
-  update_available: boolean
-}
-
-export interface UpdateStatusDto {
-  state: 'idle' | 'downloading' | 'verifying' | 'ready' | 'installing' | 'error'
-  version: string
-  progress: number
-  downloaded_bytes: number
-  total_bytes: number
-  message: string
-}
-
-export interface UpdateCheckStateDto {
-  release: ReleaseDto | null
-  last_checked_at: number
-}
-
-export interface UpdateInstallImpactDto {
-  version: string
-  services: { id: string; name: string }[]
 }
 
 export interface LogEntryDto {
@@ -101,8 +63,8 @@ export interface LogEntryDto {
 
 export interface PermissionRequestDto {
   request_id: string
-  server_id: string
-  server_name: string
+  runtime_id: string
+  runtime_name: string
   tool_name: string
   permission: string
   reason: string

@@ -12,8 +12,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import type { AppRouteName } from '../router'
 
-defineProps<{ updateAvailable: boolean }>()
-
 const route = useRoute()
 const router = useRouter()
 const collapsed = ref(false)
@@ -81,9 +79,9 @@ function navClass(name: AppRouteName): string[] {
     </div>
 
     <nav id="app-sidebar-navigation" class="mt-5 grid gap-1" aria-label="主导航">
-      <Button variant="ghost" size="sm" :class="navClass('work')" :title="collapsed ? 'Work' : undefined" @click="router.push({ name: 'work' })">
+      <Button variant="ghost" size="sm" :class="navClass('runtime')" :title="collapsed ? 'Runtime' : undefined" @click="router.push({ name: 'runtime' })">
         <Server class="flex-none" :size="16" :stroke-width="1.8" />
-        <span v-if="!collapsed" class="leading-none">Work</span>
+        <span v-if="!collapsed" class="leading-none">Runtime</span>
       </Button>
       <Button variant="ghost" size="sm" :class="navClass('plugins')" :title="collapsed ? '插件' : undefined" @click="router.push({ name: 'plugins' })">
         <Boxes class="flex-none" :size="16" :stroke-width="1.8" />
@@ -99,14 +97,13 @@ function navClass(name: AppRouteName): string[] {
       <Button
         variant="ghost"
         size="sm"
-        :class="[...navClass('about'), 'relative']"
-        :title="updateAvailable ? '关于 · 有新版本' : collapsed ? '关于' : undefined"
-        :aria-label="updateAvailable ? '关于，有新版本' : '关于'"
+        :class="navClass('about')"
+        :title="collapsed ? '关于' : undefined"
+        aria-label="关于"
         @click="router.push({ name: 'about' })"
       >
         <Info class="flex-none" :size="16" :stroke-width="1.8" />
         <span v-if="!collapsed" class="leading-none">关于</span>
-        <span v-if="updateAvailable" :class="['size-1.5 rounded-full bg-destructive', collapsed ? 'absolute top-1 right-1' : 'ml-auto']" aria-hidden="true" />
       </Button>
     </div>
   </aside>

@@ -2,11 +2,8 @@
 import { RouterView } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import AppSidebar from './components/AppSidebar.vue'
-import UpdateInstallDialog from './components/UpdateInstallDialog.vue'
-import { provideAppUpdates } from './composables/useAppUpdates'
 import { usePermissionRequests } from './composables/usePermissionRequests'
 
-const { updateAvailable, installImpact, installing, cancelInstall, confirmInstall } = provideAppUpdates()
 const {
   errorMessage,
   permissionResponding,
@@ -19,7 +16,7 @@ const {
 
 <template>
   <div class="flex h-screen bg-background">
-    <AppSidebar :update-available="updateAvailable" />
+    <AppSidebar />
 
     <main class="min-w-0 flex-1 overflow-auto">
       <div class="mx-auto flex min-h-full w-full max-w-none flex-col px-3 py-4 max-[1050px]:px-2.5 max-[1050px]:py-3">
@@ -36,8 +33,6 @@ const {
     </main>
   </div>
 
-  <UpdateInstallDialog :impact="installImpact" :busy="installing" @cancel="cancelInstall" @confirm="confirmInstall" />
-
   <div
     v-if="activePermissionRequest"
     class="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 p-6 backdrop-blur-[2px]"
@@ -53,7 +48,7 @@ const {
           <span class="text-[10px] leading-[14px] font-semibold text-destructive">需要授权</span>
           <h2 id="permission-dialog-title" class="mt-[3px] mb-0 text-[17px] leading-6">{{ permissionLabel(activePermissionRequest.permission) }}</h2>
         </div>
-        <span class="max-w-[180px] flex-none overflow-hidden text-ellipsis whitespace-nowrap rounded-full bg-secondary px-[7px] py-[3px] text-[10px] leading-[15px] text-muted-foreground">{{ activePermissionRequest.server_name }}</span>
+        <span class="max-w-[180px] flex-none overflow-hidden text-ellipsis whitespace-nowrap rounded-full bg-secondary px-[7px] py-[3px] text-[10px] leading-[15px] text-muted-foreground">{{ activePermissionRequest.runtime_name }}</span>
       </header>
 
       <p class="mt-3.5 mb-0 text-xs leading-[18px] text-foreground">{{ activePermissionRequest.reason }}</p>

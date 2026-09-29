@@ -2,7 +2,7 @@ import type { ControlPlaneOptions, DesktopApiRequest, RuntimeSnapshot, RuntimeTo
 
 export class UnsupportedDesktopCommandError extends Error {
   constructor(method: string) {
-    super(`Desktop command is not available in the Pi runtime yet: ${method}`);
+    super(`Unsupported desktop command: ${method}`);
     this.name = "UnsupportedDesktopCommandError";
   }
 }
@@ -58,21 +58,18 @@ function providerDefinitions() {
   ];
 }
 
-function serverDto(runtime: RuntimeSnapshot) {
+function runtimeDto(runtime: RuntimeSnapshot) {
   const publicUrl = runtime.configuredPublicUrl.replace(/\/mcp\/?$/, "").replace(/\/$/, "");
   return {
-    server_id: runtime.serverId,
+    runtime_id: runtime.runtimeId,
     name: runtime.name,
     workspace: runtime.workspace,
     oauth_password: "",
     has_saved_password: runtime.hasSavedPassword,
     host: runtime.host,
     port: runtime.port,
-    lifecycle: "persistent",
     enabled: runtime.enabled,
     permission_mode: runtime.permissionMode,
-    created_at: 0,
-    updated_at: 0,
     network: {
       provider: runtime.networkProvider,
       public_url: publicUrl,
@@ -125,15 +122,6 @@ function capability(tool: RuntimeTool) {
   };
 }
 
-const idleUpdate = {
-  state: "idle",
-  version: "",
-  progress: 0,
-  downloaded_bytes: 0,
-  total_bytes: 0,
-  message: "",
-};
-
 export class DesktopCommandRouter {
   readonly #options: ControlPlaneOptions;
 
@@ -143,45 +131,30 @@ export class DesktopCommandRouter {
 
   async dispatch(request: DesktopApiRequest): Promise<unknown> {
     const runtime = this.#options.runtime.snapshot();
-    const server = serverDto(runtime);
+    const runtimeView = runtimeDto(runtime);
     switch (request.method) {
       case "bootstrap":
         return {
           app_name: this.#options.appName,
           version: this.#options.version,
-          update_download_proxy_prefix: "",
-          selected_server_id: runtime.serverId,
-          next_default_port: runtime.port + 1,
-          servers: [server],
+          runtime: runtimeView,
           network_providers: providerDefinitions(),
         };
       case "get_app_version": return this.#options.version;
-      case "get_selected_server_id": return runtime.serverId;
-      case "get_update_download_proxy": return "";
-      case "save_update_download_proxy": return String(request.args[0] ?? "");
-      case "list_network_providers": return providerDefinitions();
-      case "list_servers": return [server];
-      case "get_next_port": return runtime.port + 1;
-      case "select_server": return request.args[0] === runtime.serverId;
-      case "create_server":
-      case "update_server": {
-        const draft = request.method === "create_server" ? request.args[0] : request.args[1];
-        if (request.method === "update_server") this.#assertRuntime(request.args[0], runtime);
-        await this.#options.runtime.configure(this.#configuration(draft));
-        return serverDto(this.#options.runtime.snapshot());
+      case "get_runtime": return runtimeView;
+      case "configure_runtime": {
+        await this.#options.runtime.configure(this.#configuration(request.args[0]));
+        return runtimeDto(this.#options.runtime.snapshot());
       }
-      case "start_server":
-        this.#assertRuntime(request.args[0], runtime);
+      case "start_runtime":
         await this.#options.runtime.start();
-        return serverDto(this.#options.runtime.snapshot());
-      case "stop_server":
-        this.#assertRuntime(request.args[0], runtime);
+        return runtimeDto(this.#options.runtime.snapshot());
+      case "stop_runtime":
         await this.#options.runtime.stop();
-        return serverDto(this.#options.runtime.snapshot());
-      case "set_server_enabled":
-        this.#assertRuntime(request.args[0], runtime);
-        await this.#options.runtime.setEnabled(Boolean(request.args[1]));
-        return serverDto(this.#options.runtime.snapshot());
+        return runtimeDto(this.#options.runtime.snapshot());
+      case "set_runtime_enabled":
+        await this.#options.runtime.setEnabled(Boolean(request.args[0]));
+        return runtimeDto(this.#options.runtime.snapshot());
       case "list_body_plugins":
         return runtime.pluginIds.map((id) => ({
           id,
@@ -195,8 +168,8 @@ export class DesktopCommandRouter {
       case "list_permission_requests":
         return (this.#options.approvals?.requests() ?? []).map((request) => ({
           request_id: request.requestId,
-          server_id: runtime.serverId,
-          server_name: runtime.name,
+          runtime_id: runtime.runtimeId,
+          runtime_name: runtime.name,
           tool_name: request.toolName,
           permission: request.permission,
           reason: request.reason,
@@ -209,7 +182,6 @@ export class DesktopCommandRouter {
           String(request.args[0] ?? ""),
           String(request.args[1] ?? "deny") as "deny" | "once" | "session",
         ) ?? false;
-      case "stop_all_desktop_input": return { requested: 0, stopped: 0, results: {} };
       case "get_logs": return this.#options.logs.entries(Number(request.args[0] ?? 0));
       case "clear_logs": return this.#options.logs.clear();
       case "get_workbench_capability_catalog":
@@ -221,34 +193,13 @@ export class DesktopCommandRouter {
           capabilities: runtime.tools.map(capability),
           revision: `${this.#options.version}:${runtime.tools.map((tool) => tool.name).join(",")}`,
         };
-      case "get_update_check_state": return { release: null, last_checked_at: 0 };
-      case "get_update_install_impact": return { version: "", services: [] };
-      case "check_update":
-        return {
-          current_version: this.#options.version,
-          latest_version: this.#options.version,
-          tag_name: `v${this.#options.version}`,
-          release_url: "",
-          asset_name: "",
-          download_url: "",
-          update_asset_name: "",
-          update_download_url: "",
-          checksum_url: "",
-          update_available: false,
-        };
-      case "update_status": return idleUpdate;
-      case "choose_workspace":
-      case "choose_file": return "";
+      case "choose_workspace": return "";
       default: throw new UnsupportedDesktopCommandError(request.method);
     }
   }
 
-  #assertRuntime(id: unknown, runtime: RuntimeSnapshot): void {
-    if (id !== runtime.serverId) throw new Error(`Unknown runtime: ${String(id)}`);
-  }
-
   #configuration(value: unknown) {
-    if (!value || typeof value !== "object") throw new Error("Server configuration must be an object");
+    if (!value || typeof value !== "object") throw new Error("Runtime configuration must be an object");
     const network = Reflect.get(value, "network");
     if (!network || typeof network !== "object") throw new Error("Network configuration is required");
     const provider = String(Reflect.get(network, "provider") ?? "external");

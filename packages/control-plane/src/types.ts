@@ -4,7 +4,7 @@ export interface DesktopApiRequest {
 }
 
 export interface RuntimeSnapshot {
-  readonly serverId: string;
+  readonly runtimeId: string;
   readonly name: string;
   readonly workspace: string;
   readonly host: string;

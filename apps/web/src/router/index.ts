@@ -1,7 +1,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 
 export type AppRouteName =
-  | 'work'
+  | 'runtime'
   | 'plugins'
   | 'logs'
   | 'about'
@@ -9,12 +9,13 @@ export type AppRouteName =
 export const router = createRouter({
   history: createWebHashHistory(),
   routes: [
-    { path: '/', redirect: '/work' },
+    { path: '/', redirect: '/runtime' },
     {
-      path: '/work',
-      name: 'work',
-      component: () => import('../components/ServiceView.vue'),
+      path: '/runtime',
+      name: 'runtime',
+      component: () => import('../components/RuntimeView.vue'),
     },
+    { path: '/work', redirect: '/runtime' },
     {
       path: '/plugins',
       name: 'plugins',
@@ -30,6 +31,6 @@ export const router = createRouter({
       name: 'about',
       component: () => import('../components/AboutRouteView.vue'),
     },
-    { path: '/:pathMatch(.*)*', redirect: '/work' },
+    { path: '/:pathMatch(.*)*', redirect: '/runtime' },
   ],
 })

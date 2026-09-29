@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { FormField } from '@/components/ui/form'
-import type { ServerDraft } from '../../types'
+import type { RuntimeDraft } from '../../types'
 
-const mode = defineModel<ServerDraft['permission_mode']>({ required: true })
+const mode = defineModel<RuntimeDraft['permission_mode']>({ required: true })
 
 defineProps<{
   disabled?: boolean
 }>()
 
 const options: Array<{
-  value: ServerDraft['permission_mode']
+  value: RuntimeDraft['permission_mode']
   label: string
 }> = [
   {

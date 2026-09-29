@@ -4,15 +4,14 @@ import { Check, Copy, Eye, EyeOff, FolderOpen, Play, Square } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { CheckField, FormField, FormGrid } from '@/components/ui/form'
 import { InputGroup, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
-import type { NetworkProviderDto, ServerDraft } from '../../types'
+import type { NetworkProviderDto, RuntimeDraft } from '../../types'
 import PermissionModeField from './PermissionModeField.vue'
 import BodyPluginEditor from './BodyPluginEditor.vue'
 
-const draft = defineModel<ServerDraft>('draft', { required: true })
+const draft = defineModel<RuntimeDraft>('draft', { required: true })
 const tunnelTokenVisible = defineModel<boolean>('tunnelTokenVisible', { required: true })
 
 const props = defineProps<{
-  isNew: boolean
   locked: boolean
   busy: boolean
   lifecycleBusy: boolean
@@ -40,7 +39,7 @@ const emit = defineEmits<{
   <section class="overflow-hidden rounded-lg border border-border bg-popover p-4 shadow-sm">
     <div class="mb-4 flex items-center justify-between gap-3.5">
       <div>
-        <h2 class="m-0 text-[13px] leading-5 font-medium">{{ isNew ? '新建 Work' : 'Work 设置' }}</h2>
+        <h2 class="m-0 text-[13px] leading-5 font-medium">Runtime 设置</h2>
         <p class="mt-px mb-0 text-[11px] leading-4 text-muted-foreground">
           配置 Pi Runtime、OAuth、审批策略、插件与公网隧道；当前 Runtime 由启动/停止按钮控制。
         </p>
@@ -60,8 +59,8 @@ const emit = defineEmits<{
     </div>
 
     <FormGrid>
-      <FormField label="Work 名称" span="2">
-        <input v-model.trim="draft.name" :disabled="locked" placeholder="例如：公司项目" />
+      <FormField label="Runtime 名称" span="2">
+        <input v-model.trim="draft.name" :disabled="locked" placeholder="例如：Pi MCP Runtime" />
       </FormField>
       <FormField label="本地端口">
         <input v-model.number="draft.port" :disabled="locked" type="number" min="1" max="65535" />
@@ -81,8 +80,8 @@ const emit = defineEmits<{
           <InputGroupInput v-model="draft.workspace" :disabled="locked" />
           <InputGroupButton
             :disabled="locked"
-            aria-label="选择 Work 工作目录"
-            title="选择 Work 工作目录"
+            aria-label="选择 Runtime 工作目录"
+            title="选择 Runtime 工作目录"
             @click="emit('chooseWorkspace')"
           ><FolderOpen :size="15" /></InputGroupButton>
         </InputGroup>
@@ -170,7 +169,7 @@ const emit = defineEmits<{
           {{ lifecycleBusy ? (selectedRunning ? '停止中…' : '启动中…') : (selectedRunning ? '停止' : '启动') }}
         </Button>
         <Button variant="outline" size="sm" :disabled="busy || lifecycleBusy || locked" @click="emit('save')">
-          {{ isNew ? '创建 Work' : '保存' }}
+          保存
         </Button>
       </div>
     </div>

@@ -43,7 +43,7 @@ export class RuntimeSupervisor implements RuntimeControl {
 
   snapshot(): RuntimeSnapshot {
     return {
-      serverId: "default",
+      runtimeId: "default",
       name: this.#config.name,
       workspace: this.#config.workspace,
       host: this.#config.host,
@@ -88,7 +88,12 @@ export class RuntimeSupervisor implements RuntimeControl {
           approvalMode: this.#config.permissionMode,
         });
       } catch (error) {
+        await this.#provider.stop().catch((stopError) => {
+          this.#logger.log("warn", "Tunnel cleanup after failed start failed", { error: String(stopError) });
+        });
         await this.#service.stop().catch(() => undefined);
+        this.#network = undefined;
+        this.#running = false;
         this.#exitReason = error instanceof Error ? error.message : String(error);
         throw error;
       }

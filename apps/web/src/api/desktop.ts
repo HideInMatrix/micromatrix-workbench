@@ -1,18 +1,13 @@
 import { isTauri } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
-import { openUrl } from '@tauri-apps/plugin-opener'
 import type {
   BootstrapDto,
   BodyPluginDto,
   CapabilityCatalogDto,
   LogEntryDto,
   PermissionRequestDto,
-  ReleaseDto,
-  ServerDraft,
-  ServerDto,
-  UpdateCheckStateDto,
-  UpdateInstallImpactDto,
-  UpdateStatusDto,
+  RuntimeDraft,
+  RuntimeDto,
 } from '../types'
 
 interface DesktopApiRequest {
@@ -39,18 +34,11 @@ async function call<T>(method: string, ...args: unknown[]): Promise<T> {
 export const desktopApi = {
   bootstrap: () => call<BootstrapDto>('bootstrap'),
   appVersion: () => call<string>('get_app_version'),
-  updateDownloadProxy: () => call<string>('get_update_download_proxy'),
-  saveUpdateDownloadProxy: (prefix: string) => call<string>('save_update_download_proxy', prefix),
-  listServers: () => call<ServerDto[]>('list_servers'),
-  selectServer: (serverId: string) => call<boolean>('select_server', serverId),
-  createServer: (payload: ServerDraft) => call<ServerDto>('create_server', payload),
-  updateServer: (serverId: string, payload: ServerDraft) =>
-    call<ServerDto>('update_server', serverId, payload),
-  startServer: (serverId: string, payload?: ServerDraft) =>
-    call<ServerDto>('start_server', serverId, payload),
-  stopServer: (serverId: string) => call<ServerDto>('stop_server', serverId),
-  setServerEnabled: (serverId: string, enabled: boolean) =>
-    call<ServerDto>('set_server_enabled', serverId, enabled),
+  runtime: () => call<RuntimeDto>('get_runtime'),
+  configureRuntime: (payload: RuntimeDraft) => call<RuntimeDto>('configure_runtime', payload),
+  startRuntime: () => call<RuntimeDto>('start_runtime'),
+  stopRuntime: () => call<RuntimeDto>('stop_runtime'),
+  setRuntimeEnabled: (enabled: boolean) => call<RuntimeDto>('set_runtime_enabled', enabled),
   listBodyPlugins: () => call<BodyPluginDto[]>('list_body_plugins'),
   setBodyPluginEnabled: (pluginId: string, enabled: boolean) =>
     call<boolean>('set_body_plugin_enabled', pluginId, enabled),
@@ -66,20 +54,5 @@ export const desktopApi = {
     if (!isTauri()) return call<string>('choose_workspace', initial)
     const selected = await open({ directory: true, multiple: false, ...(initial ? { defaultPath: initial } : {}) })
     return typeof selected === 'string' ? selected : ''
-  },
-  updateCheckState: () => call<UpdateCheckStateDto>('get_update_check_state'),
-  updateInstallImpact: () => call<UpdateInstallImpactDto>('get_update_install_impact'),
-  checkUpdate: (force = true) => call<ReleaseDto>('check_update', force),
-  startUpdate: () => call<UpdateStatusDto>('start_update'),
-  updateStatus: () => call<UpdateStatusDto>('update_status'),
-  installUpdate: (confirmedServices: string[]) =>
-    call<UpdateStatusDto>('install_update', confirmedServices),
-  async openExternal(url: string): Promise<boolean> {
-    if (!isTauri()) {
-      window.open(url, '_blank', 'noopener,noreferrer')
-      return true
-    }
-    await openUrl(url)
-    return true
   },
 }

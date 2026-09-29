@@ -5,7 +5,7 @@ import { DesktopCommandRouter, type ControlPlaneOptions, type RuntimeSnapshot } 
 function fixture() {
   let running = true;
   const snapshot = (): RuntimeSnapshot => ({
-    serverId: "default",
+    runtimeId: "default",
     name: "Pi MCP Runtime",
     workspace: "/workspace",
     host: "127.0.0.1",
@@ -47,19 +47,18 @@ function fixture() {
 }
 
 describe("DesktopCommandRouter", () => {
-  it("projects the Pi runtime into the reused desktop bootstrap contract", async () => {
+  it("returns the singleton Pi runtime from bootstrap", async () => {
     const { router } = fixture();
     const result = await router.dispatch({ method: "bootstrap", args: [] });
     expect(result).toMatchObject({
       version: "0.1.0",
-      selected_server_id: "default",
-      servers: [{ server_id: "default", running: true }],
+      runtime: { runtime_id: "default", running: true },
     });
   });
 
   it("stops the runtime without stopping the control plane", async () => {
     const { options, router } = fixture();
-    const result = await router.dispatch({ method: "stop_server", args: ["default"] });
+    const result = await router.dispatch({ method: "stop_runtime", args: [] });
     expect(options.runtime.stop).toHaveBeenCalledOnce();
     expect(result).toMatchObject({ running: false });
   });

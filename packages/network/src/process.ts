@@ -7,6 +7,8 @@ export class ManagedProcess {
   readonly #logger: PluginLogger;
   #child: ChildProcessWithoutNullStreams | undefined;
   #listeners = new Set<(line: string) => void>();
+  #error: Error | undefined;
+  #errorListeners = new Set<(error: Error) => void>();
 
   constructor(logger: PluginLogger) {
     this.#logger = logger;
@@ -18,33 +20,51 @@ export class ManagedProcess {
 
   start(executable: string, args: readonly string[], label: string): void {
     if (this.running) throw new Error(`${label} is already running`);
+    this.#error = undefined;
     this.#child = spawn(executable, [...args], {
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     });
-    this.#child.once("error", (error) => this.#emit(`${label} spawn error: ${error.message}`));
+    this.#child.once("error", (error) => {
+      const failure = new Error(`${label} spawn error: ${error.message}`, { cause: error });
+      this.#error = failure;
+      this.#logger.log("error", failure.message);
+      for (const listener of this.#errorListeners) listener(failure);
+    });
     this.#read(this.#child.stdout, label);
     this.#read(this.#child.stderr, label);
   }
 
   waitFor(predicate: (line: string) => boolean, timeoutMs: number, description: string): Promise<string> {
+    if (this.#error) return Promise.reject(this.#error);
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
+      const child = this.#child;
+      const cleanup = () => {
+        clearTimeout(timeout);
         this.#listeners.delete(onLine);
+        this.#errorListeners.delete(onError);
+        child?.off("exit", onExit);
+      };
+      const timeout = setTimeout(() => {
+        cleanup();
         reject(new Error(`Timed out waiting for ${description}`));
       }, timeoutMs);
       const onLine = (line: string) => {
         if (!predicate(line)) return;
-        clearTimeout(timeout);
-        this.#listeners.delete(onLine);
+        cleanup();
         resolve(line);
       };
-      this.#listeners.add(onLine);
-      this.#child?.once("exit", (code) => {
-        clearTimeout(timeout);
-        this.#listeners.delete(onLine);
+      const onError = (error: Error) => {
+        cleanup();
+        reject(error);
+      };
+      const onExit = (code: number | null) => {
+        cleanup();
         reject(new Error(`Network process exited before ${description}; code=${code ?? "signal"}`));
-      });
+      };
+      this.#listeners.add(onLine);
+      this.#errorListeners.add(onError);
+      child?.once("exit", onExit);
     });
   }
 
