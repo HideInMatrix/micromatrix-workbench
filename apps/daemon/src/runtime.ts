@@ -223,7 +223,11 @@ export class RuntimeSupervisor implements RuntimeControl {
   }
 
   #assertSecuredExposure(): void {
+    const loopbackHost = this.#config.host === "localhost"
+      || this.#config.host === "::1"
+      || /^127\./.test(this.#config.host);
     const localOnly = this.#config.network.provider === "external"
+      && loopbackHost
       && (!this.#config.network.publicUrl || /localhost|127\.0\.0\.1|\[::1\]/.test(this.#config.network.publicUrl));
     if (!localOnly && !this.#config.oauthPassword && !this.#config.authToken) {
       throw new Error("Public tunnel exposure requires an OAuth password or MICROMATRIX_AUTH_TOKEN");

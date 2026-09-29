@@ -1,110 +1,79 @@
 # MicroMatrix Pi MCP Agent
 
-以 Pi `AgentTool` / Extension 为本地执行身体、网页 AI 模型为推理大脑的 MCP 服务。核心代码使用 TypeScript 7，控制台使用 Vite 8 + Vue，桌面壳使用 Tauri 2。
+把网页 AI 模型作为推理端，把 Pi 工具作为本地执行端：
 
-## 当前能力
+```text
+Web AI → OAuth MCP → approval policy → Pi BodyPlugin → local workspace
+```
 
-- Streamable HTTP MCP：`/mcp`
-- OAuth 2.0：Protected Resource Metadata、Authorization Server Metadata、DCR、Authorization Code + PKCE、Refresh Token、Revocation
-- 本地审批策略：`safe` / `trusted` / `dangerous`，支持单次与会话授权，敏感参数脱敏
-- Pi 功能插件：必需的 Workspace Tools、可选 Shell Tool
-- 网络 Provider：External URL、Cloudflare Tunnel、ngrok、FRP、Tailscale Funnel
-- 本地控制面：服务状态、插件开关、OAuth、审批模式、Tunnel 配置和日志
-- 发布形式：内嵌静态 Web 的单文件 Node SEA 服务，以及携带该 sidecar 的 Tauri 2 应用
+本地服务不运行第二个模型循环。当前 BodyPlugin 提供 Workspace Tools（必需）和 Shell Tool（可选）；网络层支持 External、Cloudflare、ngrok、FRP 与 Tailscale Funnel。
 
-远端模型只负责推理和 MCP tool selection；本地进程不再运行第二套 LLM loop。
+## 开发运行
 
-## 版本
-
-- Node.js `>=22.19`
-- TypeScript `7.0.2`
-- Vite `8.3.1`
-- Tauri `2.12.0`
-- Pi `0.87.1`
-- MCP TypeScript SDK `1.30.1`
-
-## 开发
+要求：Node.js `>=22.19`。运行 Tauri 还需要 Rust `>=1.90`。
 
 ```bash
+npm install
 cp .env.example .env.local
-npm install --ignore-scripts
 npm run check
-```
-
-只启动本地服务：
-
-```bash
-npm run dev
-# 控制台：http://127.0.0.1:8233
-# MCP：http://127.0.0.1:8234/mcp
-```
-
-启动 Vite 控制台和本地服务：
-
-```bash
 npm run dev:desktop
 ```
 
-启动 Tauri 2 开发窗口（需 Rust stable）：
+`dev:desktop` 同时启动：
+
+- Vite UI：`http://127.0.0.1:5173`
+- 本地控制 API：`http://127.0.0.1:8233`
+- MCP：`http://127.0.0.1:8234/mcp`
+
+`npm run dev` 只启动控制 API 和 MCP，不启动 Vite UI。Tauri 开发窗口使用：
 
 ```bash
 npm run tauri:dev
 ```
 
-## OAuth 接入网页 MCP 客户端
+## MCP 认证
 
-在 UI 或 `.env.local` 中设置 `MICROMATRIX_OAUTH_PASSWORD`。客户端连接公开的 `https://<host>/mcp` 后会按标准发现：
+本机回环地址可以无认证运行。需要通过 Tunnel 或非回环地址公开时，必须配置以下任一项，否则 Runtime 拒绝启动：
 
-- `/.well-known/oauth-protected-resource/mcp`
-- `/.well-known/oauth-authorization-server`
-- `/register`
-- `/authorize`
-- `/token`
-- `/revoke`
+- `MICROMATRIX_OAUTH_PASSWORD`：供网页 MCP 客户端使用的 OAuth 2.0 + DCR + PKCE 流程。
+- `MICROMATRIX_AUTH_TOKEN`：兼容旧客户端的静态 Bearer Token。
 
-实现只接受 PKCE `S256`。DCR client、authorization code 和 token 当前保存在进程内存中，服务重启后失效。公网 Tunnel 若既未配置 OAuth 密码，也未配置静态 `MICROMATRIX_AUTH_TOKEN`，Runtime 会拒绝启动。
+客户端连接地址为 `https://<public-host>/mcp`。OAuth client、authorization code 和 token 只保存在进程内存中，Runtime 重启后失效。
 
-## 审批模式
+## 执行审批
 
-| 模式 | 只读 Workspace | Workspace 写入 | Shell / 未知工具 |
+| 模式 | `read/grep/find/ls` | `edit/write` | `bash` / 未知工具 |
 | --- | --- | --- | --- |
-| `safe` | 自动允许 | 本地弹窗审批 | 本地弹窗审批 |
-| `trusted` | 自动允许 | 自动允许 | 本地弹窗审批 |
+| `safe` | 自动允许 | 本地审批 | 本地审批 |
+| `trusted` | 自动允许 | 自动允许 | 本地审批 |
 | `dangerous` | 自动允许 | 自动允许 | 自动允许 |
 
-审批发生在 Pi tool 真正执行之前。`dangerous` 只应在隔离且可信的 Workspace 中使用。
+审批发生在 `AgentTool.execute` 之前。会话授权在 Runtime 停止或重启时清空。Workspace 是 Pi tools 的默认工作目录，不是操作系统沙箱；Pi 支持绝对路径，`safe` 也不等于文件系统隔离。`dangerous` 只适用于操作系统层面已经隔离的环境。
 
-## Tunnel Provider
+## 网络 Provider
 
-- `external`：不启动子进程，直接发布配置的 URL；默认仅本机地址。
-- `cloudflare`：Quick Tunnel 或 Named Tunnel。
-- `ngrok`：可使用临时域名或配置固定公网 URL。
-- `frp`：运行现有 `frpc` 配置文件，必须提供公网 URL。
-- `tailscale`：通过 `tailscale funnel --bg --yes` 发布，必须提供 Funnel 公网 URL。
+- `external`：不启动 Tunnel 进程，使用配置的 URL。
+- `cloudflare`：Cloudflare Quick Tunnel 或 Named Tunnel。
+- `ngrok`：临时域名或固定域名。
+- `frp`：运行已有的 `frpc` 配置；需要填写公网 URL。
+- `tailscale`：运行 Tailscale Funnel；需要填写 Funnel 公网 URL。
 
-网络 Provider 只负责暴露本地服务，不参与 MCP tool 执行。
+Provider 只发布本地 MCP origin，不参与工具执行。完整环境变量见 [`.env.example`](.env.example)。
 
-## 构建与打包
+## 构建
 
 ```bash
-# Vite 静态资源 + daemon 打成可直接运行的 CJS 服务包
-npm run build:service
-
-# 当前平台 Node SEA，可作为 Tauri externalBin
-npm run build:sidecar
-
-# Tauri 2 安装包/应用
-npm run tauri:build
+npm run build:service  # Node 可运行的单文件 CJS，内嵌静态 UI
+npm run build:sidecar  # 当前平台的 Node SEA sidecar
+npm run tauri:build    # Tauri 2 应用与安装包
 ```
 
-产物：
+主要产物：
 
 - `dist/micromatrix-service.cjs`
-- `src-tauri/binaries/micromatrix-service-<target-triple>`（生成文件，不提交）
+- `src-tauri/binaries/micromatrix-service-<target-triple>`
 - `src-tauri/target/release/bundle/`
 
-## 配置持久化
+UI 配置默认写入 `~/.micromatrix-pi-mcp/runtime.json`。关闭“保存敏感信息”后，OAuth 密码与 Tunnel Token 不写入磁盘。
 
-UI 保存到 `~/.micromatrix-pi-mcp/runtime.json`，或由 `MICROMATRIX_CONFIG_FILE` 改写路径。文件以 `0600` 原子写入；关闭“保存敏感信息”后，不持久化 OAuth 密码和 Token。环境变量优先于磁盘配置。
-
-架构边界和决策见 [`docs/architecture.md`](docs/architecture.md)。
+开发约束见 [`docs/architecture.md`](docs/architecture.md)，第三方许可证见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。依赖版本以 `package.json`、`package-lock.json` 和 `src-tauri/Cargo.lock` 为准。

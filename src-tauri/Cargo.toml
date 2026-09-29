@@ -3,7 +3,6 @@ name = "micromatrix-pi-mcp"
 version = "0.1.0"
 description = "Desktop control surface for the MicroMatrix Pi MCP runtime"
 authors = ["MicroMatrix"]
-license = "MIT"
 repository = ""
 edition = "2024"
 rust-version = "1.90"

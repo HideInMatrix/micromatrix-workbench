@@ -8,6 +8,3 @@
 - License: MIT
 
 The complete upstream license is stored at `third_party/pi/LICENSE`.
-
-Other npm dependency licenses are recorded by the lockfile and will be emitted
-into the distributable notice bundle during packaging.

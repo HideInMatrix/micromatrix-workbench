@@ -118,10 +118,15 @@ export class ApprovalPolicy implements ToolExecutionGate {
   }
 
   #redact(args: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(args)) {
-      result[key] = /token|password|secret|key/i.test(key) ? "[REDACTED]" : value;
-    }
-    return result;
+    return this.#redactValue(args) as Readonly<Record<string, unknown>>;
+  }
+
+  #redactValue(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map((item) => this.#redactValue(item));
+    if (!value || typeof value !== "object") return value;
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+      key,
+      /token|password|secret|key/i.test(key) ? "[REDACTED]" : this.#redactValue(item),
+    ]));
   }
 }

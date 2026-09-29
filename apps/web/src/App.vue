@@ -74,7 +74,7 @@ const {
         <pre class="mt-1.5 mb-0 max-h-[220px] overflow-auto whitespace-pre-wrap rounded-[7px] border border-border bg-secondary p-2.5 text-[10px] leading-4 text-foreground [overflow-wrap:anywhere]">{{ permissionArguments }}</pre>
       </div>
 
-      <p class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">“仅允许本次”只作用于当前调用；“本次服务会话允许”在 Runtime 停止或重启前自动放行同类权限。Workspace 边界不会因此扩大。</p>
+      <p class="mt-3 mb-0 text-[10px] leading-[15px] text-muted-foreground">“仅允许本次”只作用于当前调用；“本次服务会话允许”在 Runtime 停止或重启前自动放行同类权限。审批模式不是操作系统沙箱。</p>
 
       <footer class="mt-4 flex justify-end gap-2">
         <Button variant="outline" size="sm" class="min-w-[88px]" :disabled="permissionResponding" @click="respondPermission('deny')">拒绝</Button>

@@ -1,50 +1,46 @@
-# Architecture decisions
+# Architecture constraints
 
-## AD-001: one brain
+这些约束用于阻止代码重新退化成“两套 Agent”或把安全边界散落到 UI、Tunnel 和工具实现中。
 
-The remote/web AI model owns reasoning and tool selection. The local process does not call an LLM. Pi supplies its tool implementations, extension contract and execution behavior. This prevents two competing agent loops.
+## One brain
 
-## AD-002: plugins are the unit of change
+网页 AI 模型负责推理与 tool selection。本地 Runtime 不调用模型，只暴露和执行 Pi `AgentTool`。
 
-Every execution capability is a `BodyPlugin`. A plugin owns its tools and may install lifecycle behavior through Pi's official `ExtensionAPI`.
+## BodyPlugin owns execution capabilities
+
+每项本地能力必须由 `BodyPlugin` 提供。插件创建 Pi tools，并可通过 Pi `ExtensionAPI` 安装生命周期行为。
 
 ```text
-BodyPlugin -> Pi AgentTool -> approval gate -> MCP tool
-           -> Pi ExtensionAPI (optional)
+BodyPlugin → Pi AgentTool → approval gate → MCP tool
+           → Pi ExtensionAPI (optional)
 ```
 
-MCP transport, Tunnel Provider and UI code do not implement filesystem or shell operations.
+MCP transport、Tunnel Provider 和 UI 不得实现文件、Shell 等业务工具。外部程序路径、版本检测和权限也应归属于使用它的插件，不建立全局“工具链”层。
 
-## AD-003: public transport is not execution
+## Approval before execution
 
-The MCP service binds locally. Network Provider plugins only publish that origin and never inspect or execute MCP calls. Public exposure fails closed unless OAuth or a compatibility bearer token is configured.
+MCP adapter 必须先调用 approval policy，再调用 `AgentTool.execute`。审批只允许本次调用或当前 Runtime 会话。传给 UI 的敏感参数必须递归脱敏。
 
-## AD-004: OAuth state is ephemeral
+Workspace 只是 Pi tools 的默认 cwd，不是安全边界。需要文件系统隔离时，应在 BodyPlugin 的 operations 层或操作系统沙箱中实现，不能靠 UI 文案或审批模式暗示隔离已经存在。
 
-DCR clients, codes, access tokens and refresh tokens remain in process memory. Only the optional local consent password may be persisted, and only when the operator enables secret persistence. Authorization Code requires PKCE S256.
+## Separate control and data planes
 
-## AD-005: approval precedes Pi execution
+- `/mcp` 是网页 AI 客户端使用的数据面。
+- loopback control API 是 Vite/Tauri 使用的控制面，负责配置和 Runtime 生命周期。
+- 一个桌面实例只管理一个 Runtime。
 
-The MCP adapter calls the approval policy before `AgentTool.execute`. Read-only tools are automatically allowed; write, shell and unknown/open-world operations follow the selected mode. UI approval receives redacted arguments and cannot expand Workspace path enforcement.
+控制面必须监听回环地址。MCP 默认监听回环地址；任何非回环监听或公网 Tunnel 都必须配置 OAuth 或兼容 Bearer Token。
 
-## AD-006: local control plane
+## Network providers do not execute tools
 
-The Vite/Tauri UI talks only to a loopback control API. The control plane owns configuration and lifecycle, while `/mcp` remains the protocol endpoint for web AI clients. A desktop instance manages one Runtime to keep lifecycle and persisted secrets unambiguous.
+External、Cloudflare、ngrok、FRP 和 Tailscale Provider 只把本地 MCP origin 发布出去，不解析 MCP 请求，也不执行工具。
 
-## AD-007: reproducible packaging
+## Secrets and OAuth state
 
-`build:service` compiles project references, builds Vite, embeds the static files, and emits one CJS service bundle. `build:sidecar` injects that bundle into a Node SEA binary for the current target. Tauri 2 ships the SEA as an external sidecar and terminates it when the app exits.
+DCR clients、authorization codes、access tokens 和 refresh tokens 只存在内存中。只有操作者明确开启本地敏感信息保存时，OAuth 密码和 Tunnel Token 才能写入 `0600` 配置文件。Authorization Code 必须使用 PKCE S256。
 
-## AD-008: release pinning
+## Reproducible packaging
 
-Pi is pinned to release `v0.87.1` instead of tracking `main`. Upgrades require tool-schema and behavior conformance tests.
+`build:service` 编译 TypeScript、构建 Vite、内嵌静态资源并生成单文件 CJS。`build:sidecar` 把它注入当前平台的 Node SEA。Tauri 以 external sidecar 启动服务，并在应用退出时终止它。
 
-## Completed phase
-
-1. Pi Workspace/Shell plugin registry.
-2. Streamable HTTP MCP adapter.
-3. OAuth metadata, DCR, PKCE, token refresh and revocation.
-4. Tool approval and dangerous-operation modes.
-5. External, Cloudflare, ngrok, FRP and Tailscale Providers.
-6. Vite service state, plugin controls and Tunnel configuration.
-7. Embedded static UI, Node SEA sidecar and Tauri 2 desktop shell.
+Pi 包使用精确版本，不跟踪上游 `main`。升级必须重新运行类型、tool schema、审批和打包回归。
