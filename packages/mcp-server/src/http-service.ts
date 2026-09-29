@@ -2,6 +2,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { isIP } from "node:net";
 
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import type { ToolExecutionGate } from "@micromatrix/approval";
+import type { McpAuthorization } from "@micromatrix/oauth";
 import type { PluginLogger, PluginRegistry } from "@micromatrix/plugin-kit";
 
 import { createProtocolServer } from "./adapter.js";
@@ -9,7 +11,8 @@ import { createProtocolServer } from "./adapter.js";
 export interface McpHttpServiceOptions {
   readonly host: string;
   readonly port: number;
-  readonly authToken: string | undefined;
+  readonly authorization: McpAuthorization;
+  readonly executionGate?: ToolExecutionGate;
   readonly registry: PluginRegistry;
   readonly logger: PluginLogger;
 }
@@ -29,8 +32,8 @@ export class McpHttpService {
   readonly #server;
 
   constructor(options: McpHttpServiceOptions) {
-    if (!isLoopback(options.host) && !options.authToken) {
-      throw new Error("Non-loopback MCP binding requires MICROMATRIX_AUTH_TOKEN");
+    if (!isLoopback(options.host) && !options.authorization.protectsRequests) {
+      throw new Error("Non-loopback MCP binding requires OAuth or a static Bearer token");
     }
     this.#options = options;
     this.#server = createServer((request, response) => void this.#handle(request, response));
@@ -67,6 +70,7 @@ export class McpHttpService {
 
   async #handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? "/", this.localBaseUrl);
+    if (await this.#options.authorization.handle(request, response, url)) return;
     if (url.pathname === "/healthz") {
       writeJson(response, 200, {
         ok: true,
@@ -81,8 +85,8 @@ export class McpHttpService {
       return;
     }
 
-    if (!this.#authorized(request)) {
-      response.setHeader("www-authenticate", "Bearer");
+    if (!await this.#authorized(request)) {
+      response.setHeader("www-authenticate", this.#options.authorization.challenge(request, "/mcp"));
       writeJson(response, 401, { error: "unauthorized" });
       return;
     }
@@ -98,7 +102,7 @@ export class McpHttpService {
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     } as never);
-    const protocol = createProtocolServer(this.#options.registry);
+    const protocol = createProtocolServer(this.#options.registry, this.#options.executionGate);
     try {
       await protocol.connect(
         transport as unknown as Parameters<typeof protocol.connect>[0],
@@ -114,9 +118,7 @@ export class McpHttpService {
     }
   }
 
-  #authorized(request: IncomingMessage): boolean {
-    const expected = this.#options.authToken;
-    if (!expected) return true;
-    return request.headers.authorization === `Bearer ${expected}`;
+  async #authorized(request: IncomingMessage): Promise<boolean> {
+    return this.#options.authorization.authorize(request);
   }
 }

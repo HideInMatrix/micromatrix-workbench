@@ -7,9 +7,13 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "references": [
+    { "path": "../../packages/approval" },
     { "path": "../../packages/plugin-kit" },
+    { "path": "../../packages/control-plane" },
     { "path": "../../packages/mcp-server" },
     { "path": "../../packages/network" },
+    { "path": "../../packages/oauth" },
+    { "path": "../../packages/web-assets" },
     { "path": "../../plugins/workspace" },
     { "path": "../../plugins/shell" }
   ],

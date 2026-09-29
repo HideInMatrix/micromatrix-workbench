@@ -6,6 +6,10 @@
     "outDir": "dist",
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
-  "references": [{ "path": "../plugin-kit" }],
+  "references": [
+    { "path": "../plugin-kit" },
+    { "path": "../oauth" },
+    { "path": "../approval" }
+  ],
   "include": ["src/**/*.ts"]
 }

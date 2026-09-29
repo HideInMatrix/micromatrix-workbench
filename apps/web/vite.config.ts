@@ -1,14 +1,33 @@
-import { resolve } from "node:path";
-import { defineConfig } from "vite";
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+import UnoCSS from 'unocss/vite'
+
+const rootDir = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
-  root: resolve(import.meta.dirname),
-  build: {
-    outDir: "dist",
-    emptyOutDir: true,
+  root: rootDir,
+  base: './',
+  plugins: [
+    // Keep VDOM mode on Vue 3.5. Components are intentionally written in a
+    // Vapor-compatible style so this can be switched after Vue 3.6 stable.
+    vue(),
+    UnoCSS({ configFile: path.resolve(rootDir, 'uno.config.ts') }),
+  ],
+  resolve: {
+    alias: {
+      '@': path.resolve(rootDir, './src'),
+    },
   },
   server: {
-    host: "127.0.0.1",
+    host: '127.0.0.1',
     port: 5173,
+    strictPort: true,
   },
-});
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    sourcemap: false,
+  },
+})

@@ -13,3 +13,4 @@ coverage/
 .vite/
 .cache/
 .tmp/
+src-tauri/binaries/

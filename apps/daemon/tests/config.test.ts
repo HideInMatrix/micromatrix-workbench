@@ -11,13 +11,18 @@ describe("daemon configuration", () => {
       MICROMATRIX_PUBLIC_URL: "https://body.example.com",
       MICROMATRIX_TUNNEL_TOKEN: "secret",
       MICROMATRIX_ENABLE_SHELL: "true",
+      MICROMATRIX_CONFIG_FILE: "/tmp/micromatrix-test-missing.json",
     });
 
     expect(config).toMatchObject({
       workspace: "/tmp",
       port: 9000,
-      enableShell: true,
-      network: { provider: "cloudflare", publicUrl: "https://body.example.com" },
+      plugins: { shell: true },
+      network: {
+        provider: "cloudflare",
+        publicUrl: "https://body.example.com",
+        options: { tunnel_token: "secret" },
+      },
     });
   });
 
@@ -26,8 +31,9 @@ describe("daemon configuration", () => {
       AGENT_RUNTIME_WORKSPACE: "/tmp",
       AGENT_RUNTIME_NETWORK_PROVIDER: "external",
       AGENT_RUNTIME_SERVER_URL: "https://legacy.example.com",
+      MICROMATRIX_CONFIG_FILE: "/tmp/micromatrix-test-missing.json",
     });
-    expect(config.network).toEqual({
+    expect(config.network).toMatchObject({
       provider: "external",
       publicUrl: "https://legacy.example.com",
     });

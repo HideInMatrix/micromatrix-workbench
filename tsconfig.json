@@ -3,6 +3,10 @@
   "references": [
     { "path": "packages/plugin-kit" },
     { "path": "packages/pi-body" },
+    { "path": "packages/approval" },
+    { "path": "packages/web-assets" },
+    { "path": "packages/oauth" },
+    { "path": "packages/control-plane" },
     { "path": "packages/mcp-server" },
     { "path": "packages/network" },
     { "path": "plugins/workspace" },

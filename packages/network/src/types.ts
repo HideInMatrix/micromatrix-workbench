@@ -28,6 +28,23 @@ export interface CloudflareProviderOptions {
   readonly tunnelToken: string | undefined;
 }
 
+export interface FrpProviderOptions {
+  readonly executable: string;
+  readonly configFile: string;
+  readonly publicUrl: string;
+}
+
+export interface NgrokProviderOptions {
+  readonly executable: string;
+  readonly publicUrl: string | undefined;
+  readonly authToken: string | undefined;
+}
+
+export interface TailscaleProviderOptions {
+  readonly executable: string;
+  readonly publicUrl: string;
+}
+
 export function normalizeBaseUrl(value: string): string {
   const url = new URL(value.trim());
   if (url.protocol !== "http:" && url.protocol !== "https:") {
