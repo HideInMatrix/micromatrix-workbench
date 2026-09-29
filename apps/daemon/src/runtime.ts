@@ -103,8 +103,14 @@ export class RuntimeSupervisor implements RuntimeControl {
 
   async stop(): Promise<void> {
     if (this.#transition) await this.#transition;
-    if (!this.#running) return;
+    if (!this.#running) {
+      this.approval.resetSession();
+      return;
+    }
     this.#transition = (async () => {
+      // Release pending tool calls before closing the HTTP service; otherwise
+      // server.close() can wait on an approval that the stopped UI cannot answer.
+      this.approval.resetSession();
       await this.#provider.stop().catch((error) => this.#logger.log("warn", "Tunnel stop failed", { error: String(error) }));
       await this.#service.stop();
       this.#running = false;

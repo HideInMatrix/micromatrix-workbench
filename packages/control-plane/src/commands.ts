@@ -174,6 +174,9 @@ export class DesktopCommandRouter {
           permission: request.permission,
           reason: request.reason,
           arguments: request.arguments,
+          client_id: request.context.clientId ?? "",
+          client_name: request.context.clientName ?? request.context.subjectId,
+          authentication: request.context.authentication,
           created_at: request.createdAt,
           expires_at: request.expiresAt,
         }));

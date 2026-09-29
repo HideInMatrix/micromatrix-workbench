@@ -19,7 +19,7 @@ MCP transport、Tunnel Provider 和 UI 不得实现文件、Shell 等业务工�
 
 ## Approval before execution
 
-MCP adapter 必须先调用 approval policy，再调用 `AgentTool.execute`。审批只允许本次调用或当前 Runtime 会话。传给 UI 的敏感参数必须递归脱敏。
+MCP adapter 必须先调用 approval policy，再调用 `AgentTool.execute`。审批只允许本次调用或当前认证客户端会话；会话授权键必须包含 OAuth authorization grant session，不能只按 permission 全局缓存。refresh token 轮换保持原 session，Runtime 停止时清空全部授权。传给 UI 的敏感参数必须递归脱敏。
 
 Workspace Tools 必须在 BodyPlugin 的 operations 层执行 canonical boundary 检查，拒绝指向外部的绝对路径、`..`、symlink 和 junction 逃逸。路径检查不能散落到 UI 或 MCP transport。
 

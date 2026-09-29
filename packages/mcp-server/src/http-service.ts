@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { isIP } from "node:net";
 
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { ToolExecutionGate } from "@micromatrix/approval";
+import type { ToolExecutionContext, ToolExecutionGate } from "@micromatrix/approval";
 import type { McpAuthorization } from "@micromatrix/oauth";
 import type { PluginLogger, PluginRegistry } from "@micromatrix/plugin-kit";
 
@@ -85,7 +85,8 @@ export class McpHttpService {
       return;
     }
 
-    if (!await this.#authorized(request)) {
+    const principal = await this.#options.authorization.authorize(request, "/mcp");
+    if (!principal) {
       response.setHeader("www-authenticate", this.#options.authorization.challenge(request, "/mcp"));
       writeJson(response, 401, { error: "unauthorized" });
       return;
@@ -102,7 +103,14 @@ export class McpHttpService {
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     } as never);
-    const protocol = createProtocolServer(this.#options.registry, this.#options.executionGate);
+    const executionContext: ToolExecutionContext = {
+      authentication: principal.authentication,
+      subjectId: principal.subjectId,
+      sessionId: principal.sessionId,
+      ...(principal.clientId ? { clientId: principal.clientId } : {}),
+      ...(principal.clientName ? { clientName: principal.clientName } : {}),
+    };
+    const protocol = createProtocolServer(this.#options.registry, this.#options.executionGate, executionContext);
     try {
       await protocol.connect(
         transport as unknown as Parameters<typeof protocol.connect>[0],
@@ -116,9 +124,5 @@ export class McpHttpService {
     } finally {
       await protocol.close().catch(() => undefined);
     }
-  }
-
-  async #authorized(request: IncomingMessage): Promise<boolean> {
-    return this.#options.authorization.authorize(request);
   }
 }

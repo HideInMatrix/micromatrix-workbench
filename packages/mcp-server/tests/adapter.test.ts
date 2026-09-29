@@ -62,7 +62,13 @@ describe("Pi to MCP adapter", () => {
       }],
     });
     const approval = new ApprovalPolicy("safe", 1_000);
-    const server = createProtocolServer(registry, approval);
+    const server = createProtocolServer(registry, approval, {
+      authentication: "oauth",
+      subjectId: "oauth:test-client",
+      sessionId: "test-session",
+      clientId: "test-client",
+      clientName: "Test MCP Client",
+    });
     const client = new Client({ name: "test", version: "1.0.0" });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await server.connect(serverTransport);
@@ -70,6 +76,10 @@ describe("Pi to MCP adapter", () => {
 
     const pending = client.callTool({ name: "write", arguments: { path: "result.txt" } });
     await vi.waitFor(() => expect(approval.requests()).toHaveLength(1));
+    expect(approval.requests()[0]?.context).toMatchObject({
+      clientId: "test-client",
+      sessionId: "test-session",
+    });
     expect(executions).toBe(0);
     approval.respond(approval.requests()[0]?.requestId ?? "", "once");
     await expect(pending).resolves.toMatchObject({ content: [{ type: "text", text: "written" }] });

@@ -3,18 +3,32 @@ import { randomUUID } from "node:crypto";
 export type ApprovalMode = "safe" | "trusted" | "dangerous";
 export type ApprovalDecision = "deny" | "once" | "session";
 
+export interface ToolExecutionContext {
+  readonly authentication: "anonymous" | "static_bearer" | "oauth";
+  readonly subjectId: string;
+  readonly sessionId: string;
+  readonly clientId?: string;
+  readonly clientName?: string;
+}
+
 export interface ToolApprovalRequest {
   readonly requestId: string;
   readonly toolName: string;
   readonly permission: "workspace_write" | "shell_execute" | "open_world";
   readonly reason: string;
   readonly arguments: Readonly<Record<string, unknown>>;
+  readonly context: ToolExecutionContext;
   readonly createdAt: number;
   readonly expiresAt: number;
 }
 
 export interface ToolExecutionGate {
-  authorize(toolName: string, args: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<void>;
+  authorize(
+    toolName: string,
+    args: Readonly<Record<string, unknown>>,
+    context?: ToolExecutionContext,
+    signal?: AbortSignal,
+  ): Promise<void>;
 }
 
 interface PendingApproval {
@@ -25,6 +39,12 @@ interface PendingApproval {
 
 const READ_ONLY = new Set(["read", "grep", "find", "ls"]);
 const WRITES = new Set(["edit", "write"]);
+const LOCAL_CONTEXT: ToolExecutionContext = Object.freeze({
+  authentication: "anonymous",
+  subjectId: "local-anonymous",
+  sessionId: "local-anonymous",
+  clientName: "Local client",
+});
 
 export class ApprovalPolicy implements ToolExecutionGate {
   #mode: ApprovalMode;
@@ -56,15 +76,20 @@ export class ApprovalPolicy implements ToolExecutionGate {
     this.#pending.delete(requestId);
     clearTimeout(pending.timer);
     if (decision === "session") {
-      this.#sessionAllowed.add(pending.request.permission);
+      this.#sessionAllowed.add(this.#sessionKey(pending.request.context, pending.request.permission));
     }
     pending.resolve(decision !== "deny");
     return true;
   }
 
-  async authorize(toolName: string, args: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<void> {
+  async authorize(
+    toolName: string,
+    args: Readonly<Record<string, unknown>>,
+    context: ToolExecutionContext = LOCAL_CONTEXT,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const permission = this.#permission(toolName);
-    if (!permission || this.#allowed(permission)) return;
+    if (!permission || this.#allowed(permission, context)) return;
     const request: ToolApprovalRequest = {
       requestId: randomUUID(),
       toolName,
@@ -75,6 +100,7 @@ export class ApprovalPolicy implements ToolExecutionGate {
           ? "模型请求修改 Workspace 文件。"
           : "模型请求执行可访问外部环境的操作。",
       arguments: this.#redact(args),
+      context: Object.freeze({ ...context }),
       createdAt: Date.now() / 1_000,
       expiresAt: (Date.now() + this.#timeoutMs) / 1_000,
     };
@@ -96,6 +122,10 @@ export class ApprovalPolicy implements ToolExecutionGate {
   }
 
   dispose(): void {
+    this.resetSession();
+  }
+
+  resetSession(): void {
     for (const pending of this.#pending.values()) {
       clearTimeout(pending.timer);
       pending.resolve(false);
@@ -111,10 +141,14 @@ export class ApprovalPolicy implements ToolExecutionGate {
     return "open_world";
   }
 
-  #allowed(permission: ToolApprovalRequest["permission"]): boolean {
+  #allowed(permission: ToolApprovalRequest["permission"], context: ToolExecutionContext): boolean {
     if (this.#mode === "dangerous") return true;
-    if (this.#sessionAllowed.has(permission)) return true;
+    if (this.#sessionAllowed.has(this.#sessionKey(context, permission))) return true;
     return this.#mode === "trusted" && permission === "workspace_write";
+  }
+
+  #sessionKey(context: ToolExecutionContext, permission: ToolApprovalRequest["permission"]): string {
+    return `${context.sessionId}\u0000${permission}`;
   }
 
   #redact(args: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {

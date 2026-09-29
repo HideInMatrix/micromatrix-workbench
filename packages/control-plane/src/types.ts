@@ -74,6 +74,13 @@ export interface ApprovalRequestSnapshot {
   readonly permission: string;
   readonly reason: string;
   readonly arguments: Readonly<Record<string, unknown>>;
+  readonly context: {
+    readonly clientId?: string;
+    readonly clientName?: string;
+    readonly subjectId: string;
+    readonly sessionId: string;
+    readonly authentication: "anonymous" | "static_bearer" | "oauth";
+  };
   readonly createdAt: number;
   readonly expiresAt: number;
 }

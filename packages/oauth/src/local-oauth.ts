@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-import type { LocalOAuthOptions, McpAuthorization } from "./types.js";
+import type { LocalOAuthOptions, McpAuthorization, McpPrincipal } from "./types.js";
 
 interface ClientRecord {
   readonly client_id: string;
@@ -24,6 +24,7 @@ interface AuthorizationCode {
 
 interface TokenRecord {
   readonly clientId: string;
+  readonly sessionId: string;
   readonly scope: string;
   readonly resource: string | undefined;
   readonly expiresAt: number;
@@ -47,6 +48,16 @@ function publicOrigin(request: IncomingMessage): string {
   const forwardedHost = request.headers["x-forwarded-host"]?.toString().split(",")[0]?.trim();
   const host = forwardedHost || request.headers.host || "127.0.0.1";
   return `${protocol}://${host}`;
+}
+
+function normalizeResource(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return undefined;
+  }
 }
 
 function writeJson(response: ServerResponse, status: number, value: unknown): void {
@@ -98,6 +109,7 @@ export class LocalOAuthServer implements McpAuthorization {
   readonly #codes = new Map<string, AuthorizationCode>();
   readonly #accessTokens = new Map<string, TokenRecord>();
   readonly #refreshTokens = new Map<string, TokenRecord>();
+  readonly #staticSessionId: string;
 
   constructor(options: LocalOAuthOptions) {
     this.#options = {
@@ -105,6 +117,9 @@ export class LocalOAuthServer implements McpAuthorization {
       accessTokenTtlSeconds: options.accessTokenTtlSeconds ?? 3_600,
       refreshTokenTtlSeconds: options.refreshTokenTtlSeconds ?? 30 * 24 * 3_600,
     };
+    this.#staticSessionId = options.staticBearerToken
+      ? `static:${createHash("sha256").update(options.staticBearerToken).digest("hex").slice(0, 24)}`
+      : "static:disabled";
   }
 
   get oauthEnabled(): boolean {
@@ -115,18 +130,51 @@ export class LocalOAuthServer implements McpAuthorization {
     return this.oauthEnabled || Boolean(this.#options.staticBearerToken);
   }
 
-  async authorize(request: IncomingMessage): Promise<boolean> {
+  async authorize(request: IncomingMessage, resourcePath: string): Promise<McpPrincipal | undefined> {
     const authorization = request.headers.authorization;
-    if (!authorization?.startsWith("Bearer ")) return !this.#options.staticBearerToken && !this.oauthEnabled;
+    const expectedResource = normalizeResource(`${publicOrigin(request)}${resourcePath}`);
+    if (!authorization?.startsWith("Bearer ")) {
+      if (this.#options.staticBearerToken || this.oauthEnabled) return undefined;
+      return {
+        authentication: "anonymous",
+        subjectId: "local-anonymous",
+        sessionId: "local-anonymous",
+        clientName: "Local client",
+        scopes: ["mcp"],
+        ...(expectedResource ? { resource: expectedResource } : {}),
+      };
+    }
     const token = authorization.slice("Bearer ".length);
-    if (this.#options.staticBearerToken && sameSecret(token, this.#options.staticBearerToken)) return true;
+    if (this.#options.staticBearerToken && sameSecret(token, this.#options.staticBearerToken)) {
+      return {
+        authentication: "static_bearer",
+        subjectId: this.#staticSessionId,
+        sessionId: this.#staticSessionId,
+        clientName: "Static Bearer client",
+        scopes: ["mcp"],
+        ...(expectedResource ? { resource: expectedResource } : {}),
+      };
+    }
     const record = this.#accessTokens.get(token);
-    if (!record) return false;
+    if (!record) return undefined;
     if (record.expiresAt <= Date.now()) {
       this.#accessTokens.delete(token);
-      return false;
+      return undefined;
     }
-    return true;
+    const scopes = record.scope.split(/\s+/).filter(Boolean);
+    if (!scopes.includes("mcp")) return undefined;
+    const resource = record.resource ? normalizeResource(record.resource) : undefined;
+    if (record.resource && (!resource || resource !== expectedResource)) return undefined;
+    const client = this.#clients.get(record.clientId);
+    return {
+      authentication: "oauth",
+      subjectId: `oauth:${record.clientId}`,
+      sessionId: record.sessionId,
+      clientId: record.clientId,
+      clientName: client?.client_name ?? record.clientId,
+      scopes,
+      ...(resource ? { resource } : expectedResource ? { resource: expectedResource } : {}),
+    };
   }
 
   challenge(request: IncomingMessage, resourcePath: string): string {
@@ -271,7 +319,7 @@ export class LocalOAuthServer implements McpAuthorization {
         oauthError(response, 400, "invalid_grant", "Authorization code or PKCE verifier is invalid");
         return;
       }
-      this.#issueTokens(response, code.clientId, code.scope, code.resource);
+      this.#issueTokens(response, code.clientId, code.scope, code.resource, randomToken(18));
       return;
     }
     if (params.get("grant_type") === "refresh_token") {
@@ -282,17 +330,17 @@ export class LocalOAuthServer implements McpAuthorization {
         oauthError(response, 400, "invalid_grant", "Refresh token is invalid");
         return;
       }
-      this.#issueTokens(response, refresh.clientId, params.get("scope") || refresh.scope, refresh.resource);
+      this.#issueTokens(response, refresh.clientId, params.get("scope") || refresh.scope, refresh.resource, refresh.sessionId);
       return;
     }
     oauthError(response, 400, "unsupported_grant_type", "Use authorization_code or refresh_token");
   }
 
-  #issueTokens(response: ServerResponse, clientId: string, scope: string, resource: string | undefined): void {
+  #issueTokens(response: ServerResponse, clientId: string, scope: string, resource: string | undefined, sessionId: string): void {
     const accessToken = randomToken();
     const refreshToken = randomToken();
-    this.#accessTokens.set(accessToken, { clientId, scope, resource, expiresAt: Date.now() + this.#options.accessTokenTtlSeconds * 1_000 });
-    this.#refreshTokens.set(refreshToken, { clientId, scope, resource, expiresAt: Date.now() + this.#options.refreshTokenTtlSeconds * 1_000 });
+    this.#accessTokens.set(accessToken, { clientId, sessionId, scope, resource, expiresAt: Date.now() + this.#options.accessTokenTtlSeconds * 1_000 });
+    this.#refreshTokens.set(refreshToken, { clientId, sessionId, scope, resource, expiresAt: Date.now() + this.#options.refreshTokenTtlSeconds * 1_000 });
     writeJson(response, 200, {
       access_token: accessToken,
       token_type: "Bearer",

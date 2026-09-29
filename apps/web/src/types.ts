@@ -69,6 +69,9 @@ export interface PermissionRequestDto {
   permission: string
   reason: string
   arguments: Record<string, unknown> | unknown[]
+  client_id: string
+  client_name: string
+  authentication: 'anonymous' | 'static_bearer' | 'oauth'
   created_at: number
   expires_at: number
 }

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
-import type { ToolExecutionGate } from "@micromatrix/approval";
+import type { ToolExecutionContext, ToolExecutionGate } from "@micromatrix/approval";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   CallToolRequestSchema,
@@ -30,7 +30,11 @@ export function toMcpResult(result: AgentToolResult): CallToolResult {
   };
 }
 
-export function createProtocolServer(registry: PluginRegistry, gate?: ToolExecutionGate): Server {
+export function createProtocolServer(
+  registry: PluginRegistry,
+  gate?: ToolExecutionGate,
+  executionContext?: ToolExecutionContext,
+): Server {
   const server = new Server(
     { name: "micromatrix-pi-body", version: "0.1.0" },
     { capabilities: { tools: { listChanged: false } } },
@@ -50,7 +54,7 @@ export function createProtocolServer(registry: PluginRegistry, gate?: ToolExecut
     }
 
     try {
-      await gate?.authorize(request.params.name, request.params.arguments ?? {}, extra.signal);
+      await gate?.authorize(request.params.name, request.params.arguments ?? {}, executionContext, extra.signal);
       const result = await tool.execute(
         randomUUID(),
         request.params.arguments ?? {},

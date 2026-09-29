@@ -11,11 +11,11 @@ interface CapturedResponse {
   body: string
 }
 
-function request(url: string, method = 'GET', body = ''): IncomingMessage {
+function request(url: string, method = 'GET', body = '', headers: Record<string, string> = {}): IncomingMessage {
   const stream = Readable.from(body ? [body] : []) as IncomingMessage
   stream.method = method
   stream.url = url
-  stream.headers = { host: '127.0.0.1:8234' }
+  stream.headers = { host: '127.0.0.1:8234', ...headers }
   return stream
 }
 
@@ -45,6 +45,22 @@ async function invoke(oauth: LocalOAuthServer, url: string, method = 'GET', body
 }
 
 describe('LocalOAuthServer', () => {
+  it('identifies anonymous and static bearer sessions without exposing the token', async () => {
+    const open = new LocalOAuthServer({ password: undefined, staticBearerToken: undefined })
+    await expect(open.authorize(request('/mcp', 'POST'), '/mcp')).resolves.toMatchObject({
+      authentication: 'anonymous',
+      sessionId: 'local-anonymous',
+    })
+
+    const protectedServer = new LocalOAuthServer({ password: undefined, staticBearerToken: 'static-secret' })
+    await expect(protectedServer.authorize(request('/mcp', 'POST'), '/mcp')).resolves.toBeUndefined()
+    const principal = await protectedServer.authorize(request('/mcp', 'POST', '', {
+      authorization: 'Bearer static-secret',
+    }), '/mcp')
+    expect(principal).toMatchObject({ authentication: 'static_bearer' })
+    expect(principal?.sessionId).not.toContain('static-secret')
+  })
+
   it('supports metadata, DCR and authorization-code PKCE', async () => {
     const oauth = new LocalOAuthServer({ password: 'correct horse battery staple' })
     const metadata = await invoke(oauth, '/.well-known/oauth-protected-resource/mcp')
@@ -69,6 +85,7 @@ describe('LocalOAuthServer', () => {
       code_challenge: challenge,
       code_challenge_method: 'S256',
       scope: 'mcp',
+      resource: 'http://127.0.0.1:8234/mcp',
       state: 'test-state',
     })
     expect((await invoke(oauth, `/authorize?${query}`)).status).toBe(200)
@@ -91,7 +108,34 @@ describe('LocalOAuthServer', () => {
       code_verifier: verifier,
     }).toString())
     expect(token.status).toBe(200)
-    expect(JSON.parse(token.body)).toMatchObject({ token_type: 'Bearer', scope: 'mcp' })
+    const issued = JSON.parse(token.body) as { access_token: string; refresh_token: string; token_type: string; scope: string }
+    expect(issued).toMatchObject({ token_type: 'Bearer', scope: 'mcp' })
+
+    const principal = await oauth.authorize(request('/mcp', 'POST', '', {
+      authorization: `Bearer ${issued.access_token}`,
+    }), '/mcp')
+    expect(principal).toMatchObject({
+      authentication: 'oauth',
+      clientId: client.client_id,
+      clientName: 'Web MCP Client',
+      scopes: ['mcp'],
+      resource: 'http://127.0.0.1:8234/mcp',
+    })
+    await expect(oauth.authorize(request('/mcp', 'POST', '', {
+      host: 'different.example:8234',
+      authorization: `Bearer ${issued.access_token}`,
+    }), '/mcp')).resolves.toBeUndefined()
+
+    const refreshed = await invoke(oauth, '/token', 'POST', new URLSearchParams({
+      grant_type: 'refresh_token',
+      client_id: client.client_id,
+      refresh_token: issued.refresh_token,
+    }).toString())
+    const refreshedToken = JSON.parse(refreshed.body) as { access_token: string }
+    const refreshedPrincipal = await oauth.authorize(request('/mcp', 'POST', '', {
+      authorization: `Bearer ${refreshedToken.access_token}`,
+    }), '/mcp')
+    expect(refreshedPrincipal?.sessionId).toBe(principal?.sessionId)
   })
 
   it('rejects non-HTTPS non-loopback redirect URIs', async () => {
