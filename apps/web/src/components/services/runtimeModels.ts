@@ -1,7 +1,25 @@
-import type { NetworkConfigDto, RuntimeDraft, RuntimeDto } from '../../types'
+import type {
+  NetworkConfigDto,
+  NetworkDraft,
+  RuntimeConfigurationDto,
+  RuntimeDraft,
+  RuntimeDto,
+  SecretAction,
+  SecretUpdateDto,
+} from '../../types'
 
 export function cloneNetwork(network: NetworkConfigDto): NetworkConfigDto {
-  return { ...network, options: { ...network.options } }
+  return { ...network, options: { ...network.options }, configured_secrets: [...network.configured_secrets] }
+}
+
+function emptyNetworkDraft(): NetworkDraft {
+  return {
+    provider: 'cloudflare',
+    public_url: '',
+    options: {},
+    configured_secrets: [],
+    secret_actions: {},
+  }
 }
 
 export function emptyRuntimeDraft(): RuntimeDraft {
@@ -9,12 +27,13 @@ export function emptyRuntimeDraft(): RuntimeDraft {
     name: 'Pi MCP Runtime',
     workspace: '',
     oauth_password: '',
+    oauth_password_configured: false,
+    oauth_password_action: 'unchanged',
     host: '127.0.0.1',
     port: 8234,
-    enabled: false,
     remember_secrets: true,
     permission_mode: 'safe',
-    network: { provider: 'cloudflare', public_url: '', options: {} },
+    network: emptyNetworkDraft(),
   }
 }
 
@@ -22,30 +41,49 @@ export function runtimeDraft(runtime: RuntimeDto): RuntimeDraft {
   return {
     name: runtime.name,
     workspace: runtime.workspace,
-    oauth_password: runtime.oauth_password,
+    oauth_password: '',
+    oauth_password_configured: runtime.has_oauth_password,
+    oauth_password_action: 'unchanged',
     host: runtime.host,
     port: runtime.port,
-    enabled: runtime.enabled,
-    remember_secrets: runtime.has_saved_password
-      || Object.keys(runtime.network.options).some(key => ['tunnel_token', 'auth_token'].includes(key)),
+    remember_secrets: runtime.remember_secrets,
     permission_mode: runtime.permission_mode,
-    network: cloneNetwork(runtime.network),
+    network: {
+      ...cloneNetwork(runtime.network),
+      secret_actions: Object.fromEntries(runtime.network.configured_secrets.map(key => [key, 'unchanged' as const])),
+    },
   }
 }
 
-export function normalizedRuntimeDraft(value: RuntimeDraft): RuntimeDraft {
-  const network = cloneNetwork(value.network)
-  network.public_url = network.public_url.trim().replace(/\/+$/, '')
+function secretUpdate(action: SecretAction, value: string): SecretUpdateDto {
+  return action === 'set' ? { action, value } : { action }
+}
+
+export function normalizedRuntimeDraft(value: RuntimeDraft): RuntimeConfigurationDto {
+  const secretKeys = new Set([
+    ...value.network.configured_secrets,
+    ...Object.keys(value.network.secret_actions),
+  ])
   return {
-    ...value,
     name: value.name.trim(),
     workspace: value.workspace.trim(),
-    network,
+    oauth_password_update: secretUpdate(value.oauth_password_action, value.oauth_password),
+    host: value.host,
+    port: value.port,
+    remember_secrets: value.remember_secrets,
+    permission_mode: value.permission_mode,
+    network: {
+      provider: value.network.provider,
+      public_url: value.network.public_url.trim().replace(/\/+$/, ''),
+      options: { ...value.network.options },
+      secret_updates: Object.fromEntries([...secretKeys].map(key => [
+        key,
+        secretUpdate(value.network.secret_actions[key] ?? 'unchanged', value.network.options[key] ?? ''),
+      ])),
+    },
   }
 }
 
-export function runtimeUrl(runtime: RuntimeDto | RuntimeDraft): string {
-  if ('public_mcp_url' in runtime && runtime.public_mcp_url) return runtime.public_mcp_url
-  const base = runtime.network.public_url.trim().replace(/\/+$/, '')
-  return base ? `${base}/mcp` : ''
+export function runtimeUrl(runtime: RuntimeDto): string {
+  return runtime.running ? runtime.public_mcp_url : ''
 }

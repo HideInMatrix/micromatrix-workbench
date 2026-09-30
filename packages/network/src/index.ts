@@ -3,7 +3,7 @@ export { ExternalNetworkProvider } from "./external.js";
 export { FrpNetworkProvider } from "./frp.js";
 export { NgrokNetworkProvider } from "./ngrok.js";
 export { TailscaleNetworkProvider } from "./tailscale.js";
-export { ManagedProcess } from "./process.js";
+export { assertExecutable, assertRegularFile, ManagedProcess } from "./process.js";
 export {
   normalizeBaseUrl,
   providerResult,

@@ -10,10 +10,12 @@ export interface NetworkProviderResult {
 export interface NetworkProviderContext {
   readonly localBaseUrl: string;
   readonly logger: PluginLogger;
+  readonly onUnexpectedExit: (error: Error) => void;
 }
 
 export interface NetworkProvider {
   readonly key: string;
+  preflight?(): Promise<void>;
   start(context: NetworkProviderContext): Promise<NetworkProviderResult>;
   stop(): Promise<void>;
 }

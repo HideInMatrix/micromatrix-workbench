@@ -1,4 +1,4 @@
-import type { ControlPlaneOptions, DesktopApiRequest, RuntimeSnapshot, RuntimeTool } from "./types.js";
+import type { ControlPlaneOptions, DesktopApiRequest, RuntimeSnapshot, RuntimeTool, SecretUpdate } from "./types.js";
 
 export class UnsupportedDesktopCommandError extends Error {
   constructor(method: string) {
@@ -60,23 +60,24 @@ function providerDefinitions() {
 
 function runtimeDto(runtime: RuntimeSnapshot) {
   const publicUrl = runtime.configuredPublicUrl.replace(/\/mcp\/?$/, "").replace(/\/$/, "");
+  const optionDefinitions = providerDefinitions().flatMap((provider) => provider.options);
+  const allowedOptions = new Set(optionDefinitions.map((option) => option.key));
+  const secretOptions = new Set(optionDefinitions.filter((option) => option.secret).map((option) => option.key));
   return {
     runtime_id: runtime.runtimeId,
     name: runtime.name,
     workspace: runtime.workspace,
-    oauth_password: "",
-    has_saved_password: runtime.hasSavedPassword,
+    has_oauth_password: runtime.oauthEnabled,
+    remember_secrets: runtime.rememberSecrets,
     host: runtime.host,
     port: runtime.port,
-    enabled: runtime.enabled,
     permission_mode: runtime.permissionMode,
     network: {
       provider: runtime.networkProvider,
       public_url: publicUrl,
-      options: Object.fromEntries(Object.entries(runtime.networkOptions).map(([key, value]) => [
-        key,
-        /token|secret|password|key/i.test(key) && value ? "" : value,
-      ])),
+      options: Object.fromEntries(Object.entries(runtime.networkOptions)
+        .filter(([key]) => allowedOptions.has(key) && !secretOptions.has(key))),
+      configured_secrets: [...secretOptions].filter((key) => Boolean(runtime.networkOptions[key])),
     },
     running: runtime.running,
     public_mcp_url: runtime.publicMcpUrl,
@@ -152,9 +153,6 @@ export class DesktopCommandRouter {
       case "stop_runtime":
         await this.#options.runtime.stop();
         return runtimeDto(this.#options.runtime.snapshot());
-      case "set_runtime_enabled":
-        await this.#options.runtime.setEnabled(Boolean(request.args[0]));
-        return runtimeDto(this.#options.runtime.snapshot());
       case "list_body_plugins":
         return runtime.pluginIds.map((id) => ({
           id,
@@ -212,22 +210,45 @@ export class DesktopCommandRouter {
     const mode = String(Reflect.get(value, "permission_mode") ?? "safe");
     if (!["safe", "trusted", "dangerous"].includes(mode)) throw new Error(`Unsupported permission mode: ${mode}`);
     const options = Reflect.get(network, "options");
+    const secretUpdates = Reflect.get(network, "secret_updates");
+    const definition = providerDefinitions().find((item) => item.key === provider);
+    const ordinaryKeys = new Set(definition?.options.filter((item) => !item.secret).map((item) => item.key) ?? []);
+    const secretKeys = new Set(definition?.options.filter((item) => item.secret).map((item) => item.key) ?? []);
+    const parsedOptions = options && typeof options === "object"
+      ? Object.fromEntries(Object.entries(options)
+        .filter(([key]) => ordinaryKeys.has(key))
+        .map(([key, item]) => [key, String(item)]))
+      : {};
+    const parsedSecretUpdates = secretUpdates && typeof secretUpdates === "object"
+      ? Object.fromEntries(Object.entries(secretUpdates)
+        .filter(([key]) => secretKeys.has(key))
+        .map(([key, item]) => [key, parseSecretUpdate(item, `network.${key}`)]))
+      : {};
     return {
       name: String(Reflect.get(value, "name") ?? "Pi MCP Runtime"),
       workspace: String(Reflect.get(value, "workspace") ?? ""),
       host: String(Reflect.get(value, "host") ?? "127.0.0.1"),
       port: Number(Reflect.get(value, "port") ?? 8234),
-      enabled: Boolean(Reflect.get(value, "enabled")),
       permissionMode: mode as "safe" | "trusted" | "dangerous",
-      oauthPassword: String(Reflect.get(value, "oauth_password") ?? ""),
+      oauthPassword: parseSecretUpdate(Reflect.get(value, "oauth_password_update"), "oauth_password"),
       rememberSecrets: Boolean(Reflect.get(value, "remember_secrets")),
       network: {
         provider: provider as "external" | "cloudflare" | "frp" | "ngrok" | "tailscale",
         publicUrl: String(Reflect.get(network, "public_url") ?? ""),
-        options: options && typeof options === "object"
-          ? Object.fromEntries(Object.entries(options).map(([key, item]) => [key, String(item)]))
-          : {},
+        options: parsedOptions,
+        secretUpdates: parsedSecretUpdates,
       },
     };
   }
+}
+
+function parseSecretUpdate(value: unknown, label: string): SecretUpdate {
+  if (value === undefined || value === null) return { action: "unchanged" };
+  if (typeof value !== "object") throw new Error(`${label} update must be an object`);
+  const action = String(Reflect.get(value, "action") ?? "unchanged");
+  if (action === "unchanged" || action === "clear") return { action };
+  if (action !== "set") throw new Error(`Unsupported ${label} secret action: ${action}`);
+  const secret = String(Reflect.get(value, "value") ?? "");
+  if (!secret) throw new Error(`${label} cannot be empty when action is set`);
+  return { action: "set", value: secret };
 }

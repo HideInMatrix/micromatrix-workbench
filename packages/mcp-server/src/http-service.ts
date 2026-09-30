@@ -36,7 +36,14 @@ export class McpHttpService {
       throw new Error("Non-loopback MCP binding requires OAuth or a static Bearer token");
     }
     this.#options = options;
-    this.#server = createServer((request, response) => void this.#handle(request, response));
+    this.#server = createServer((request, response) => {
+      void this.#handle(request, response).catch((error: unknown) => {
+        this.#options.logger.log("error", "HTTP request failed", { error: String(error) });
+        if (response.destroyed || response.writableEnded) return;
+        if (response.headersSent) response.destroy();
+        else writeJson(response, 500, { error: "internal_error" });
+      });
+    });
   }
 
   async start(): Promise<void> {
@@ -55,7 +62,9 @@ export class McpHttpService {
 
   get localBaseUrl(): string {
     const host = this.#options.host === "::1" ? "[::1]" : this.#options.host;
-    return `http://${host}:${this.#options.port}`;
+    const address = this.#server.address();
+    const port = address && typeof address === "object" ? address.port : this.#options.port;
+    return `http://${host}:${port}`;
   }
 
   get localMcpUrl(): string {
@@ -63,6 +72,7 @@ export class McpHttpService {
   }
 
   async stop(): Promise<void> {
+    if (!this.#server.listening) return;
     await new Promise<void>((resolve, reject) =>
       this.#server.close((error) => (error ? reject(error) : resolve())),
     );

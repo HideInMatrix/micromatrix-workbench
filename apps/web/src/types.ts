@@ -2,6 +2,14 @@ export interface NetworkConfigDto {
   provider: string
   public_url: string
   options: Record<string, string>
+  configured_secrets: string[]
+}
+
+export type SecretAction = 'unchanged' | 'set' | 'clear'
+
+export interface SecretUpdateDto {
+  action: SecretAction
+  value?: string
 }
 
 export interface NetworkProviderOptionDto {
@@ -23,11 +31,10 @@ export interface RuntimeDto {
   runtime_id: string
   name: string
   workspace: string
-  oauth_password: string
-  has_saved_password: boolean
+  has_oauth_password: boolean
+  remember_secrets: boolean
   host: string
   port: number
-  enabled: boolean
   permission_mode: 'safe' | 'trusted' | 'dangerous'
   network: NetworkConfigDto
   running: boolean
@@ -40,12 +47,33 @@ export interface RuntimeDraft {
   name: string
   workspace: string
   oauth_password: string
+  oauth_password_configured: boolean
+  oauth_password_action: SecretAction
   host: string
   port: number
-  enabled: boolean
   remember_secrets: boolean
   permission_mode: 'safe' | 'trusted' | 'dangerous'
-  network: NetworkConfigDto
+  network: NetworkDraft
+}
+
+export interface NetworkDraft extends NetworkConfigDto {
+  secret_actions: Record<string, SecretAction>
+}
+
+export interface RuntimeConfigurationDto {
+  name: string
+  workspace: string
+  oauth_password_update: SecretUpdateDto
+  host: string
+  port: number
+  remember_secrets: boolean
+  permission_mode: 'safe' | 'trusted' | 'dangerous'
+  network: {
+    provider: string
+    public_url: string
+    options: Record<string, string>
+    secret_updates: Record<string, SecretUpdateDto>
+  }
 }
 
 export interface BootstrapDto {

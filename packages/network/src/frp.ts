@@ -1,4 +1,4 @@
-import { ManagedProcess } from "./process.js";
+import { assertExecutable, assertRegularFile, ManagedProcess } from "./process.js";
 import {
   providerResult,
   type FrpProviderOptions,
@@ -18,6 +18,11 @@ export class FrpNetworkProvider implements NetworkProvider {
     this.#options = options;
   }
 
+  async preflight(): Promise<void> {
+    await assertExecutable(this.#options.executable);
+    await assertRegularFile(this.#options.configFile, "FRP config");
+  }
+
   async start(context: NetworkProviderContext): Promise<NetworkProviderResult> {
     this.#process = new ManagedProcess(context.logger);
     this.#process.start(this.#options.executable, ["-c", this.#options.configFile], "frpc");
@@ -26,6 +31,7 @@ export class FrpNetworkProvider implements NetworkProvider {
       30_000,
       "FRP client connection",
     );
+    this.#process.monitorUnexpectedExit(context.onUnexpectedExit);
     return providerResult(this.key, this.#options.publicUrl, "FRP");
   }
 

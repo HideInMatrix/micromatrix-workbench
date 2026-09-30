@@ -16,9 +16,8 @@ export interface RuntimeSnapshot {
   readonly networkProvider: "external" | "cloudflare" | "frp" | "ngrok" | "tailscale";
   readonly configuredPublicUrl: string;
   readonly enableShell: boolean;
-  readonly enabled: boolean;
   readonly oauthEnabled: boolean;
-  readonly hasSavedPassword: boolean;
+  readonly rememberSecrets: boolean;
   readonly permissionMode: "safe" | "trusted" | "dangerous";
   readonly networkOptions: Readonly<Record<string, string>>;
   readonly pluginIds: readonly string[];
@@ -30,16 +29,21 @@ export interface RuntimeConfigurationUpdate {
   readonly workspace: string;
   readonly host: string;
   readonly port: number;
-  readonly enabled: boolean;
   readonly permissionMode: "safe" | "trusted" | "dangerous";
-  readonly oauthPassword: string;
+  readonly oauthPassword: SecretUpdate;
   readonly rememberSecrets: boolean;
   readonly network: {
     readonly provider: "external" | "cloudflare" | "frp" | "ngrok" | "tailscale";
     readonly publicUrl: string;
     readonly options: Readonly<Record<string, string>>;
+    readonly secretUpdates: Readonly<Record<string, SecretUpdate>>;
   };
 }
+
+export type SecretUpdate =
+  | { readonly action: "unchanged" }
+  | { readonly action: "set"; readonly value: string }
+  | { readonly action: "clear" };
 
 export interface RuntimeTool {
   readonly name: string;
@@ -53,7 +57,6 @@ export interface RuntimeControl {
   start(): Promise<void>;
   stop(): Promise<void>;
   configure(update: RuntimeConfigurationUpdate): Promise<void>;
-  setEnabled(enabled: boolean): Promise<void>;
   setPluginEnabled(pluginId: string, enabled: boolean): Promise<void>;
 }
 

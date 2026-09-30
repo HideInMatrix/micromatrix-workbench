@@ -15,7 +15,6 @@ export interface DaemonConfig {
   readonly authToken: string | undefined;
   readonly oauthPassword: string | undefined;
   readonly rememberSecrets: boolean;
-  readonly enabled: boolean;
   readonly permissionMode: ApprovalMode;
   readonly plugins: { readonly shell: boolean };
   readonly controlHost: string;
@@ -34,7 +33,6 @@ interface SavedConfig {
   readonly port?: number;
   readonly oauthPassword?: string;
   readonly rememberSecrets?: boolean;
-  readonly enabled?: boolean;
   readonly permissionMode?: ApprovalMode;
   readonly plugins?: { readonly shell?: boolean };
   readonly network?: {
@@ -100,7 +98,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DaemonConfig {
     authToken: first(env, "MICROMATRIX_AUTH_TOKEN"),
     oauthPassword: first(env, "MICROMATRIX_OAUTH_PASSWORD") ?? disk.oauthPassword,
     rememberSecrets: boolean(first(env, "MICROMATRIX_REMEMBER_SECRETS"), disk.rememberSecrets ?? true),
-    enabled: boolean(first(env, "MICROMATRIX_ENABLED"), disk.enabled ?? true),
     permissionMode,
     plugins: { shell: boolean(first(env, "MICROMATRIX_ENABLE_SHELL"), disk.plugins?.shell ?? false) },
     controlHost: first(env, "MICROMATRIX_CONTROL_HOST") ?? "127.0.0.1",
@@ -124,7 +121,6 @@ export function saveConfig(config: DaemonConfig, rememberSecrets: boolean): void
     port: config.port,
     ...(rememberSecrets && config.oauthPassword ? { oauthPassword: config.oauthPassword } : {}),
     rememberSecrets,
-    enabled: config.enabled,
     permissionMode: config.permissionMode,
     plugins: config.plugins,
     network: {

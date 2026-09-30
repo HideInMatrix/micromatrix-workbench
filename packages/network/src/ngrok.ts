@@ -1,4 +1,4 @@
-import { ManagedProcess } from "./process.js";
+import { assertExecutable, ManagedProcess } from "./process.js";
 import {
   providerResult,
   type NetworkProvider,
@@ -18,6 +18,10 @@ export class NgrokNetworkProvider implements NetworkProvider {
     this.#options = options;
   }
 
+  async preflight(): Promise<void> {
+    await assertExecutable(this.#options.executable);
+  }
+
   async start(context: NetworkProviderContext): Promise<NetworkProviderResult> {
     this.#process = new ManagedProcess(context.logger);
     const args = ["http", "--log=stdout", "--log-format=json"];
@@ -27,11 +31,13 @@ export class NgrokNetworkProvider implements NetworkProvider {
     this.#process.start(this.#options.executable, args, "ngrok");
     if (this.#options.publicUrl) {
       await this.#process.waitFor((line) => /started tunnel|url=/i.test(line), 30_000, "ngrok tunnel");
+      this.#process.monitorUnexpectedExit(context.onUnexpectedExit);
       return providerResult(this.key, this.#options.publicUrl, "ngrok");
     }
     const line = await this.#process.waitFor((candidate) => NGROK_URL.test(candidate), 30_000, "ngrok public URL");
     const publicUrl = line.match(NGROK_URL)?.[0];
     if (!publicUrl) throw new Error("ngrok output did not contain a public URL");
+    this.#process.monitorUnexpectedExit(context.onUnexpectedExit);
     return providerResult(this.key, publicUrl, "ngrok");
   }
 

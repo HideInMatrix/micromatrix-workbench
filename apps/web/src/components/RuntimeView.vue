@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Switch } from '@/components/ui/switch'
 import RuntimeEditor from './services/RuntimeEditor.vue'
 import { useRuntimeManager } from '../composables/useRuntimeManager'
 
@@ -12,38 +11,23 @@ const manager = useRuntimeManager()
       <div>
         <h1 class="m-0 text-xl leading-7 font-medium tracking-[-0.02em]">Runtime</h1>
         <p class="mt-[3px] mb-0 text-xs leading-[18px] text-muted-foreground">
-          当前桌面实例只管理一个 Pi Runtime；自动启动与当前进程启停相互独立。
+          应用启动只加载配置；点击启动后才运行 Pi Runtime 与公网隧道。
         </p>
       </div>
     </header>
 
-    <div v-if="manager.errorMessage.value" class="sticky top-2 z-30 mb-4 flex items-center justify-between gap-3 rounded-[7px] border border-destructive/25 bg-destructive/10 px-3 py-2.5 text-xs text-destructive">
-      <span>{{ manager.errorMessage.value }}</span>
-      <button class="border-0 bg-transparent text-lg leading-none text-inherit" @click="manager.errorMessage.value = ''">×</button>
-    </div>
-
-    <div class="grid grid-cols-1 gap-2 lg:grid-cols-2">
+    <div class="grid grid-cols-1 gap-2">
       <div class="min-h-28 rounded-lg bg-card p-4">
         <span class="block text-xs leading-5 text-muted-foreground">运行状态</span>
         <strong class="mt-2.5 block min-h-8 text-2xl leading-8 font-medium tracking-[-0.03em]">
           {{ manager.ready.value ? (manager.running.value ? '运行中' : '已停止') : '—' }}
         </strong>
-        <small class="mt-1 block text-[11px] leading-4 text-muted-foreground">Pi Agent MCP 本地执行服务</small>
-      </div>
-      <div class="flex min-h-28 items-center justify-between gap-4 rounded-lg bg-card p-4">
-        <div>
-          <span class="block text-xs leading-5 text-muted-foreground">随应用自动启动</span>
-          <strong class="mt-2.5 block min-h-8 text-2xl leading-8 font-medium tracking-[-0.03em]">
-            {{ manager.ready.value ? (manager.draft.value.enabled ? '已开启' : '已关闭') : '—' }}
-          </strong>
-          <small class="mt-1 block text-[11px] leading-4 text-muted-foreground">不改变 Runtime 当前运行状态</small>
-        </div>
-        <Switch
-          :model-value="manager.draft.value.enabled"
-          :disabled="!manager.ready.value || manager.enabling.value"
-          aria-label="切换随应用自动启动"
-          @update:model-value="manager.setEnabled"
-        />
+        <small
+          :class="[
+            'mt-1 block text-[11px] leading-4',
+            manager.runtime.value?.exit_reason ? 'text-destructive' : 'text-muted-foreground',
+          ]"
+        >{{ manager.runtime.value?.exit_reason || 'Pi Agent MCP 本地执行服务' }}</small>
       </div>
     </div>
 

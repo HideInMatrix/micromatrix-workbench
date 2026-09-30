@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 
-import { ApprovalPolicy, type ApprovalMode } from "@micromatrix/approval";
-import type { RuntimeConfigurationUpdate, RuntimeControl, RuntimeSnapshot } from "@micromatrix/control-plane";
+import { ApprovalPolicy } from "@micromatrix/approval";
+import type { RuntimeConfigurationUpdate, RuntimeControl, RuntimeSnapshot, SecretUpdate } from "@micromatrix/control-plane";
 import { McpHttpService } from "@micromatrix/mcp-server";
 import {
   CloudflareNetworkProvider,
@@ -24,21 +24,20 @@ export class RuntimeSupervisor implements RuntimeControl {
   readonly #logger: PluginLogger;
   readonly approval: ApprovalPolicy;
   #registry: PluginRegistry;
-  #service: McpHttpService;
-  #provider: NetworkProvider;
+  #service: McpHttpService | undefined;
+  #provider: NetworkProvider | undefined;
   #network: NetworkProviderResult | undefined;
   #running = false;
   #transition: Promise<void> | undefined;
+  #failureCleanup: Promise<void> | undefined;
   #exitReason = "";
 
   constructor(config: DaemonConfig, logger: PluginLogger) {
     this.#config = config;
     this.#logger = logger;
     this.approval = new ApprovalPolicy(config.permissionMode);
-    const parts = this.#createParts();
-    this.#registry = parts.registry;
-    this.#service = parts.service;
-    this.#provider = parts.provider;
+    // Do not construct providers or bind MCP while loading an unfinished config.
+    this.#registry = this.#createRegistry(config);
   }
 
   snapshot(): RuntimeSnapshot {
@@ -49,16 +48,15 @@ export class RuntimeSupervisor implements RuntimeControl {
       host: this.#config.host,
       port: this.#config.port,
       running: this.#running,
-      publicMcpUrl: this.#network?.publicMcpUrl ?? this.#service.localMcpUrl,
+      publicMcpUrl: this.#running ? (this.#network?.publicMcpUrl ?? "") : "",
       urlMode: this.#network?.modeLabel ?? "Local",
       exitReason: this.#exitReason,
       networkProvider: this.#config.network.provider,
       configuredPublicUrl: this.#config.network.publicUrl ?? "",
       networkOptions: this.#config.network.options,
       enableShell: this.#config.plugins.shell,
-      enabled: this.#config.enabled,
       oauthEnabled: Boolean(this.#config.oauthPassword),
-      hasSavedPassword: this.#config.rememberSecrets && Boolean(this.#config.oauthPassword),
+      rememberSecrets: this.#config.rememberSecrets,
       permissionMode: this.#config.permissionMode,
       pluginIds: ["workspace", "shell"],
       tools: this.#registry.listTools().map((tool) => ({
@@ -71,15 +69,33 @@ export class RuntimeSupervisor implements RuntimeControl {
   }
 
   async start(): Promise<void> {
-    if (this.#transition) return this.#transition;
-    if (this.#running) return;
-    this.#transition = (async () => {
-      this.#assertSecuredExposure();
+    return this.#exclusive(async () => {
+      if (this.#failureCleanup) await this.#failureCleanup;
+      if (this.#running) return;
       this.#exitReason = "";
-      await this.#service.start();
       try {
-        this.#network = await this.#provider.start({ localBaseUrl: this.#service.localBaseUrl, logger: this.#logger });
+        const workspace = await stat(this.#config.workspace).catch(() => undefined);
+        if (!workspace?.isDirectory()) throw new Error(`Workspace is not a directory: ${this.#config.workspace}`);
+        this.#assertSecuredExposure();
+        const service = this.#service ?? this.#createService(this.#config, this.#registry);
+        const provider = this.#provider ?? this.#createProvider(this.#config, service);
+        this.#service = service;
+        this.#provider = provider;
+        await provider.preflight?.();
+        await service.start();
+        let startingFailure: Error | undefined;
+        let starting = true;
+        this.#network = await provider.start({
+          localBaseUrl: service.localBaseUrl,
+          logger: this.#logger,
+          onUnexpectedExit: (error) => {
+            if (starting) startingFailure = error;
+            else this.#handleNetworkFailure(error);
+          },
+        });
+        if (startingFailure) throw startingFailure;
         this.#running = true;
+        starting = false;
         this.#logger.log("info", "Pi body ready", {
           workspace: this.#config.workspace,
           mcpUrl: this.#network.publicMcpUrl,
@@ -88,89 +104,93 @@ export class RuntimeSupervisor implements RuntimeControl {
           approvalMode: this.#config.permissionMode,
         });
       } catch (error) {
-        await this.#provider.stop().catch((stopError) => {
+        await this.#provider?.stop().catch((stopError) => {
           this.#logger.log("warn", "Tunnel cleanup after failed start failed", { error: String(stopError) });
         });
-        await this.#service.stop().catch(() => undefined);
+        await this.#service?.stop().catch(() => undefined);
+        this.#provider = undefined;
+        this.#service = undefined;
         this.#network = undefined;
         this.#running = false;
         this.#exitReason = error instanceof Error ? error.message : String(error);
         throw error;
       }
-    })().finally(() => { this.#transition = undefined; });
-    return this.#transition;
-  }
-
-  async stop(): Promise<void> {
-    if (this.#transition) await this.#transition;
-    if (!this.#running) {
-      this.approval.resetSession();
-      return;
-    }
-    this.#transition = (async () => {
-      // Release pending tool calls before closing the HTTP service; otherwise
-      // server.close() can wait on an approval that the stopped UI cannot answer.
-      this.approval.resetSession();
-      await this.#provider.stop().catch((error) => this.#logger.log("warn", "Tunnel stop failed", { error: String(error) }));
-      await this.#service.stop();
-      this.#running = false;
-      this.#network = undefined;
-      this.#logger.log("info", "Pi body stopped");
-    })().finally(() => { this.#transition = undefined; });
-    return this.#transition;
-  }
-
-  async configure(update: RuntimeConfigurationUpdate): Promise<void> {
-    if (this.#running) throw new Error("Stop the runtime before changing its configuration");
-    const workspace = await stat(update.workspace).catch(() => undefined);
-    if (!workspace?.isDirectory()) throw new Error(`Workspace is not a directory: ${update.workspace}`);
-    if (!Number.isInteger(update.port) || update.port < 1 || update.port > 65_535) throw new Error(`Invalid MCP port: ${update.port}`);
-    const previous = this.#config;
-    const mergedOptions = { ...previous.network.options };
-    for (const [key, value] of Object.entries(update.network.options)) {
-      if (value || !/token|secret|password|key/i.test(key)) mergedOptions[key] = value;
-    }
-    this.#config = {
-      ...previous,
-      name: update.name || "Pi MCP Runtime",
-      workspace: update.workspace,
-      host: update.host,
-      port: update.port,
-      enabled: update.enabled,
-      permissionMode: update.permissionMode,
-      oauthPassword: update.oauthPassword || previous.oauthPassword,
-      rememberSecrets: update.rememberSecrets,
-      network: {
-        provider: update.network.provider,
-        publicUrl: update.network.publicUrl || undefined,
-        options: mergedOptions,
-      },
-    };
-    this.approval.setMode(update.permissionMode);
-    await this.#rebuild();
-    saveConfig(this.#config, update.rememberSecrets);
-    this.#logger.log("info", "Runtime configuration saved", {
-      workspace: this.#config.workspace,
-      network: this.#config.network.provider,
-      permissionMode: this.#config.permissionMode,
     });
   }
 
-  async setEnabled(enabled: boolean): Promise<void> {
-    this.#config = { ...this.#config, enabled };
-    saveConfig(this.#config, this.#config.rememberSecrets);
+  async stop(): Promise<void> {
+    return this.#exclusive(async () => {
+      if (this.#failureCleanup) await this.#failureCleanup;
+      if (!this.#running) {
+        this.approval.resetSession();
+        return;
+      }
+      // Release pending tool calls before closing the HTTP service; otherwise
+      // server.close() can wait on an approval that the stopped UI cannot answer.
+      this.approval.resetSession();
+      await this.#provider?.stop().catch((error) => this.#logger.log("warn", "Tunnel stop failed", { error: String(error) }));
+      await this.#service?.stop();
+      this.#provider = undefined;
+      this.#service = undefined;
+      this.#running = false;
+      this.#network = undefined;
+      this.#logger.log("info", "Pi body stopped");
+    });
+  }
+
+  async configure(update: RuntimeConfigurationUpdate): Promise<void> {
+    return this.#exclusive(async () => {
+      if (this.#running) throw new Error("Stop the runtime before changing its configuration");
+      if (this.#failureCleanup) await this.#failureCleanup;
+      const workspace = await stat(update.workspace).catch(() => undefined);
+      if (!workspace?.isDirectory()) throw new Error(`Workspace is not a directory: ${update.workspace}`);
+      if (!Number.isInteger(update.port) || update.port < 1 || update.port > 65_535) throw new Error(`Invalid MCP port: ${update.port}`);
+      if (update.port === this.#config.controlPort) throw new Error("MCP port must differ from the control port");
+      const previous = this.#config;
+      const mergedOptions = { ...previous.network.options };
+      for (const [key, value] of Object.entries(update.network.options)) {
+        mergedOptions[key] = value;
+      }
+      for (const [key, secretUpdate] of Object.entries(update.network.secretUpdates)) {
+        const value = applySecretUpdate(mergedOptions[key], secretUpdate);
+        if (value === undefined) delete mergedOptions[key];
+        else mergedOptions[key] = value;
+      }
+      const candidate: DaemonConfig = {
+        ...previous,
+        name: update.name || "Pi MCP Runtime",
+        workspace: update.workspace,
+        host: update.host,
+        port: update.port,
+        permissionMode: update.permissionMode,
+        oauthPassword: applySecretUpdate(previous.oauthPassword, update.oauthPassword),
+        rememberSecrets: update.rememberSecrets,
+        network: {
+          provider: update.network.provider,
+          publicUrl: update.network.publicUrl || undefined,
+          options: mergedOptions,
+        },
+      };
+      await this.#commitConfiguration(candidate);
+      this.#logger.log("info", "Runtime configuration saved", {
+        workspace: this.#config.workspace,
+        network: this.#config.network.provider,
+        permissionMode: this.#config.permissionMode,
+      });
+    });
   }
 
   async setPluginEnabled(pluginId: string, enabled: boolean): Promise<void> {
-    if (pluginId === "workspace" && !enabled) throw new Error("Workspace Tools is required");
-    if (pluginId !== "shell") {
-      if (pluginId === "workspace") return;
-      throw new Error(`Unknown body plugin: ${pluginId}`);
-    }
-    if (this.#running) throw new Error("Stop the runtime before changing plugins");
-    this.#config = { ...this.#config, plugins: { ...this.#config.plugins, shell: enabled } };
-    await this.#rebuild();
-    saveConfig(this.#config, this.#config.rememberSecrets);
+    return this.#exclusive(async () => {
+      if (pluginId === "workspace" && !enabled) throw new Error("Workspace Tools is required");
+      if (pluginId !== "shell") {
+        if (pluginId === "workspace") return;
+        throw new Error(`Unknown body plugin: ${pluginId}`);
+      }
+      if (this.#running) throw new Error("Stop the runtime before changing plugins");
+      if (this.#failureCleanup) await this.#failureCleanup;
+      await this.#commitConfiguration({ ...this.#config, plugins: { ...this.#config.plugins, shell: enabled } });
+    });
   }
 
   async dispose(): Promise<void> {
@@ -179,56 +199,103 @@ export class RuntimeSupervisor implements RuntimeControl {
     await this.#registry.dispose();
   }
 
-  async #rebuild(): Promise<void> {
-    await this.#registry.dispose();
-    const parts = this.#createParts();
-    this.#registry = parts.registry;
-    this.#service = parts.service;
-    this.#provider = parts.provider;
+  #exclusive(action: () => Promise<void>): Promise<void> {
+    const transition = (this.#transition ?? Promise.resolve()).catch(() => undefined).then(action);
+    this.#transition = transition;
+    const clear = () => { if (this.#transition === transition) this.#transition = undefined; };
+    void transition.then(clear, clear);
+    return transition;
   }
 
-  #createParts(): { registry: PluginRegistry; service: McpHttpService; provider: NetworkProvider } {
-    const registry = new PluginRegistry({ workspace: this.#config.workspace, logger: this.#logger });
-    registry.register(createWorkspacePlugin());
-    if (this.#config.plugins.shell) registry.register(createShellPlugin());
-    const authorization = new LocalOAuthServer({
-      password: this.#config.oauthPassword,
-      staticBearerToken: this.#config.authToken,
+  async #commitConfiguration(config: DaemonConfig): Promise<void> {
+    const registry = this.#createRegistry(config);
+    let service: McpHttpService;
+    let provider: NetworkProvider;
+    try {
+      service = this.#createService(config, registry);
+      provider = this.#createProvider(config, service);
+      // Disk failure must leave the live snapshot and old tools unchanged, too.
+      saveConfig(config, config.rememberSecrets);
+    } catch (error) {
+      await registry.dispose();
+      throw error;
+    }
+    const previous = this.#registry;
+    this.#config = config;
+    this.#registry = registry;
+    this.#service = service;
+    this.#provider = provider;
+    this.approval.setMode(config.permissionMode);
+    this.#exitReason = "";
+    await previous.dispose().catch((error) => {
+      this.#logger.log("warn", "Old plugin registry cleanup failed", { error: String(error) });
     });
-    const service = new McpHttpService({
-      host: this.#config.host,
-      port: this.#config.port,
+  }
+
+  #handleNetworkFailure(error: Error): void {
+    if (!this.#running || this.#failureCleanup) return;
+    this.#running = false;
+    this.#network = undefined;
+    this.#exitReason = `Network provider stopped unexpectedly: ${error.message}`;
+    this.approval.resetSession();
+    this.#logger.log("error", this.#exitReason);
+    this.#failureCleanup = (async () => {
+      await this.#provider?.stop().catch((stopError) => {
+        this.#logger.log("warn", "Tunnel cleanup after unexpected exit failed", { error: String(stopError) });
+      });
+      await this.#service?.stop().catch((stopError) => {
+        this.#logger.log("warn", "MCP cleanup after unexpected tunnel exit failed", { error: String(stopError) });
+      });
+      this.#provider = undefined;
+      this.#service = undefined;
+    })().finally(() => { this.#failureCleanup = undefined; });
+  }
+
+  #createRegistry(config: DaemonConfig): PluginRegistry {
+    const registry = new PluginRegistry({ workspace: config.workspace, logger: this.#logger });
+    registry.register(createWorkspacePlugin());
+    if (config.plugins.shell) registry.register(createShellPlugin());
+    return registry;
+  }
+
+  #createService(config: DaemonConfig, registry: PluginRegistry): McpHttpService {
+    const authorization = new LocalOAuthServer({
+      password: config.oauthPassword,
+      staticBearerToken: config.authToken,
+    });
+    return new McpHttpService({
+      host: config.host,
+      port: config.port,
       authorization,
       registry,
       logger: this.#logger,
       executionGate: this.approval,
     });
-    return { registry, service, provider: this.#createProvider(service) };
   }
 
-  #createProvider(service: McpHttpService): NetworkProvider {
-    const options = this.#config.network.options;
+  #createProvider(config: DaemonConfig, service: McpHttpService): NetworkProvider {
+    const options = config.network.options;
     const executable = options.executable;
-    switch (this.#config.network.provider) {
-      case "external": return new ExternalNetworkProvider({ publicUrl: this.#config.network.publicUrl ?? service.localBaseUrl });
+    switch (config.network.provider) {
+      case "external": return new ExternalNetworkProvider({ publicUrl: config.network.publicUrl ?? service.localBaseUrl });
       case "cloudflare": return new CloudflareNetworkProvider({
         executable: executable || "cloudflared",
-        publicUrl: this.#config.network.publicUrl,
+        publicUrl: config.network.publicUrl,
         tunnelToken: options.tunnel_token || undefined,
       });
       case "frp": return new FrpNetworkProvider({
         executable: executable || "frpc",
         configFile: options.config_file ?? "",
-        publicUrl: this.#config.network.publicUrl ?? "",
+        publicUrl: config.network.publicUrl ?? "",
       });
       case "ngrok": return new NgrokNetworkProvider({
         executable: executable || "ngrok",
-        publicUrl: this.#config.network.publicUrl,
+        publicUrl: config.network.publicUrl,
         authToken: options.auth_token || undefined,
       });
       case "tailscale": return new TailscaleNetworkProvider({
         executable: executable || "tailscale",
-        publicUrl: this.#config.network.publicUrl ?? "",
+        publicUrl: config.network.publicUrl ?? "",
       });
     }
   }
@@ -243,5 +310,13 @@ export class RuntimeSupervisor implements RuntimeControl {
     if (!localOnly && !this.#config.oauthPassword && !this.#config.authToken) {
       throw new Error("Public tunnel exposure requires an OAuth password or MICROMATRIX_AUTH_TOKEN");
     }
+  }
+}
+
+export function applySecretUpdate(current: string | undefined, update: SecretUpdate): string | undefined {
+  switch (update.action) {
+    case "unchanged": return current;
+    case "clear": return undefined;
+    case "set": return update.value;
   }
 }

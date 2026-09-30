@@ -1,4 +1,4 @@
-import { ManagedProcess } from "./process.js";
+import { assertExecutable, ManagedProcess } from "./process.js";
 import {
   providerResult,
   type CloudflareProviderOptions,
@@ -21,6 +21,10 @@ export class CloudflareNetworkProvider implements NetworkProvider {
     this.#options = options;
   }
 
+  async preflight(): Promise<void> {
+    await assertExecutable(this.#options.executable);
+  }
+
   async start(context: NetworkProviderContext): Promise<NetworkProviderResult> {
     this.#process = new ManagedProcess(context.logger);
     if (this.#options.publicUrl && this.#options.tunnelToken) {
@@ -34,6 +38,7 @@ export class CloudflareNetworkProvider implements NetworkProvider {
         60_000,
         "Cloudflare Named Tunnel connection",
       );
+      this.#process.monitorUnexpectedExit(context.onUnexpectedExit);
       return providerResult(this.key, this.#options.publicUrl, "Cloudflare Named Tunnel");
     }
 
@@ -49,6 +54,7 @@ export class CloudflareNetworkProvider implements NetworkProvider {
     );
     const publicUrl = line.match(QUICK_TUNNEL_URL)?.[0];
     if (!publicUrl) throw new Error("cloudflared output did not contain a tunnel URL");
+    this.#process.monitorUnexpectedExit(context.onUnexpectedExit);
     return providerResult(this.key, publicUrl, "Cloudflare Quick Tunnel");
   }
 

@@ -23,9 +23,11 @@ npm run dev:desktop
 
 - Vite UI：`http://127.0.0.1:5173`
 - 本地控制 API：`http://127.0.0.1:8233`
-- MCP：`http://127.0.0.1:8234/mcp`
+- MCP：点击 UI 的“启动”后才监听 `http://127.0.0.1:8234/mcp`
 
-`npm run dev` 只启动控制 API 和 MCP，不启动 Vite UI。Tauri 开发窗口使用：
+应用启动只加载配置并启动控制 API，**不会自动运行 Runtime 或 Tunnel**。旧配置的 `enabled` 和旧环境变量 `MICROMATRIX_ENABLED` 不再生效；未完成的 Tunnel 配置不会在打开应用时执行或反复报错。配置保存失败会保留原配置和工具；启动失败不会清空工具。
+
+`npm run dev` 只启动控制 API，不启动 Vite UI 或 MCP。Tauri 开发窗口使用：
 
 ```bash
 npm run tauri:dev
@@ -63,12 +65,14 @@ npm run tauri:dev
 - `tailscale`：运行 Tailscale Funnel；需要填写 Funnel 公网 URL。
 
 Provider 只发布本地 MCP origin，不参与工具执行。完整环境变量见 [`.env.example`](.env.example)。
+点击启动 Runtime 后会检查 Workspace、认证、Tunnel executable 与 FRP 配置文件；Cloudflare、ngrok 或 FRP 进程异常退出时，Runtime 会关闭 MCP、清空已发布地址并在 UI 显示退出原因。
 
 ## 构建
 
 ```bash
 npm run build:service  # Node 可运行的单文件 CJS，内嵌静态 UI
 npm run build:sidecar  # 当前平台的 Node SEA sidecar
+npm run check:sidecar  # 重建并验证健康检查、内嵌 UI/API 与退出清理
 npm run tauri:build    # Tauri 2 应用与安装包
 ```
 
@@ -78,6 +82,28 @@ npm run tauri:build    # Tauri 2 应用与安装包
 - `src-tauri/binaries/micromatrix-service-<target-triple>`
 - `src-tauri/target/release/bundle/`
 
-UI 配置默认写入 `~/.micromatrix-pi-mcp/runtime.json`。关闭“保存敏感信息”后，OAuth 密码与 Tunnel Token 不写入磁盘。
+UI 配置默认写入 `~/.micromatrix-pi-mcp/runtime.json`。关闭“保存敏感信息”后，OAuth 密码和网络令牌不写入磁盘。密码框留空表示保留现有值；只有点击对应的清除按钮并保存才会删除已有密钥。
+
+单文件服务上的内嵌 Web UI 使用页面自己的 origin，可使用自定义控制端口；Vite/Tauri 默认连接 `http://127.0.0.1:8233`，如需自定义应在构建前设置 `VITE_CONTROL_URL`。
+
+## GitHub Actions 打包
+
+- 分支 push / PR：`CI` 自动运行版本一致性检查、类型检查、测试和 Web 构建。
+- 手动运行 `Desktop packages`：回归后构建 macOS arm64/x64、Windows x64、Linux x64 的实验性安装包，下载入口为该次运行的 **Artifacts**。
+- 推送 `v*` tag：执行同样的打包流程；全部平台成功后创建 **Draft + Pre-release**，不自动公开发布。任意平台失败不会创建 Release。
+
+提交当前实现、测试、脚本和 `.github` 后推送分支，再推送测试 tag，例如：
+
+```bash
+git push origin master
+git tag v0.1.0-alpha.1
+git push origin v0.1.0-alpha.1
+```
+
+这些命令要求修改已经提交；不要把 tag 打在旧提交上。当前应用版本为 `0.1.0`，接受 `v0.1.0` 或 `v0.1.0-alpha/beta/rc.N` 标签。预发布标签只标识测试构建，**不会自动修改应用内版本号**；完整 tag、commit 和构建平台记录在 `build-*.json`。改变核心版本前须同步 `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` 及应用显示版本。
+
+手动触发需要 workflow 文件已经存在于仓库默认分支，随后可在 Run workflow 选择当前开发分支；尚未合并时可先使用 tag 自动触发。Actions 必须启用且允许工作流中使用的固定提交 Actions。默认使用内置 `GITHUB_TOKEN`，无需提供个人 Token 或生产签名密钥；只有创建 Release 草稿的 job 获得 `contents: write`。
+
+产物包含安装包、独立服务压缩包、已列出的许可证通知、构建元数据和 `SHA256SUMS-*.txt`。macOS 使用 ad-hoc 签名、没有公证；Windows 未进行 Authenticode 签名。编译通过不是平台安装验收，当前仍是测试包；首次远端运行前不宣称四个平台均已验证。流水线依据 [Tauri 打包指南](https://v2.tauri.app/distribute/pipelines/github/)、[GitHub 手动触发要求](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)和 [Node SEA 构建流程](https://nodejs.org/download/release/latest-v22.x/docs/api/single-executable-applications.html)。
 
 开发约束见 [`docs/architecture.md`](docs/architecture.md)，第三方许可证见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。依赖版本以 `package.json`、`package-lock.json` 和 `src-tauri/Cargo.lock` 为准。

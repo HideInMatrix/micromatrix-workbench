@@ -31,6 +31,8 @@ Workspace Tools 必须在 BodyPlugin 的 operations 层执行 canonical boundary
 - loopback control API 是 Vite/Tauri 使用的控制面，负责配置和 Runtime 生命周期。
 - 一个桌面实例只管理一个 Runtime。
 
+应用启动只启动控制面并读取配置，不构造或启动 Tunnel。只有显式 `start_runtime` 才运行 MCP 和 Provider；旧 auto-start 配置不再生效。Runtime 配置与插件切换先构建、验证并持久化候选资源，成功后才替换原配置和 registry；失败保留原状态。启停与配置变更必须串行化。
+
 控制面必须监听回环地址。MCP 默认监听回环地址；任何非回环监听或公网 Tunnel 都必须配置 OAuth 或兼容 Bearer Token。
 
 ## Network providers do not execute tools
@@ -39,10 +41,12 @@ External、Cloudflare、ngrok、FRP 和 Tailscale Provider 只把本地 MCP orig
 
 ## Secrets and OAuth state
 
-DCR clients、authorization codes、access tokens 和 refresh tokens 只存在内存中。只有操作者明确开启本地敏感信息保存时，OAuth 密码和 Tunnel Token 才能写入 `0600` 配置文件。Authorization Code 必须使用 PKCE S256。
+DCR clients、authorization codes、access tokens 和 refresh tokens 只存在内存中。只有操作者明确开启本地敏感信息保存时，OAuth 密码和网络令牌才能写入 `0600` 配置文件。控制面更新密钥必须使用 `unchanged / set / clear` 三态协议，不能用空字符串同时表示“保留”和“删除”。Authorization Code 必须使用 PKCE S256。
 
 ## Reproducible packaging
 
 `build:service` 编译 TypeScript、构建 Vite、内嵌静态资源并生成单文件 CJS。`build:sidecar` 把它注入当前平台的 Node SEA。Tauri 以 external sidecar 启动服务，并在应用退出时终止它。
+
+内嵌网页连接同源控制 API；Vite/Tauri 使用显式配置或默认的独立控制 API。Origin 许可由实际控制监听地址/端口决定，不能直接信任请求中的 Host。
 
 Pi 包使用精确版本，不跟踪上游 `main`。升级必须重新运行类型、tool schema、审批和打包回归。

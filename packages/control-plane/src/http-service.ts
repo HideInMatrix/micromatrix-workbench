@@ -56,7 +56,9 @@ export class ControlPlaneHttpService {
 
   get localBaseUrl(): string {
     const host = this.#options.host === "::1" ? "[::1]" : this.#options.host;
-    return `http://${host}:${this.#options.port}`;
+    const address = this.#server.address();
+    const port = address && typeof address === "object" ? address.port : this.#options.port;
+    return `http://${host}:${port}`;
   }
 
   async start(): Promise<void> {
@@ -78,7 +80,7 @@ export class ControlPlaneHttpService {
 
   async #handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const origin = request.headers.origin;
-    if (origin && !ALLOWED_ORIGINS.has(origin)) {
+    if (origin && !this.#allowsOrigin(origin)) {
       writeJson(response, 403, { error: "origin_not_allowed" });
       return;
     }
@@ -110,6 +112,17 @@ export class ControlPlaneHttpService {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  #allowsOrigin(origin: string): boolean {
+    if (ALLOWED_ORIGINS.has(origin) || origin === this.localBaseUrl) return true;
+    // Permit loopback aliases of the configured control listener, never a Host
+    // header supplied by the request. This also handles custom control ports.
+    const base = new URL(this.localBaseUrl);
+    if (this.#options.host === "localhost" || this.#options.host === "127.0.0.1") {
+      return origin === `http://localhost:${base.port}` || origin === `http://127.0.0.1:${base.port}`;
+    }
+    return false;
   }
 
   #serveWeb(pathname: string, request: IncomingMessage, response: ServerResponse): boolean {

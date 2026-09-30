@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import { assertExecutable } from "./process.js";
 import {
   providerResult,
   type NetworkProvider,
@@ -19,6 +20,10 @@ export class TailscaleNetworkProvider implements NetworkProvider {
   constructor(options: TailscaleProviderOptions) {
     if (!options.publicUrl) throw new Error("Tailscale Funnel requires its HTTPS public URL");
     this.#options = options;
+  }
+
+  async preflight(): Promise<void> {
+    await assertExecutable(this.#options.executable);
   }
 
   async start(context: NetworkProviderContext): Promise<NetworkProviderResult> {

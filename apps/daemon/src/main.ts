@@ -33,13 +33,8 @@ async function main(): Promise<void> {
   try {
     await control.start();
     logger.log("info", "Desktop control plane listening", { url: control.localBaseUrl });
-    if (config.enabled) {
-      void runtime.start().catch((error) => {
-        logger.log("error", "Runtime auto-start failed; control plane remains available", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
-    }
+    // Loading configuration must never execute it. Only start_runtime starts MCP
+    // and its tunnel, including when an older config requested auto-start.
   } catch (error) {
     await stop();
     throw error;

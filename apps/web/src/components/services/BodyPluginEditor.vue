@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { toast } from 'vue-sonner'
 import { Puzzle } from '@lucide/vue'
 import { Switch } from '@/components/ui/switch'
 import { desktopApi } from '../../api/desktop'
@@ -8,7 +9,6 @@ import type { BodyPluginDto } from '../../types'
 const props = defineProps<{ locked: boolean }>()
 const plugins = ref<BodyPluginDto[]>([])
 const busy = ref('')
-const error = ref('')
 
 async function refresh() {
   plugins.value = await desktopApi.listBodyPlugins()
@@ -17,18 +17,18 @@ async function refresh() {
 async function toggle(plugin: BodyPluginDto, enabled: boolean) {
   if (props.locked || plugin.required || busy.value) return
   busy.value = plugin.id
-  error.value = ''
   try {
     await desktopApi.setBodyPluginEnabled(plugin.id, enabled)
     await refresh()
+    toast.success(`${plugin.name} 已${enabled ? '启用' : '停用'}。`)
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
+    toast.error(reason instanceof Error ? reason.message : String(reason))
   } finally {
     busy.value = ''
   }
 }
 
-onMounted(() => void refresh().catch(reason => { error.value = String(reason) }))
+onMounted(() => void refresh().catch(reason => toast.error(reason instanceof Error ? reason.message : String(reason))))
 </script>
 
 <template>
@@ -52,6 +52,5 @@ onMounted(() => void refresh().catch(reason => { error.value = String(reason) })
       </div>
     </div>
     <p v-if="locked" class="m-0 text-[11px] text-muted-foreground">停止 Runtime 后才能切换执行插件。</p>
-    <p v-if="error" role="alert" class="m-0 text-[11px] text-destructive">{{ error }}</p>
   </section>
 </template>

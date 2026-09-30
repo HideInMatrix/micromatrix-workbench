@@ -1,15 +1,12 @@
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { nativeBuildTarget } from './build-platform.mjs'
 
 const root = process.cwd()
+const triple = nativeBuildTarget()
 execFileSync(process.execPath, ['scripts/build-service.mjs'], { cwd: root, stdio: 'inherit' })
 
-const triple = process.platform === 'darwin'
-  ? `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-apple-darwin`
-  : process.platform === 'win32'
-    ? `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-pc-windows-msvc`
-    : `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-unknown-linux-gnu`
 const extension = process.platform === 'win32' ? '.exe' : ''
 const outputDir = path.join(root, 'src-tauri/binaries')
 const target = path.join(outputDir, `micromatrix-service-${triple}${extension}`)

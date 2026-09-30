@@ -1,12 +1,13 @@
 import { isTauri } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
+import { controlBaseUrl } from './controlUrl'
 import type {
   BootstrapDto,
   BodyPluginDto,
   CapabilityCatalogDto,
   LogEntryDto,
   PermissionRequestDto,
-  RuntimeDraft,
+  RuntimeConfigurationDto,
   RuntimeDto,
 } from '../types'
 
@@ -15,7 +16,12 @@ interface DesktopApiRequest {
   args: unknown[]
 }
 
-const controlUrl = (import.meta.env.VITE_CONTROL_URL || 'http://127.0.0.1:8233').replace(/\/$/, '')
+const controlUrl = controlBaseUrl({
+  configured: import.meta.env.VITE_CONTROL_URL,
+  development: import.meta.env.DEV,
+  tauri: isTauri(),
+  origin: window.location.origin,
+})
 
 async function call<T>(method: string, ...args: unknown[]): Promise<T> {
   const request: DesktopApiRequest = { method, args }
@@ -25,8 +31,17 @@ async function call<T>(method: string, ...args: unknown[]): Promise<T> {
     body: JSON.stringify(request),
   })
   if (!response.ok) {
-    const text = await response.text()
-    throw new Error(text || `Desktop API ${method} failed: HTTP ${response.status}`)
+    const body = await response.text()
+    let message = body
+    try {
+      const parsed: unknown = JSON.parse(body)
+      if (parsed && typeof parsed === 'object' && typeof Reflect.get(parsed, 'error') === 'string') {
+        message = Reflect.get(parsed, 'error') as string
+      }
+    } catch {
+      // Preserve a non-JSON response as the diagnostic message.
+    }
+    throw new Error(message || `Desktop API ${method} failed: HTTP ${response.status}`)
   }
   return response.json() as Promise<T>
 }
@@ -35,10 +50,9 @@ export const desktopApi = {
   bootstrap: () => call<BootstrapDto>('bootstrap'),
   appVersion: () => call<string>('get_app_version'),
   runtime: () => call<RuntimeDto>('get_runtime'),
-  configureRuntime: (payload: RuntimeDraft) => call<RuntimeDto>('configure_runtime', payload),
+  configureRuntime: (payload: RuntimeConfigurationDto) => call<RuntimeDto>('configure_runtime', payload),
   startRuntime: () => call<RuntimeDto>('start_runtime'),
   stopRuntime: () => call<RuntimeDto>('stop_runtime'),
-  setRuntimeEnabled: (enabled: boolean) => call<RuntimeDto>('set_runtime_enabled', enabled),
   listBodyPlugins: () => call<BodyPluginDto[]>('list_body_plugins'),
   setBodyPluginEnabled: (pluginId: string, enabled: boolean) =>
     call<boolean>('set_body_plugin_enabled', pluginId, enabled),

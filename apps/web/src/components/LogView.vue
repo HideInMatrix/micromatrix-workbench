@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { toast } from 'vue-sonner'
 import { Trash2 } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { desktopApi } from '../api/desktop'
@@ -7,7 +8,6 @@ import type { LogEntryDto } from '../types'
 import LogPanel from './LogPanel.vue'
 
 const logs = ref<LogEntryDto[]>([])
-const errorMessage = ref('')
 const clearing = ref(false)
 let cursor = 0
 let pollTimer = 0
@@ -20,9 +20,8 @@ async function refreshLogs(surfaceError = false) {
     cursor = response.cursor
     logs.value.push(...response.entries)
     if (logs.value.length > 600) logs.value.splice(0, logs.value.length - 600)
-    if (surfaceError) errorMessage.value = ''
   } catch (error) {
-    if (surfaceError) errorMessage.value = error instanceof Error ? error.message : String(error)
+    if (surfaceError) toast.error(error instanceof Error ? error.message : String(error), { id: 'logs-refresh' })
   }
 }
 
@@ -32,9 +31,9 @@ async function clearLogs() {
   try {
     cursor = await desktopApi.clearLogs()
     logs.value = []
-    errorMessage.value = ''
+    toast.success('运行日志已清除。')
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error)
+    toast.error(error instanceof Error ? error.message : String(error))
   } finally {
     clearing.value = false
   }
@@ -50,14 +49,6 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
 
 <template>
   <section class="grid w-full gap-5">
-    <div
-      v-if="errorMessage"
-      class="flex items-center justify-between gap-3 rounded-[7px] border border-destructive/25 bg-destructive/10 px-3 py-2.5 text-xs text-destructive"
-    >
-      <span>{{ errorMessage }}</span>
-      <button class="border-0 bg-transparent text-lg leading-none text-inherit" @click="errorMessage = ''">×</button>
-    </div>
-
     <header class="flex min-h-8 items-center justify-between gap-4">
       <div>
         <h1 class="m-0 text-xl leading-7 font-medium tracking-[-0.02em]">运行日志</h1>

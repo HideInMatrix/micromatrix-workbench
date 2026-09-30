@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Check, Copy, Eye, EyeOff, FolderOpen, Play, Square } from '@lucide/vue'
+import { Check, Copy, Eye, EyeOff, FolderOpen, Play, RotateCcw, Square, Trash2 } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { CheckField, FormField, FormGrid } from '@/components/ui/form'
 import { InputGroup, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
@@ -26,6 +26,30 @@ const selectedProvider = computed(() => (
   props.networkProviders.find(item => item.key === draft.value.network.provider)
 ))
 
+function secretConfigured(key: string) {
+  return draft.value.network.configured_secrets.includes(key)
+}
+
+function updateNetworkSecret(key: string) {
+  draft.value.network.secret_actions[key] = draft.value.network.options[key] ? 'set' : 'unchanged'
+}
+
+function toggleNetworkSecretClear(key: string) {
+  const clearing = draft.value.network.secret_actions[key] === 'clear'
+  draft.value.network.options[key] = ''
+  draft.value.network.secret_actions[key] = clearing ? 'unchanged' : 'clear'
+}
+
+function updateOAuthPassword() {
+  draft.value.oauth_password_action = draft.value.oauth_password ? 'set' : 'unchanged'
+}
+
+function toggleOAuthPasswordClear() {
+  const clearing = draft.value.oauth_password_action === 'clear'
+  draft.value.oauth_password = ''
+  draft.value.oauth_password_action = clearing ? 'unchanged' : 'clear'
+}
+
 const emit = defineEmits<{
   chooseWorkspace: []
   toggleOAuthPassword: []
@@ -49,12 +73,10 @@ const emit = defineEmits<{
           'inline-flex min-h-[22px] items-center whitespace-nowrap rounded-full px-2 text-[10px] font-medium',
           selectedRunning
             ? 'bg-success/10 text-success'
-            : draft.enabled
-              ? 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-400'
-              : 'bg-secondary text-muted-foreground',
+            : 'bg-secondary text-muted-foreground',
         ]"
       >
-        {{ selectedRunning ? '运行中' : draft.enabled ? '已停止 · 随应用启动' : '已停止' }}
+        {{ selectedRunning ? '运行中' : '已停止' }}
       </span>
     </div>
 
@@ -101,44 +123,70 @@ const emit = defineEmits<{
         :label="field.label"
         :span="field.span"
       >
-        <InputGroup v-if="field.key === 'tunnel_token'">
-          <InputGroupInput
-            v-model="draft.network.options[field.key]"
-            :disabled="locked"
-            :type="tunnelTokenVisible ? 'text' : 'password'"
-            autocomplete="off"
-          />
-          <InputGroupButton
-            :aria-label="tunnelTokenVisible ? '隐藏隧道令牌' : '显示隧道令牌'"
-            :aria-pressed="tunnelTokenVisible"
-            :title="tunnelTokenVisible ? '隐藏隧道令牌' : '显示隧道令牌'"
-            @click="tunnelTokenVisible = !tunnelTokenVisible"
-          ><EyeOff v-if="tunnelTokenVisible" :size="15" /><Eye v-else :size="15" /></InputGroupButton>
-        </InputGroup>
+        <div v-if="field.secret" class="grid gap-1.5">
+          <InputGroup>
+            <InputGroupInput
+              v-model="draft.network.options[field.key]"
+              :disabled="locked || draft.network.secret_actions[field.key] === 'clear'"
+              :type="tunnelTokenVisible ? 'text' : 'password'"
+              autocomplete="new-password"
+              placeholder="留空则保留现有值"
+              @input="updateNetworkSecret(field.key)"
+            />
+            <InputGroupButton
+              :aria-label="tunnelTokenVisible ? '隐藏网络密钥' : '显示网络密钥'"
+              :aria-pressed="tunnelTokenVisible"
+              :title="tunnelTokenVisible ? '隐藏网络密钥' : '显示网络密钥'"
+              @click="tunnelTokenVisible = !tunnelTokenVisible"
+            ><EyeOff v-if="tunnelTokenVisible" :size="15" /><Eye v-else :size="15" /></InputGroupButton>
+            <InputGroupButton
+              :disabled="locked || (!secretConfigured(field.key) && !draft.network.options[field.key])"
+              :aria-label="draft.network.secret_actions[field.key] === 'clear' ? '撤销清除网络密钥' : '清除网络密钥'"
+              :title="draft.network.secret_actions[field.key] === 'clear' ? '撤销清除' : '保存时清除'"
+              @click="toggleNetworkSecretClear(field.key)"
+            ><RotateCcw v-if="draft.network.secret_actions[field.key] === 'clear'" :size="15" /><Trash2 v-else :size="15" /></InputGroupButton>
+          </InputGroup>
+          <span class="text-[10px] text-muted-foreground">
+            {{ draft.network.secret_actions[field.key] === 'clear' ? '保存后清除' : draft.network.secret_actions[field.key] === 'set' ? '保存后替换' : secretConfigured(field.key) ? '已配置 · 留空保留' : '未配置' }}
+          </span>
+        </div>
         <input
           v-else
           v-model.trim="draft.network.options[field.key]"
           :disabled="locked"
-          :type="field.secret ? 'password' : 'text'"
+          type="text"
           autocomplete="off"
         />
       </FormField>
 
       <FormField label="OAuth 密码">
-        <InputGroup>
-          <InputGroupInput
-            v-model="draft.oauth_password"
-            :disabled="locked"
-            :type="oauthPasswordVisible ? 'text' : 'password'"
-            autocomplete="off"
-          />
-          <InputGroupButton
-            :aria-label="oauthPasswordVisible ? '隐藏 OAuth 密码' : '显示 OAuth 密码'"
-            :aria-pressed="oauthPasswordVisible"
-            :title="oauthPasswordVisible ? '隐藏 OAuth 密码' : '显示 OAuth 密码'"
-            @click="emit('toggleOAuthPassword')"
-          ><EyeOff v-if="oauthPasswordVisible" :size="15" /><Eye v-else :size="15" /></InputGroupButton>
-        </InputGroup>
+        <div class="grid gap-1.5">
+          <InputGroup>
+            <InputGroupInput
+              v-model="draft.oauth_password"
+              :disabled="locked || draft.oauth_password_action === 'clear'"
+              :type="oauthPasswordVisible ? 'text' : 'password'"
+              autocomplete="new-password"
+              placeholder="留空则保留现有值"
+              @input="updateOAuthPassword"
+            />
+            <InputGroupButton
+              :aria-label="oauthPasswordVisible ? '隐藏 OAuth 密码' : '显示 OAuth 密码'"
+              :aria-pressed="oauthPasswordVisible"
+              :title="oauthPasswordVisible ? '隐藏 OAuth 密码' : '显示 OAuth 密码'"
+              @click="emit('toggleOAuthPassword')"
+            ><EyeOff v-if="oauthPasswordVisible" :size="15" /><Eye v-else :size="15" /></InputGroupButton>
+            <InputGroupButton
+              :disabled="locked || (!draft.oauth_password_configured && !draft.oauth_password)"
+              :aria-label="draft.oauth_password_action === 'clear' ? '撤销清除 OAuth 密码' : '清除 OAuth 密码'"
+              :title="draft.oauth_password_action === 'clear' ? '撤销清除' : '保存时清除'"
+              @click="toggleOAuthPasswordClear"
+            ><RotateCcw v-if="draft.oauth_password_action === 'clear'" :size="15" /><Trash2 v-else :size="15" /></InputGroupButton>
+          </InputGroup>
+          <span class="text-[10px] text-muted-foreground">
+            {{ draft.oauth_password_action === 'clear' ? '保存后清除' : draft.oauth_password_action === 'set' ? '保存后替换' : draft.oauth_password_configured ? '已配置 · 留空保留' : '未配置' }}
+          </span>
+        </div>
       </FormField>
 
       <PermissionModeField v-model="draft.permission_mode" :disabled="locked" />

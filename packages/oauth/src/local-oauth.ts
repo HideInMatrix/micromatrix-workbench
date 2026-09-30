@@ -32,6 +32,10 @@ interface TokenRecord {
 
 const FORM_LIMIT = 64 * 1024;
 
+class OAuthBodyTooLargeError extends Error {
+  constructor() { super("OAuth request body is too large"); }
+}
+
 function randomToken(bytes = 32): string {
   return randomBytes(bytes).toString("base64url");
 }
@@ -70,12 +74,20 @@ function oauthError(response: ServerResponse, status: number, error: string, des
 }
 
 async function readBody(request: IncomingMessage): Promise<string> {
+  if (Number(request.headers["content-length"]) > FORM_LIMIT) {
+    request.resume();
+    throw new OAuthBodyTooLargeError();
+  }
   let size = 0;
   const chunks: Buffer[] = [];
-  for await (const chunk of request) {
+  // Keep the socket available to return a 413 even for chunked input.
+  for await (const chunk of request.iterator({ destroyOnReturn: false })) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += buffer.length;
-    if (size > FORM_LIMIT) throw new Error("OAuth request body is too large");
+    if (size > FORM_LIMIT) {
+      request.resume();
+      throw new OAuthBodyTooLargeError();
+    }
     chunks.push(buffer);
   }
   return Buffer.concat(chunks).toString("utf8");
@@ -183,6 +195,17 @@ export class LocalOAuthServer implements McpAuthorization {
   }
 
   async handle(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
+    try {
+      return await this.#route(request, response, url);
+    } catch (error) {
+      if (!(error instanceof OAuthBodyTooLargeError)) throw error;
+      response.setHeader("connection", "close");
+      oauthError(response, 413, "invalid_request", error.message);
+      return true;
+    }
+  }
+
+  async #route(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
     if (!this.oauthEnabled) return false;
     const path = url.pathname;
     if (path === "/.well-known/oauth-protected-resource" || path === "/.well-known/oauth-protected-resource/mcp") {
@@ -241,7 +264,11 @@ export class LocalOAuthServer implements McpAuthorization {
   async #register(request: IncomingMessage, response: ServerResponse): Promise<void> {
     let metadata: unknown;
     try { metadata = JSON.parse(await readBody(request)); }
-    catch { oauthError(response, 400, "invalid_client_metadata", "Body must be valid JSON"); return; }
+    catch (error) {
+      if (error instanceof OAuthBodyTooLargeError) throw error;
+      oauthError(response, 400, "invalid_client_metadata", "Body must be valid JSON");
+      return;
+    }
     if (!metadata || typeof metadata !== "object") {
       oauthError(response, 400, "invalid_client_metadata", "Client metadata must be an object");
       return;

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { toast } from 'vue-sonner'
 import { Box, RefreshCw, Search, Wrench } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -11,7 +12,6 @@ const catalog = ref<CapabilityCatalogDto | null>(null)
 const query = ref('')
 const busy = ref(false)
 const togglingId = ref('')
-const error = ref('')
 
 const capabilities = computed(() => {
   const normalized = query.value.trim().toLowerCase()
@@ -23,7 +23,6 @@ const capabilities = computed(() => {
 
 async function refresh() {
   busy.value = true
-  error.value = ''
   try {
     const [bodyPlugins, capabilityCatalog] = await Promise.all([
       desktopApi.listBodyPlugins(),
@@ -32,7 +31,7 @@ async function refresh() {
     plugins.value = bodyPlugins
     catalog.value = capabilityCatalog
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
+    toast.error(reason instanceof Error ? reason.message : String(reason), { id: 'plugins-refresh' })
   } finally {
     busy.value = false
   }
@@ -41,12 +40,12 @@ async function refresh() {
 async function togglePlugin(plugin: BodyPluginDto, enabled: boolean) {
   if (plugin.required || togglingId.value) return
   togglingId.value = plugin.id
-  error.value = ''
   try {
     await desktopApi.setBodyPluginEnabled(plugin.id, enabled)
     await refresh()
+    toast.success(`${plugin.name} 已${enabled ? '启用' : '停用'}。`)
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
+    toast.error(reason instanceof Error ? reason.message : String(reason))
   } finally {
     togglingId.value = ''
   }
@@ -66,8 +65,6 @@ onMounted(refresh)
         <RefreshCw :size="15" />
       </Button>
     </header>
-
-    <div v-if="error" class="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{{ error }}</div>
 
     <section class="mt-7">
       <h2 class="mb-3 text-sm font-medium">执行插件</h2>

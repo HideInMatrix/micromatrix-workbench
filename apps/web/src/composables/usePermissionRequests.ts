@@ -1,4 +1,5 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { toast } from 'vue-sonner'
 import { desktopApi } from '@/api/desktop'
 import type { PermissionRequestDto } from '@/types'
 
@@ -22,12 +23,10 @@ function stringifyPermissionArguments(request: PermissionRequestDto | null) {
 }
 
 function createPermissionState() {
-  const errorMessage = ref('')
   const permissionRequests = ref<PermissionRequestDto[]>([])
   const permissionResponding = ref(false)
   const activePermissionRequest = computed(() => permissionRequests.value[0] || null)
   return {
-    errorMessage,
     permissionRequests,
     permissionResponding,
     activePermissionRequest,
@@ -36,14 +35,13 @@ function createPermissionState() {
 }
 
 function createPermissionActions(state: ReturnType<typeof createPermissionState>) {
-  const { activePermissionRequest, errorMessage, permissionRequests, permissionResponding } = state
+  const { activePermissionRequest, permissionRequests, permissionResponding } = state
 
   async function refreshPermissionRequests(surfaceError = false) {
     try {
       permissionRequests.value = await desktopApi.listPermissionRequests()
-      if (surfaceError) errorMessage.value = ''
     } catch (error) {
-      if (surfaceError) errorMessage.value = error instanceof Error ? error.message : String(error)
+      if (surfaceError) toast.error(error instanceof Error ? error.message : String(error), { id: 'permission-refresh' })
     }
   }
 
@@ -54,10 +52,10 @@ function createPermissionActions(state: ReturnType<typeof createPermissionState>
     permissionResponding.value = true
     try {
       const accepted = await desktopApi.respondPermissionRequest(request.request_id, decision)
-      if (!accepted) errorMessage.value = '授权请求已过期或不再有效。'
+      if (!accepted) toast.error('授权请求已过期或不再有效。')
       await refreshPermissionRequests(false)
     } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : String(error)
+      toast.error(error instanceof Error ? error.message : String(error))
     } finally {
       permissionResponding.value = false
     }

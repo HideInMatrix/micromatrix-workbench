@@ -1,4 +1,5 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { toast } from 'vue-sonner'
 import { desktopApi } from '../api/desktop'
 import {
   emptyRuntimeDraft,
@@ -17,29 +18,37 @@ const ready = ref(false)
 const initializing = ref(false)
 const busy = ref(false)
 const lifecycleBusy = ref(false)
-const enabling = ref(false)
-const errorMessage = ref('')
 const copiedUrl = ref('')
 const tunnelTokenVisible = ref(false)
 const oauthPasswordVisible = ref(false)
 let pollTimer = 0
 let initializePromise: Promise<void> | null = null
+let initializationErrorShown = false
 
 export function useRuntimeManager() {
   const running = computed(() => Boolean(runtime.value?.running))
-  const locked = running
+  const locked = computed(() => running.value || lifecycleBusy.value || busy.value)
 
   async function refreshRuntime() {
-    runtime.value = await desktopApi.runtime()
+    const wasRunning = Boolean(runtime.value?.running)
+    const updated = await desktopApi.runtime()
+    runtime.value = updated
+    if (wasRunning && !updated.running && updated.exit_reason) {
+      toast.error(updated.exit_reason, { id: 'runtime-unexpected-exit' })
+    }
   }
 
   async function chooseWorkspace() {
     if (locked.value) return
-    const value = await desktopApi.chooseWorkspace(draft.value.workspace)
-    if (value) draft.value.workspace = value
+    try {
+      const value = await desktopApi.chooseWorkspace(draft.value.workspace)
+      if (value) draft.value.workspace = value
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    }
   }
 
-  function validateDraft(value: RuntimeDraft) {
+  function validateDraft(value: Pick<RuntimeDraft, 'name' | 'workspace'>) {
     if (!value.name) throw new Error('Runtime 名称不能为空。')
     if (!value.workspace) throw new Error('Runtime 必须选择工作目录。')
   }
@@ -56,35 +65,19 @@ export function useRuntimeManager() {
   async function saveRuntime() {
     if (busy.value || locked.value) return
     busy.value = true
-    errorMessage.value = ''
     try {
       await persistDraft()
+      toast.success('Runtime 配置已保存。')
     } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : String(error)
+      toast.error(error instanceof Error ? error.message : String(error))
     } finally {
       busy.value = false
-    }
-  }
-
-  async function setEnabled(enabled: boolean) {
-    if (enabling.value) return
-    enabling.value = true
-    errorMessage.value = ''
-    try {
-      const updated = await desktopApi.setRuntimeEnabled(enabled)
-      runtime.value = updated
-      draft.value.enabled = updated.enabled
-    } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : String(error)
-    } finally {
-      enabling.value = false
     }
   }
 
   async function toggleRunning() {
     if (busy.value || lifecycleBusy.value) return
     lifecycleBusy.value = true
-    errorMessage.value = ''
     try {
       if (running.value) {
         runtime.value = await desktopApi.stopRuntime()
@@ -93,8 +86,9 @@ export function useRuntimeManager() {
         runtime.value = await desktopApi.startRuntime()
       }
       if (runtime.value) draft.value = runtimeDraft(runtime.value)
+      toast.success(runtime.value?.running ? 'Runtime 已启动。' : 'Runtime 已停止。')
     } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : String(error)
+      toast.error(error instanceof Error ? error.message : String(error))
       try { await refreshRuntime() } catch { /* preserve the original error */ }
     } finally {
       lifecycleBusy.value = false
@@ -103,11 +97,16 @@ export function useRuntimeManager() {
 
   async function copyUrl(value: string) {
     if (!value) return
-    await navigator.clipboard.writeText(value)
-    copiedUrl.value = value
-    window.setTimeout(() => {
-      if (copiedUrl.value === value) copiedUrl.value = ''
-    }, 1500)
+    try {
+      await navigator.clipboard.writeText(value)
+      toast.success('MCP 地址已复制。')
+      copiedUrl.value = value
+      window.setTimeout(() => {
+        if (copiedUrl.value === value) copiedUrl.value = ''
+      }, 1500)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    }
   }
 
   async function pollRuntime() {
@@ -115,7 +114,7 @@ export function useRuntimeManager() {
       await initialize()
       return
     }
-    if (busy.value || lifecycleBusy.value || enabling.value) return
+    if (busy.value || lifecycleBusy.value) return
     try { await refreshRuntime() } catch { /* transient polling failure */ }
   }
 
@@ -130,9 +129,12 @@ export function useRuntimeManager() {
         networkProviders.value = snapshot.network_providers
         draft.value = runtimeDraft(snapshot.runtime)
         ready.value = true
-        errorMessage.value = ''
+        initializationErrorShown = false
       } catch (error) {
-        errorMessage.value = error instanceof Error ? error.message : String(error)
+        if (!initializationErrorShown) {
+          toast.error(error instanceof Error ? error.message : String(error), { id: 'runtime-initialize' })
+          initializationErrorShown = true
+        }
       } finally {
         initializing.value = false
         initializePromise = null
@@ -160,17 +162,14 @@ export function useRuntimeManager() {
     initializing,
     busy,
     lifecycleBusy,
-    enabling,
-    errorMessage,
     copiedUrl,
     tunnelTokenVisible,
     oauthPasswordVisible,
     running,
     locked,
-    runtimeUrl: computed(() => runtime.value ? runtimeUrl(runtime.value) : runtimeUrl(draft.value)),
+    runtimeUrl: computed(() => runtime.value ? runtimeUrl(runtime.value) : ''),
     chooseWorkspace,
     saveRuntime,
-    setEnabled,
     toggleRunning,
     copyUrl,
   }
