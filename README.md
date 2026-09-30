@@ -106,6 +106,14 @@ git push origin v0.5.0-alpha.1
 
 手动触发需要 workflow 文件已经存在于仓库默认分支，随后可在 Run workflow 选择当前开发分支；尚未合并时可先使用 tag 自动触发。Actions 必须启用且允许工作流中使用的固定提交 Actions。checkout/setup-node/upload/download 已使用 Node 24 运行时版本，项目测试与 SEA 构建的 Node 版本仍固定为 22.23.3；两者不是同一个配置。默认使用内置 `GITHUB_TOKEN`，无需提供个人 Token 或生产签名密钥；只有创建 Release 草稿的 job 获得 `contents: write`。
 
+### 构建复用与 Rust 缓存
+
+`Desktop packages` 的 verify 只构建一次 Vite 页面并上传 `shared-web`，四个原生 job 下载同一份页面。各平台保留类型检查和测试，随后通过 `build:sidecar -- --prebuilt-web` 内嵌页面；Tauri 使用 `tauri.prebuilt.conf.json` 关闭重复的前端 hook。服务 CJS、Node SEA 和 Rust 仍在各原生平台构建，不复用其他系统的可执行文件。本地默认构建命令仍会自动构建前端；预构建模式缺少有效 `index.html` 时会直接失败。
+
+Rust 使用固定 SHA 的 `Swatinem/rust-cache` 缓存 Cargo 下载和依赖编译产物，按平台/架构、工具链和依赖配置隔离，不降低 release 优化级别。建议提交推送后，先手动选择 **master** 跑一次完整构建，预热默认分支缓存；后续 tag 可以读取它。GitHub 不允许不同 tag 互读缓存，因此仅连续推送 tag 不能保证命中上个 tag 的缓存；本流程只在 master 保存缓存。[GitHub 缓存作用域](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache)、[Rust Cache 行为](https://github.com/Swatinem/rust-cache#cache-details)。
+
+首次冷构建仍需要编译 Rust 依赖；runner 排队、下载和安装包压缩不会被编译缓存消除，不保证固定分钟数。各平台的 `rust-timings-*` Artifact 保留 Cargo HTML 耗时报告，方便定位后续瓶颈；它和 `shared-web` 不会加入 Release。复用前端仅适用于目前各平台相同的 Vite 配置，未来如引入平台特定的构建变量需重新评估。
+
 产物包含安装包、独立服务压缩包、已列出的许可证通知、构建元数据和 `SHA256SUMS-*.txt`。macOS 使用 ad-hoc 签名、没有公证；Windows 未进行 Authenticode 签名。编译通过不是平台安装验收，当前仍是测试包；首次远端运行前不宣称四个平台均已验证。流水线依据 [Tauri 打包指南](https://v2.tauri.app/distribute/pipelines/github/)、[GitHub 手动触发要求](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)和 [Node SEA 构建流程](https://nodejs.org/download/release/latest-v22.x/docs/api/single-executable-applications.html)。
 
 开发约束见 [`docs/architecture.md`](docs/architecture.md)，第三方许可证见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。依赖版本以 `package.json`、`package-lock.json` 和 `src-tauri/Cargo.lock` 为准。

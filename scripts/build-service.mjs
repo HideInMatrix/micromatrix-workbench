@@ -6,15 +6,25 @@ import { build } from 'esbuild'
 const root = process.cwd()
 const webDist = path.join(root, 'apps/web/dist')
 const output = path.join(root, 'dist/micromatrix-service.cjs')
+const prebuiltWeb = process.argv.includes('--prebuilt-web')
+
+if (prebuiltWeb) {
+  let index
+  try { index = await readFile(path.join(webDist, 'index.html'), 'utf8') } catch { /* validated below */ }
+  if (!index?.trim()) throw new Error('--prebuilt-web requires a non-empty apps/web/dist/index.html; build or download the frontend artifact first')
+  console.log('Reusing prebuilt apps/web/dist; skipping Vite build')
+}
 
 execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '-b', '--pretty', 'false'], {
   cwd: root,
   stdio: 'inherit',
 })
-execFileSync(process.execPath, ['node_modules/vite/bin/vite.js', 'build', '--config', 'apps/web/vite.config.ts'], {
-  cwd: root,
-  stdio: 'inherit',
-})
+if (!prebuiltWeb) {
+  execFileSync(process.execPath, ['node_modules/vite/bin/vite.js', 'build', '--config', 'apps/web/vite.config.ts'], {
+    cwd: root,
+    stdio: 'inherit',
+  })
+}
 
 const contentTypes = {
   '.css': 'text/css; charset=utf-8',

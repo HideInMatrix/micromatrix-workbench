@@ -28,6 +28,13 @@ jobs:
       - name: Validate application and tag versions
         run: node scripts/check-release-version.mjs
       - run: npm run check
+      - name: Share the single frontend build with native jobs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7, Node 24
+        with:
+          name: shared-web
+          path: apps/web/dist/
+          if-no-files-found: error
+          retention-days: 14
 
   build:
     needs: verify
@@ -81,11 +88,26 @@ jobs:
             libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file xdg-utils
       - run: npm ci
       - name: Native-platform regression tests
-        run: npm run check
+        run: npm run typecheck && npm test
+      - name: Download the verified shared frontend
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8, Node 24
+        with:
+          name: shared-web
+          path: apps/web/dist
       - name: Build and smoke-test native Node SEA
-        run: npm run check:sidecar
+        run: npm run build:sidecar -- --prebuilt-web && npm run smoke:sidecar
+      - name: Restore Rust dependencies and compiled crates
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2, Node 24
+        with:
+          workspaces: src-tauri -> target
+          shared-key: desktop-${{ matrix.id }}
+          cache-bin: false
+          # Default-branch caches are available to later tags; other tags are not.
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          cache-on-failure: true
       - name: Build Tauri installers
-        run: npm run tauri -- build --ci --bundles ${{ matrix.bundles }} -- --locked
+        id: tauri-build
+        run: npm run tauri -- build --ci --config src-tauri/tauri.prebuilt.conf.json --bundles ${{ matrix.bundles }} -- --locked --timings
       - name: Collect installers, standalone service, notices and checksums
         run: node scripts/package-artifacts.mjs
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7, Node 24
@@ -94,6 +116,14 @@ jobs:
           path: dist/artifacts/*
           if-no-files-found: error
           compression-level: 0
+          retention-days: 14
+      - name: Upload Rust compilation timings
+        if: always() && steps.tauri-build.outcome != 'skipped'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7, Node 24
+        with:
+          name: rust-timings-${{ matrix.id }}
+          path: src-tauri/target/cargo-timings/
+          if-no-files-found: ignore
           retention-days: 14
 
   release-draft:

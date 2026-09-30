@@ -5,7 +5,9 @@ import { nativeBuildTarget } from './build-platform.mjs'
 
 const root = process.cwd()
 const triple = nativeBuildTarget()
-execFileSync(process.execPath, ['scripts/build-service.mjs'], { cwd: root, stdio: 'inherit' })
+const serviceArgs = ['scripts/build-service.mjs']
+if (process.argv.includes('--prebuilt-web')) serviceArgs.push('--prebuilt-web')
+execFileSync(process.execPath, serviceArgs, { cwd: root, stdio: 'inherit' })
 
 const extension = process.platform === 'win32' ? '.exe' : ''
 const outputDir = path.join(root, 'src-tauri/binaries')
