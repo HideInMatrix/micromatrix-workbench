@@ -23,12 +23,25 @@ test('release version validation requires consistent versions and rejects unrela
   for (const tag of ['v0.1.0', 'v0.1.0-alpha.1', 'v0.1.0-beta.0', 'v0.1.0-rc.2']) {
     assert.equal(validateReleaseVersion({ ...versions, tag }), '0.1.0')
   }
-  for (const tag of ['v9.0.0', 'v0.1.0-../../escape', 'v0.1.0-alpha.01', '0.1.0', 'v0.1.0garbage']) {
+  for (const tag of ['v9.0.0', 'v0.5.0', 'v0.1.0-../../escape', 'v0.1.0-alpha.01', '0.1.0', 'v0.1.0garbage']) {
     assert.throws(() => validateReleaseVersion({ ...versions, tag }), /Tag/)
   }
   assert.throws(() => validateReleaseVersion({ ...versions, cargoVersion: '0.2.0' }), /must match/)
   assert.throws(() => validateReleaseVersion({}), /Invalid/)
-  assert.equal(releaseVersion(path.resolve(import.meta.dirname, '../..'), {}), '0.1.0')
+})
+
+test('checked-in application, lockfiles and displayed version match the release tag', () => {
+  const root = path.resolve(import.meta.dirname, '../..')
+  const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version
+  const lock = JSON.parse(readFileSync(path.join(root, 'package-lock.json'), 'utf8'))
+  assert.equal(lock.version, version)
+  assert.equal(lock.packages[''].version, version)
+  const cargoLock = readFileSync(path.join(root, 'src-tauri/Cargo.lock'), 'utf8')
+  assert.equal(/name = "micromatrix-pi-mcp"\s+version = "([^"]+)"/.exec(cargoLock)?.[1], version)
+  const daemon = readFileSync(path.join(root, 'apps/daemon/src/main.ts'), 'utf8')
+  assert.equal(/version:\s*"([^"]+)"/.exec(daemon)?.[1], version)
+  assert.equal(releaseVersion(root, { GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: `v${version}` }), version)
+  assert.equal(releaseVersion(root, { GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: `v${version}-alpha.1` }), version)
 })
 
 test('installer discovery requires every expected format and ignores unrelated outputs', () => {

@@ -10,7 +10,7 @@ async function main(): Promise<void> {
   const runtime = new RuntimeSupervisor(config, logger);
   const control = new ControlPlaneHttpService({
     appName: "MicroMatrix Pi MCP",
-    version: "0.1.0",
+    version: "0.5.0",
     host: config.controlHost,
     port: config.controlPort,
     runtime,

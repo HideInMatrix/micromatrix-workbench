@@ -2,9 +2,9 @@
 
 ## 结论与范围
 
-版本标识 `0.1.0`。初始审阅基于 `codex/pi-agent-mcp` 的未提交工作树；本地 master 先同步远端至 `eda8130`，再备份到 `codex/backup-master-synced-20260930`，最后用新版完整快照替换文件内容并保留双方提交历史。首次同步前的备份 `codex/backup-master-20260930` 仍保留。本地迁移不代表已推送或发布。
+当前应用版本标识 `0.5.0`，按已推送的 `v0.5.0` tag 同步；初始审阅和本机安装包验收使用 `0.1.0`。初始审阅基于 `codex/pi-agent-mcp` 的未提交工作树；本地 master 先同步远端至 `eda8130`，再备份到 `codex/backup-master-synced-20260930`，最后用新版完整快照替换文件内容并保留双方提交历史。首次同步前的备份 `codex/backup-master-20260930` 仍保留。
 
-**核心功能闭环已经具备；适合继续内部开发验证，不具备公开发布的验收条件。** 本轮已修复前三项阻塞，剩余安全边界、桌面退出与真实 Tunnel 验收完成后再发布 `0.1.0-alpha.1`；当前不能宣称稳定版或跨平台正式支持。
+**核心功能闭环已经具备；适合继续内部开发验证，不具备公开发布的验收条件。** 本轮已修复前三项阻塞，剩余安全边界、桌面退出与真实 Tunnel 验收完成后再发布 `0.5.0-alpha.1`；当前不能宣称稳定版或跨平台正式支持。
 
 初始审阅没有修改业务实现；下方保留其复现证据，已修复项明确标注。后续修复重建了 SEA 并验证了真实浏览器交互；GitHub 打包工作流也已补充。没有连接真实公网 Tunnel；macOS arm64 已用工作流固定的 Node 22.23.3 重建 DMG 与独立服务压缩包，跨平台远端运行与干净机器安装验收仍待执行。
 
@@ -15,9 +15,10 @@
 - 内嵌 Web UI 使用同源控制地址，允许实际控制端口的 loopback Origin；恶意 Origin 仍拒绝。真实浏览器已验证自定义端口下页面加载、手动启动/停止、地址显示/清空。
 - 应用只加载配置并启动控制 API。移除自动启动开关、API 和配置字段；旧 `enabled=true` / `MICROMATRIX_ENABLED=true` 被忽略。未完成 FRP 或 Workspace 配置不会在打开软件时执行，只有点击启动才检查。
 - 生命周期操作已串行化；补充 start/configure、start/stop/start 回归和端口冲突检查。stop/start 会重建 OAuth 对象，使旧 token 失效。
-- 最新回归：Node 22.23.3 下 `npm run check` PASS（13 个 Vitest 文件 / 41 个测试 + 6 个 Web 测试 + 4 个发布脚本测试）；`npm run check:sidecar` PASS（含旧自动启动配置和内嵌同源 Origin）。
+- 本轮 `0.5.0` 回归：Node 22.23.3 下 `npm run check` PASS（13 个 Vitest 文件 / 41 个测试 + 6 个 Web 测试 + 5 个发布脚本测试）；`npm run check:sidecar` PASS（含旧自动启动配置和内嵌同源 Origin）；`cargo check --locked --offline` PASS。`v0.5.0` 和预发布 tag 的版本检查通过，错误核心版本仍拒绝；尚未重建 `0.5.0` 的安装包。
 - 工作流静态检查：Actionlint 1.7.12 PASS。macOS arm64 的 `CI=true APPLE_SIGNING_IDENTITY=- npm run tauri -- build --ci --bundles dmg -- --locked` PASS；产物收集与 SHA-256 校验 PASS。Unix 服务归档保留执行权限，打包测试确认不含 `.env.local`；macOS 无交互打包需设置 `CI=true` 跳过 Finder 布局脚本。
-- 当前没有推送或触发 GitHub Actions。CI、手动 Artifacts 和 tag Draft Pre-release 的远端行为仍需首次真实运行验证；本机构建结果不能替代远端完整矩阵。
+- GitHub 运行 `36725895175` 已在 tag `v0.5.0` / 提交 `87ea725` 的 verify 失败：应用配置仍为 `0.1.0`，本地带相同 tag 复现了版本校验拒绝。完整 job 日志需要登录，未直接下载。当前已将应用配置、锁文件和显示版本同步为 `0.5.0`，保留错误 tag 拒绝规则，并新增版本一致性回归。
+- checkout/setup-node/upload/download 已升级为官方 Node 24 运行时的固定 SHA 版本；项目测试与 SEA 构建继续使用 Node 22.23.3。本轮修复尚未推送，远端打包矩阵与 Draft Pre-release 仍需通过新提交的真实运行验证；重跑旧 tag 不会读取 master 的修复。
 
 ## 五项原始交付进度
 
@@ -142,4 +143,4 @@ MCP 官方明确要求 Streamable HTTP 服务校验 Origin，并建议本地回�
 2. 继续修复控制面/代理信任策略、OAuth 限流与 Tauri 优雅退出，并扩展异常生命周期回归。
 3. 选定首版支持的 Tunnel / 网页客户端 / 平台做真实验收；未验收 Provider 明确标记实验性。
 4. 固定发布提交，补充许可证分发，重建并在干净机器测试安装包，输出校验和与限制说明。
-5. 满足以上门槛后发布 `0.1.0-alpha.1`。正式版再以稳定性和已声明的平台/客户端矩阵验收，不以“构建成功”作为发布条件。
+5. 满足以上门槛后发布 `0.5.0-alpha.1`。正式版再以稳定性和已声明的平台/客户端矩阵验收，不以“构建成功”作为发布条件。

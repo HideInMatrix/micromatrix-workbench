@@ -96,13 +96,15 @@ UI 配置默认写入 `~/.micromatrix-pi-mcp/runtime.json`。关闭“保存敏�
 
 ```bash
 git push origin master
-git tag v0.1.0-alpha.1
-git push origin v0.1.0-alpha.1
+git tag v0.5.0-alpha.1
+git push origin v0.5.0-alpha.1
 ```
 
-这些命令要求修改已经提交；不要把 tag 打在旧提交上。当前应用版本为 `0.1.0`，接受 `v0.1.0` 或 `v0.1.0-alpha/beta/rc.N` 标签。预发布标签只标识测试构建，**不会自动修改应用内版本号**；完整 tag、commit 和构建平台记录在 `build-*.json`。改变核心版本前须同步 `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` 及应用显示版本。
+这些命令要求修改已经提交；不要把 tag 打在旧提交上。当前应用版本为 `0.5.0`，接受 `v0.5.0` 或 `v0.5.0-alpha/beta/rc.N` 标签。预发布标签只标识测试构建，**不会自动修改应用内版本号**；完整 tag、commit 和构建平台记录在 `build-*.json`。改变核心版本前须同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 及应用显示版本。
 
-手动触发需要 workflow 文件已经存在于仓库默认分支，随后可在 Run workflow 选择当前开发分支；尚未合并时可先使用 tag 自动触发。Actions 必须启用且允许工作流中使用的固定提交 Actions。默认使用内置 `GITHUB_TOKEN`，无需提供个人 Token 或生产签名密钥；只有创建 Release 草稿的 job 获得 `contents: write`。
+旧 tag 的失败运行重新执行仍使用旧提交，不会自动读取 master 上的修复。提交并推送修复后，可手动选择 master 打包，或推送指向修复提交的新测试 tag；不要为重试擅自覆盖已存在的 tag。
+
+手动触发需要 workflow 文件已经存在于仓库默认分支，随后可在 Run workflow 选择当前开发分支；尚未合并时可先使用 tag 自动触发。Actions 必须启用且允许工作流中使用的固定提交 Actions。checkout/setup-node/upload/download 已使用 Node 24 运行时版本，项目测试与 SEA 构建的 Node 版本仍固定为 22.23.3；两者不是同一个配置。默认使用内置 `GITHUB_TOKEN`，无需提供个人 Token 或生产签名密钥；只有创建 Release 草稿的 job 获得 `contents: write`。
 
 产物包含安装包、独立服务压缩包、已列出的许可证通知、构建元数据和 `SHA256SUMS-*.txt`。macOS 使用 ad-hoc 签名、没有公证；Windows 未进行 Authenticode 签名。编译通过不是平台安装验收，当前仍是测试包；首次远端运行前不宣称四个平台均已验证。流水线依据 [Tauri 打包指南](https://v2.tauri.app/distribute/pipelines/github/)、[GitHub 手动触发要求](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)和 [Node SEA 构建流程](https://nodejs.org/download/release/latest-v22.x/docs/api/single-executable-applications.html)。
 

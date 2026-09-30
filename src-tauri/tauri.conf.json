@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "MicroMatrix Pi MCP",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "identifier": "org.micromatrix.pi-mcp",
   "build": {
     "frontendDist": "../apps/web/dist",
