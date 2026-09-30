@@ -1,197 +1,109 @@
-# MicroMatrix Workbench
+# MicroMatrix Pi MCP Agent
 
-MicroMatrix Workbench 是一个面向本地开发环境的 AI Agent 工作台。桌面端由 `agent_workbench` 负责交互与编排，`agent_runtime` 提供 MCP、工具、权限、安全沙箱和工作流执行等基础运行能力。
-
-它允许你选择一个本地 Workspace，把这个目录中的代码、文件和 Git 信息通过受控的 MCP 工具提供给支持 Remote MCP 的 AI 客户端使用。
-
-项目的重点不是把整个电脑或整个文件系统暴露出去，而是让 AI 在你明确指定的 Workspace 范围内完成读取、搜索、修改和受限命令执行等开发工作。
-
-![](docs/assets/7ad1fe7dcf793a4f3d5f304a6f9c68c8.png)
-
-## 这个项目适合谁
-
-MicroMatrix Workbench 主要面向以下用户：
-
-- 希望让 ChatGPT 或其他 MCP Client 直接协助本地项目开发的个人开发者
-- 不希望把源码上传到第三方代码托管或在线 IDE，但又希望 AI 能理解本地代码的开发者
-- 同时维护多个本地项目，希望按 Workspace 控制 AI 访问范围的用户
-- 需要让 AI 读取文件、搜索代码、查看 Git、修改源码或执行受限命令的开发者
-- 有自己的 VPS、FRP、ngrok、Tailscale 或其他公网接入方式，希望自由选择网络方案的高级用户
-- 希望通过桌面界面完成 MCP 启动、OAuth 授权和公网连接，而不是手工维护大量命令的用户
-
-## 它解决什么问题
-
-### 1. AI 无法直接访问你的本地项目
-
-普通聊天中的 AI 并不能直接读取你电脑上的项目目录。MicroMatrix Workbench 可以把你指定的 Workspace 转换成 AI 可以调用的一组 MCP 工具。
-
-### 2. 不希望把整个本地文件系统暴露给 AI
-
-项目以 Workspace 为边界，只允许工具在指定目录范围内工作，并对路径访问、命令执行和写入操作进行限制。
-
-### 3. 本地 MCP 很难提供给远程 AI 客户端访问
-
-项目支持多种网络接入方式，可以根据自己的环境选择 Cloudflare Tunnel、FRP、ngrok、Tailscale Funnel 或自定义公网 URL。
-
-### 4. OAuth、MCP、网络工具配置分散且容易混淆
-
-桌面端把 Workspace、OAuth 授权和网络方案集中在一个界面中管理。OAuth Client 统一通过 `/oauth/register` 使用 Dynamic Client Registration 创建，桌面端不提供手工 Client ID / Client Secret 配置。
-
-### 5. 不同网络工具的安装路径和运行方式不统一
-
-对于 FRP、ngrok、Tailscale 等客户端，项目提供统一的客户端检测与路径选择能力，并对发现的可执行文件进行版本验证。
-
-## 主要能力
-
-- 指定本地 Workspace，并限制 AI 的文件访问范围
-- 通过 MCP 提供文件读取、目录浏览、代码搜索和修改能力
-- 支持 Git 状态、Diff、Log、Show、Blame 等常用开发操作
-- 支持受控命令执行和长时间命令管理
-- 支持 OAuth 授权和 Dynamic Client Registration
-- 支持 Cloudflare Tunnel
-- 支持 FRP
-- 支持 ngrok
-- 支持 Tailscale Funnel
-- 支持自定义公网 URL
-- 支持 FRP、ngrok、Tailscale 客户端自动检测和手动选择
-- 提供 pywebview + Vue 3.5 + TypeScript 7 桌面界面
-- 前端使用 UnoCSS Tailwind v4 preset、仓库内 shadcn-vue 风格组件和 Lucide Vue 图标
-- 提供 CLI 启动方式
-- 桌面版支持 macOS 和 Windows
-- Linux 暂不提供桌面版，仅保留无界面的 Server/CLI 部署支持
-
-## 适合的使用场景
-
-例如，你可以把：
+把网页 AI 模型作为推理端，把 Pi 工具作为本地执行端：
 
 ```text
-/Users/me/Projects/my-app
+Web AI → OAuth MCP → approval policy → Pi BodyPlugin → local workspace
 ```
 
-作为 Workspace，然后让 AI 在这个项目中协助：
+本地服务不运行第二个模型循环。当前 BodyPlugin 提供 Workspace Tools（必需）和 Shell Tool（可选）；网络层支持 External、Cloudflare、ngrok、FRP 与 Tailscale Funnel。
 
-- 阅读和理解已有代码
-- 查找某个功能或变量的实现位置
-- 分析报错和调用链
-- 修改代码
-- 查看 Git 改动
-- 检查提交历史
-- 执行测试、构建或其他受限开发命令
+## 开发运行
 
-而不需要把整个用户目录或整个磁盘开放给 AI。
-
-## 文档
-
-项目文档统一放在 `docs/` 下，需求、设计、整改计划和任务清单也按主题放在该目录内，不另建顶层 `spec` 或 `specs` 目录。
-
-第一次使用，建议按下面顺序阅读：
-
-1. [使用文档](docs/USER_GUIDE.md)
-2. [网络提供商安装与部署教程（新手版）](docs/NETWORK_PROVIDER_BEGINNER_GUIDE.md)
-3. [Linux 服务器部署与运维（systemd / Docker）](docs/SERVER_DEPLOYMENT.md)
-
-如果你需要了解开发和扩展相关内容：
-
-- [NetworkProvider 架构与开发说明](docs/NETWORK_PROVIDERS.md)
-- [MCP Server 开发文档](docs/MCP_SERVER_DEVELOPMENT.md)
-
-架构与整改计划：
-
-- [0.4.x 通用桌面 Computer Use](docs/desktop-computer-use-04/README.md)
-- [Browser / Host 工具契约整改](docs/browser-host-contract-reset/README.md)
-- [Workbench 包结构重构设计](docs/agent-workbench-package-refactor/design.md)
-
-## 当前支持的网络方案
-
-| 网络方案 | 适合场景 |
-|---|---|
-| Cloudflare Tunnel | 希望快速使用，或已经使用 Cloudflare 的用户 |
-| FRP | 有自己的 VPS，希望完全控制转发链路的用户 |
-| ngrok | 临时测试、快速获得公网 HTTPS 地址 |
-| Tailscale Funnel | 已经使用 Tailscale 的用户 |
-| 自定义公网 URL | 已经有 Nginx、Caddy、SSH Tunnel 或其他反向代理方案的用户 |
-
-不同网络方案的具体安装和配置步骤不在 README 展开，请查看：
-
-[网络提供商安装与部署教程（新手版）](docs/NETWORK_PROVIDER_BEGINNER_GUIDE.md)
-
-## 桌面端开发
-
-桌面展示层使用 `pywebview + Vue 3.5 + TypeScript 7 + Vite + UnoCSS`；
-shadcn-vue 组件源码直接维护在仓库内，CLI 只在新增组件时通过 `pnpm dlx` 按需运行，
-不作为正式构建的常驻依赖。
-
-当前桌面端只支持 macOS 和 Windows。Linux 不参与 Desktop Build / GitHub Release，
-如需在 Linux 上运行请使用 `start.py`、CLI、systemd 或 Docker 的无界面 Server 模式。
-
-开发/构建桌面端需要：
-
-```text
-Python >= 3.11
-Node.js + npm
-```
-
-首次构建前端：
+要求：Node.js `>=22.19`。运行 Tauri 还需要 Rust `>=1.90`。
 
 ```bash
-cd agent_workbench/web
 npm install
-npm run build
+cp .env.example .env.local
+npm run check
+npm run dev:desktop
 ```
 
-之后可以从项目根目录启动桌面端：
+`dev:desktop` 同时启动：
+
+- Vite UI：`http://127.0.0.1:5173`
+- 本地控制 API：`http://127.0.0.1:8233`
+- MCP：点击 UI 的“启动”后才监听 `http://127.0.0.1:8234/mcp`
+
+应用启动只加载配置并启动控制 API，**不会自动运行 Runtime 或 Tunnel**。旧配置的 `enabled` 和旧环境变量 `MICROMATRIX_ENABLED` 不再生效；未完成的 Tunnel 配置不会在打开应用时执行或反复报错。配置保存失败会保留原配置和工具；启动失败不会清空工具。
+
+`npm run dev` 只启动控制 API，不启动 Vite UI 或 MCP。Tauri 开发窗口使用：
 
 ```bash
-python desktop.py
+npm run tauri:dev
 ```
 
-正式打包使用：
+## MCP 认证
+
+本机回环地址可以无认证运行。需要通过 Tunnel 或非回环地址公开时，必须配置以下任一项，否则 Runtime 拒绝启动：
+
+- `MICROMATRIX_OAUTH_PASSWORD`：供网页 MCP 客户端使用的 OAuth 2.0 + DCR + PKCE 流程。
+- `MICROMATRIX_AUTH_TOKEN`：兼容旧客户端的静态 Bearer Token。
+
+客户端连接地址为 `https://<public-host>/mcp`。OAuth client、authorization code 和 token 只保存在进程内存中，Runtime 重启后失效。
+
+## 执行审批
+
+| 模式 | `read/grep/find/ls` | `edit/write` | `bash` / 未知工具 |
+| --- | --- | --- | --- |
+| `safe` | 自动允许 | 本地审批 | 本地审批 |
+| `trusted` | 自动允许 | 自动允许 | 本地审批 |
+| `dangerous` | 自动允许 | 自动允许 | 自动允许 |
+
+审批发生在 `AgentTool.execute` 之前。“本次客户端会话允许”按 OAuth authorization grant 隔离；refresh token 轮换保持同一会话，但其他客户端或新的授权会话不会继承。Runtime 停止、重启或权限模式变化时清空全部会话授权。Workspace Tools 会对路径和文件操作执行 canonical boundary 检查，拒绝指向 Workspace 外部的绝对路径、`..` 和 symlink/junction；Workspace 内部的绝对路径仍可使用。
+
+静态 Bearer Token 本身没有客户端身份，因此持有同一个静态 Token 的请求共享审批会话；需要严格客户端隔离时使用 OAuth。
+
+这层边界只覆盖 Workspace Tools，不是操作系统沙箱。可选 Shell Tool 仍能访问 Runtime 进程拥有权限的路径，并且独立本地进程可以制造 filesystem race；需要对抗本机恶意代码时必须使用容器或操作系统沙箱。`dangerous` 只适用于已经隔离的环境。
+
+## 网络 Provider
+
+- `external`：不启动 Tunnel 进程，使用配置的 URL。
+- `cloudflare`：Cloudflare Quick Tunnel 或 Named Tunnel。
+- `ngrok`：临时域名或固定域名。
+- `frp`：运行已有的 `frpc` 配置；需要填写公网 URL。
+- `tailscale`：运行 Tailscale Funnel；需要填写 Funnel 公网 URL。
+
+Provider 只发布本地 MCP origin，不参与工具执行。完整环境变量见 [`.env.example`](.env.example)。
+点击启动 Runtime 后会检查 Workspace、认证、Tunnel executable 与 FRP 配置文件；Cloudflare、ngrok 或 FRP 进程异常退出时，Runtime 会关闭 MCP、清空已发布地址并在 UI 显示退出原因。
+
+## 构建
 
 ```bash
-python build_desktop.py
+npm run build:service  # Node 可运行的单文件 CJS，内嵌静态 UI
+npm run build:sidecar  # 当前平台的 Node SEA sidecar
+npm run check:sidecar  # 重建并验证健康检查、内嵌 UI/API 与退出清理
+npm run tauri:build    # Tauri 2 应用与安装包
 ```
 
-`build_desktop.py` 默认复用已有的 Vue `dist`；需要同时重建前端时使用
-`python build_desktop.py --build-web`。Node.js 只用于开发和打包，最终用户运行安装包时不需要 Node.js。
+主要产物：
 
-CLI 的统一入口是：
+- `dist/micromatrix-service.cjs`
+- `src-tauri/binaries/micromatrix-service-<target-triple>`
+- `src-tauri/target/release/bundle/`
+
+UI 配置默认写入 `~/.micromatrix-pi-mcp/runtime.json`。关闭“保存敏感信息”后，OAuth 密码和网络令牌不写入磁盘。密码框留空表示保留现有值；只有点击对应的清除按钮并保存才会删除已有密钥。
+
+单文件服务上的内嵌 Web UI 使用页面自己的 origin，可使用自定义控制端口；Vite/Tauri 默认连接 `http://127.0.0.1:8233`，如需自定义应在构建前设置 `VITE_CONTROL_URL`。
+
+## GitHub Actions 打包
+
+- 分支 push / PR：`CI` 自动运行版本一致性检查、类型检查、测试和 Web 构建。
+- 手动运行 `Desktop packages`：回归后构建 macOS arm64/x64、Windows x64、Linux x64 的实验性安装包，下载入口为该次运行的 **Artifacts**。
+- 推送 `v*` tag：执行同样的打包流程；全部平台成功后创建 **Draft + Pre-release**，不自动公开发布。任意平台失败不会创建 Release。
+
+提交当前实现、测试、脚本和 `.github` 后推送分支，再推送测试 tag，例如：
 
 ```bash
-python -m agent_workbench /path/to/workspace
+git push origin master
+git tag v0.1.0-alpha.1
+git push origin v0.1.0-alpha.1
 ```
 
-服务器部署或桌面端无法启动时，仍可使用 `python start.py` 作为稳定的前台启动入口；
-它内部调用同一套模块化 CLI，不再维护第二份 Runtime/Tunnel 实现。部署时可用
-`--env-file` 指向服务器配置文件，并交给 systemd、supervisord 或容器负责进程守护。
+这些命令要求修改已经提交；不要把 tag 打在旧提交上。当前应用版本为 `0.1.0`，接受 `v0.1.0` 或 `v0.1.0-alpha/beta/rc.N` 标签。预发布标签只标识测试构建，**不会自动修改应用内版本号**；完整 tag、commit 和构建平台记录在 `build-*.json`。改变核心版本前须同步 `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` 及应用显示版本。
 
-```bash
-# 部署前只校验配置，不启动服务
-python start.py /srv/workspace --env-file /etc/micromatrix/server.env --check-config
+手动触发需要 workflow 文件已经存在于仓库默认分支，随后可在 Run workflow 选择当前开发分支；尚未合并时可先使用 tag 自动触发。Actions 必须启用且允许工作流中使用的固定提交 Actions。默认使用内置 `GITHUB_TOKEN`，无需提供个人 Token 或生产签名密钥；只有创建 Release 草稿的 job 获得 `contents: write`。
 
-# 前台启动；由 systemd / supervisord / 容器负责重启
-python start.py /srv/workspace --env-file /etc/micromatrix/server.env
-```
+产物包含安装包、独立服务压缩包、已列出的许可证通知、构建元数据和 `SHA256SUMS-*.txt`。macOS 使用 ad-hoc 签名、没有公证；Windows 未进行 Authenticode 签名。编译通过不是平台安装验收，当前仍是测试包；首次远端运行前不宣称四个平台均已验证。流水线依据 [Tauri 打包指南](https://v2.tauri.app/distribute/pipelines/github/)、[GitHub 手动触发要求](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)和 [Node SEA 构建流程](https://nodejs.org/download/release/latest-v22.x/docs/api/single-executable-applications.html)。
 
-仓库已提供加固后的 systemd unit、非 root Server Dockerfile、Compose 模板和完整的
-安装、反向代理、健康检查、升级与回滚步骤，见
-[Linux 服务器部署与运维](docs/SERVER_DEPLOYMENT.md)。
-
-需要让 AI 检查服务器 SSH、sudo、PAM、sysctl、systemd、Web 服务、防火墙、容器配置和
-安全日志时，可使用独立的只读 Host Audit systemd profile。它只映射筛选后的主机信息，
-报告写入单独目录，默认不授予 root、Docker Socket 或任意主机写入权限。
-
-## 安全说明
-
-MicroMatrix Workbench 的目标是提供一个受控的本地开发入口，而不是一个任意文件共享服务。
-
-使用时仍建议：
-
-- 只选择实际需要 AI 操作的项目目录作为 Workspace
-- 不要把用户主目录或磁盘根目录直接作为 Workspace
-- 妥善保存 OAuth Password、Tunnel Token、ngrok Auth Token 等敏感凭据
-- 在执行修改和命令操作前确认当前 Workspace 是否正确
-- 对生产环境项目保持正常的 Git 提交和备份习惯
-
-## License
-
-本项目采用仓库中 `LICENSE` 文件声明的许可证。
+开发约束见 [`docs/architecture.md`](docs/architecture.md)，第三方许可证见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。依赖版本以 `package.json`、`package-lock.json` 和 `src-tauri/Cargo.lock` 为准。
