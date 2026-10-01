@@ -92,7 +92,7 @@ UI 配置默认写入 `~/.micromatrix-pi-mcp/runtime.json`。关闭“保存敏�
 
 - 分支 push / PR：`CI` 自动准备应用版本、运行类型检查和 Web 构建。
 - 手动运行 `Desktop packages`：检查后构建 macOS arm64/x64、Windows x64、Linux x64 的实验性安装包，并执行各平台 SEA 冒烟；下载入口为该次运行的 **Artifacts**。
-- 推送 `v*` tag：执行同样的打包流程；全部平台成功后校验 SHA-256、上传所有附件，再自动公开为 **Pre-release**。任意平台失败不会进入发布；上传失败保留草稿，不公开不完整的版本。实验包不标记为稳定版 Latest。
+- 推送 `v*` tag：执行同样的打包流程；全部平台成功后，只选择 6 个桌面安装包，验证各平台 SHA-256 并合并为 `SHA256SUMS.txt`，上传完成后自动公开为 **Pre-release**。独立服务、构建 JSON 和单独通知文件不上传 Release。任意平台失败不会进入发布；上传失败保留草稿，不公开不完整的版本。实验包不标记为稳定版 Latest。
 
 提交当前实现、脚本和 `.github` 后推送分支，再推送一个未使用的 tag，例如：
 
@@ -110,7 +110,7 @@ git push origin v0.5.3
 
 旧 tag 的失败运行重新执行仍使用旧提交，不会自动读取 master 上的修复。提交并推送修复后，可手动选择 master 打包，或推送指向修复提交的新测试 tag；不要为重试擅自覆盖已存在的 tag。
 
-旧流程只保存 Release 草稿：`v0.5.2` 的打包与 `release-draft` job 已成功，但不会出现在公开 Release 列表。仓库维护者可在 Releases 打开该草稿，检查附件后点击 **Publish release**，无需重新编译；也可在已登录 GitHub CLI 的机器执行 `gh release edit v0.5.2 --repo HideInMatrix/micromatrix-workbench --draft=false --prerelease --latest=false`。[GitHub CLI 发布草稿](https://cli.github.com/manual/gh_release_edit)。新流程拒绝覆盖已公开版本的附件；需要重新构建时使用新 tag。
+旧流程只保存 Release 草稿，且附件包含独立服务和审计文件。新流程自动发布精简附件，但不会重写已有公开版本；已有附件不会因修改 workflow 自动消失。已有草稿若包含白名单外附件，新流程拒绝公开，须先手动清理或使用新 tag。
 
 手动触发需要 workflow 文件已经存在于仓库默认分支，随后可在 Run workflow 选择当前开发分支；尚未合并时可先使用 tag 自动触发。Actions 必须启用且允许工作流中使用的固定提交 Actions。checkout/setup-node/upload/download 已使用 Node 24 运行时版本，项目构建与 SEA 的 Node 版本仍固定为 22.23.3；两者不是同一个配置。默认使用内置 `GITHUB_TOKEN`，无需提供个人 Token 或生产签名密钥；只有 tag 的发布 job 获得 `contents: write`。
 
@@ -122,6 +122,12 @@ Rust 使用固定 SHA 的 `Swatinem/rust-cache` 缓存 Cargo 下载和依赖编�
 
 首次冷构建仍需要编译 Rust 依赖；runner 排队、下载和安装包压缩不会被编译缓存消除，不保证固定分钟数。各平台的 `rust-timings-*` Artifact 保留 Cargo HTML 耗时报告，方便定位后续瓶颈；它和 `shared-web` 不会加入 Release。复用前端仅适用于目前各平台相同的 Vite 配置，未来如引入平台特定的构建变量需重新评估。
 
-产物包含安装包、独立服务压缩包、已列出的许可证通知、构建元数据和 `SHA256SUMS-*.txt`。macOS 使用 ad-hoc 签名、没有公证；Windows 未进行 Authenticode 签名。编译通过不是平台安装验收，当前仍是测试包；首次远端运行前不宣称四个平台均已验证。流水线依据 [Tauri 打包指南](https://v2.tauri.app/distribute/pipelines/github/)、[GitHub 手动触发要求](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)和 [Node SEA 构建流程](https://nodejs.org/download/release/latest-v22.x/docs/api/single-executable-applications.html)。
+Release 仅有 **6 个安装包 + 1 个 `SHA256SUMS.txt`**，加上 GitHub 自动提供的两个源码压缩包，共 9 项。`scripts/prepare-release-assets.mjs` 使用平台/格式白名单，缺少格式、重复安装包或校验失败都拒绝发布；不直接把 Actions 的所有文件上传。
+
+独立服务压缩包、构建 JSON、原始校验文件仍保留在 Actions 的 `micromatrix-*` Artifacts，不作为 Release 附件。**这不是私密存储策略**：公开仓库中，有权限访问 Actions 的用户仍可能下载这些文件。桌面应用内的 Node SEA sidecar 仍是运行所需组件，不会移除。
+
+`build:sidecar` 同时生成 Node/Pi 许可证、第三方通知和已知限制；Tauri 通过 `bundle.resources` 将其放进安装后应用的 `notices/` 资源目录，不再作为公开附件重复分发。生成目录不追踪 Git。这只覆盖目前列出的通知，完整依赖许可证审计仍未完成。[Tauri 资源配置](https://v2.tauri.app/reference/config/#resources)。
+
+macOS 使用 ad-hoc 签名、没有公证；Windows 未进行 Authenticode 签名。编译通过不是平台安装验收，当前仍是测试包。流水线依据 [Tauri 打包指南](https://v2.tauri.app/distribute/pipelines/github/)、[GitHub 手动触发要求](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)和 [Node SEA 构建流程](https://nodejs.org/download/release/latest-v22.x/docs/api/single-executable-applications.html)。
 
 开发约束见 [`docs/architecture.md`](docs/architecture.md)，第三方许可证见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。依赖版本以 `package.json`、`package-lock.json` 和 `src-tauri/Cargo.lock` 为准。

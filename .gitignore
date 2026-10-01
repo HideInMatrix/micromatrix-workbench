@@ -15,3 +15,4 @@ coverage/
 .cache/
 .tmp/
 src-tauri/binaries/
+src-tauri/resources/notices/

@@ -23,6 +23,7 @@
 - 前轮本地验证：`npm test` PASS（41 个 Vitest + 14 个 Node 测试）；新版 `npm run check` PASS（类型检查、Web 构建），Actionlint PASS。用不含 tests、私密配置或旧构建产物的临时源码副本模拟 `v0.5.1`，`npm ci --offline`、类型检查、Vite、预构建 SEA 和冒烟全部 PASS；实际 bootstrap 显示 `0.5.1`，Cargo `--locked --offline` metadata 和 Tauri 配置也为 `0.5.1`。另用临时配置验证 `v1.2.3-rc.1` 的版本同步，未重建该版本安装包。
 - 2026-10-01 读取 GitHub 公开元数据：[运行 `36799631011`](https://github.com/HideInMatrix/micromatrix-workbench/actions/runs/36799631011)（`v0.5.2` / `c1e41db`）的 verify、macOS arm64/x64、Windows x64、Linux x64 和 `release-draft` 全部成功。旧流程只保存草稿，因此公开 Release 列表没有该版本。现改为校验附件 → 创建/复用草稿 → 全部上传成功 → 公开 Pre-release；不覆盖已公开附件，手动分支构建不发布。本轮 Actionlint 和 14 个本地构建/发布脚本测试 PASS，包含新建/复用草稿、上传失败、校验失败、禁止覆盖公开版本的离线模拟；自动公开修改尚未提交或远端验证，未通过本机操作发布现有草稿。
 - 打包流水线改为 verify 上传一次 `shared-web`、各原生 job 下载复用；本地默认构建行为不变。按平台/架构隔离的 Rust 依赖缓存只在 master 写入，tag 读取默认分支缓存；需先手动对 master 预热，不承诺首次冷构建或 runner 排队加速。`rust-timings-*` 报告用于定位耗时；远端缓存命中效果待验证。
+- 2026-10-01 按桌面分发要求，不再公开独立服务：发布 job 只允许 6 个安装包和一个合并 `SHA256SUMS.txt`；缺少/重复安装包、校验失败或已有草稿包含排除附件时拒绝发布。独立服务、JSON 和单独通知文件留在 Actions Artifacts，公开仓库的 Artifact 不视为私密存储。Node/Pi 许可证、通知与已知限制通过 Tauri resources 嵌入桌面包。本轮 20 个本地脚本测试、Actionlint、类型/Web 构建、SEA 冒烟及 macOS arm64 `.app` 构建通过，逐文件确认包内 4 个通知与源文件一致；Windows/Linux 的新资源打包待远端运行。修改尚未提交或推送，未更改现有线上附件。
 
 ## 五项原始交付进度
 

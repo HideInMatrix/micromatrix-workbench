@@ -143,9 +143,14 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8, Node 24
         with:
           pattern: micromatrix-*
-          path: release-assets
+          path: build-artifacts
           merge-multiple: true
-      - name: Upload all assets and publish the prerelease
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7, Node 24
+        with:
+          node-version: '22.23.3'
+      - name: Select desktop installers and combine checksums
+        run: node scripts/prepare-release-assets.mjs
+      - name: Upload desktop installers and publish the prerelease
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
@@ -153,13 +158,23 @@ jobs:
         run: |
           set -euo pipefail
           cd release-assets
-          for sums in SHA256SUMS-*.txt; do sha256sum --check "$sums"; done
+          sha256sum --check SHA256SUMS.txt
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             draft=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
             if [ "$draft" != true ]; then
               echo "Refusing to replace assets of a published release" >&2
               exit 1
             fi
+            # An old/manual draft may already contain standalone services.
+            # Do not silently publish those alongside the desktop whitelist.
+            existing_assets=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+            while IFS= read -r asset; do
+              [ -n "$asset" ] || continue
+              if [[ "$asset" == */* ]] || [ ! -f "$asset" ]; then
+                echo "Draft contains an excluded asset: $asset; remove it or use a new tag" >&2
+                exit 1
+              fi
+            done <<< "$existing_assets"
           else
             gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
               --verify-tag --draft --prerelease \

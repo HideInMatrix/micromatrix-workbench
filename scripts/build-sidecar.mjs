@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { nativeBuildTarget } from './build-platform.mjs'
+import { prepareDesktopResources } from './prepare-desktop-resources.mjs'
 
 const root = process.cwd()
 const triple = nativeBuildTarget()
@@ -31,4 +32,5 @@ const args = [postject, target, 'NODE_SEA_BLOB', blob, '--sentinel-fuse', 'NODE_
 if (process.platform === 'darwin') args.push('--macho-segment-name', 'NODE_SEA')
 execFileSync(process.execPath, args, { stdio: 'inherit' })
 if (process.platform === 'darwin') execFileSync('codesign', ['--sign', '-', target], { stdio: 'inherit' })
+prepareDesktopResources(root)
 console.log(`Built Tauri sidecar ${path.relative(root, target)}`)

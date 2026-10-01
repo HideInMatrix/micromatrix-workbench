@@ -13,6 +13,7 @@ limitations and the current release-readiness report before using these packages
 - Pending work includes desktop graceful shutdown with an active Tunnel,
   control-plane/proxy trust hardening, OAuth rate limits and comprehensive license
   auditing. Do not deploy these test builds as a public production MCP service.
-- Each platform provides installers, a standalone service archive, build metadata
-  and SHA-256 checksums. Standalone Unix executables are archived to preserve their
-  executable permissions.
+- Public assets contain six desktop installers and one combined SHA256SUMS.txt.
+  Standalone service archives and build metadata remain in Actions artifacts;
+  they are not Release downloads. The desktop still includes its required service
+  sidecar. Listed license notices and known limits are bundled inside the app.
