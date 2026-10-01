@@ -128,7 +128,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  release-draft:
+  release:
     # Never publish a release from a manual branch build or a partial matrix.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     needs: [verify, build]
@@ -145,7 +145,7 @@ jobs:
           pattern: micromatrix-*
           path: release-assets
           merge-multiple: true
-      - name: Create or update a draft prerelease
+      - name: Upload all assets and publish the prerelease
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
@@ -167,3 +167,10 @@ jobs:
               --notes-file ../.github/release-notes.md
           fi
           gh release upload "$RELEASE_TAG" ./* --repo "$GITHUB_REPOSITORY" --clobber
+          # Keep incomplete uploads private. Publish only after every upload
+          # succeeds; never promote experimental packages to the stable Latest.
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --draft=false --prerelease --latest=false
+          url=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url)
+          printf 'Published prerelease: %s\n' "$url"
+          printf '### Published prerelease\n\n[%s](%s)\n' "$RELEASE_TAG" "$url" >> "$GITHUB_STEP_SUMMARY"

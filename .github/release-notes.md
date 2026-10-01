@@ -1,7 +1,7 @@
 # Experimental desktop packages
 
-This is a draft prerelease, not a stable release. Review the installers and the
-current release-readiness report before publishing this draft.
+This is an experimental prerelease, not a stable release. Review the known
+limitations and the current release-readiness report before using these packages.
 
 - Runtime and tunnels start only after the user clicks Start.
 - macOS packages use ad-hoc signing, without Apple notarization. Windows packages
