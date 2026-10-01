@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import RuntimeEditor from './services/RuntimeEditor.vue'
 import { useRuntimeManager } from '../composables/useRuntimeManager'
+import { Button } from '@/components/ui/button'
 
 const manager = useRuntimeManager()
 </script>
@@ -31,8 +32,13 @@ const manager = useRuntimeManager()
       </div>
     </div>
 
-    <div v-if="!manager.ready.value" class="flex min-h-72 items-center justify-center rounded-lg border border-border bg-card text-sm text-muted-foreground">
-      {{ manager.initializing.value ? '正在加载 Runtime…' : '等待 Runtime 数据…' }}
+    <div v-if="!manager.ready.value" class="flex min-h-72 flex-col items-center justify-center gap-3 rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
+      <template v-if="manager.initializationError.value">
+        <p role="alert" class="max-w-xl whitespace-pre-wrap text-center text-destructive">{{ manager.initializationError.value }}</p>
+        <p>Runtime 与 Tunnel 尚未启动。</p>
+        <Button variant="outline" size="sm" @click="manager.initialize">重新加载配置</Button>
+      </template>
+      <span v-else>{{ manager.initializing.value ? '正在加载配置（不会启动 Runtime）…' : '等待本地控制服务…' }}</span>
     </div>
 
     <RuntimeEditor

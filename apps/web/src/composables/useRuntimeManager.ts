@@ -16,6 +16,7 @@ const networkProviders = ref<NetworkProviderDto[]>([])
 const draft = ref<RuntimeDraft>(emptyRuntimeDraft())
 const ready = ref(false)
 const initializing = ref(false)
+const initializationError = ref('')
 const busy = ref(false)
 const lifecycleBusy = ref(false)
 const copiedUrl = ref('')
@@ -111,6 +112,7 @@ export function useRuntimeManager() {
 
   async function pollRuntime() {
     if (!ready.value) {
+      if (initializationError.value) return
       await initialize()
       return
     }
@@ -122,6 +124,7 @@ export function useRuntimeManager() {
     if (ready.value) return
     if (initializePromise) return initializePromise
     initializing.value = true
+    initializationError.value = ''
     initializePromise = (async () => {
       try {
         const snapshot = await desktopApi.bootstrap()
@@ -131,8 +134,9 @@ export function useRuntimeManager() {
         ready.value = true
         initializationErrorShown = false
       } catch (error) {
+        initializationError.value = error instanceof Error ? error.message : String(error)
         if (!initializationErrorShown) {
-          toast.error(error instanceof Error ? error.message : String(error), { id: 'runtime-initialize' })
+          toast.error(initializationError.value, { id: 'runtime-initialize' })
           initializationErrorShown = true
         }
       } finally {
@@ -160,6 +164,7 @@ export function useRuntimeManager() {
     draft,
     ready,
     initializing,
+    initializationError,
     busy,
     lifecycleBusy,
     copiedUrl,
@@ -169,6 +174,7 @@ export function useRuntimeManager() {
     locked,
     runtimeUrl: computed(() => runtime.value ? runtimeUrl(runtime.value) : ''),
     chooseWorkspace,
+    initialize,
     saveRuntime,
     toggleRunning,
     copyUrl,

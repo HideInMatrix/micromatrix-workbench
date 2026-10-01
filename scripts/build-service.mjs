@@ -65,7 +65,7 @@ await build({
   target: 'node22',
   format: 'cjs',
   sourcemap: false,
-  banner: { js: '#!/usr/bin/env node\nconst __micromatrix_import_meta_url = require("node:url").pathToFileURL(__filename).href;' },
+  banner: { js: '#!/usr/bin/env node\nconst __micromatrix_import_meta_url = require("node:url").pathToFileURL(__filename).href;\n// SEA has no node_modules package tree. Never walk outside the bundled executable\n// looking for Pi metadata (which can prompt for Documents access before Start).\nif (require("node:sea").isSea() && !process.env.PI_PACKAGE_DIR) process.env.PI_PACKAGE_DIR = require("node:path").dirname(process.execPath);' },
   define: { 'import.meta.url': '__micromatrix_import_meta_url' },
   plugins: [{
     name: 'embedded-web-assets',

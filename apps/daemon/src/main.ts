@@ -10,7 +10,7 @@ async function main(): Promise<void> {
   const logger = new BufferedPluginLogger();
   const runtime = new RuntimeSupervisor(config, logger);
   const control = new ControlPlaneHttpService({
-    appName: "MicroMatrix Pi MCP",
+    appName: "micromatrix agent",
     version: APP_VERSION,
     host: config.controlHost,
     port: config.controlPort,

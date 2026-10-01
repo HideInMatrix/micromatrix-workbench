@@ -8,6 +8,7 @@ import { nativeBuildTarget } from './build-platform.mjs'
 
 const root = process.cwd()
 const expectedVersion = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version
+const productName = JSON.parse(readFileSync(path.join(root, 'src-tauri/tauri.conf.json'), 'utf8')).productName
 
 async function availablePort() {
   const server = net.createServer()
@@ -65,7 +66,11 @@ async function assertReleased(url) {
 }
 
 const extension = process.platform === 'win32' ? '.exe' : ''
-const executable = path.join(root, 'src-tauri/binaries', `micromatrix-service-${nativeBuildTarget()}${extension}`)
+const bundled = process.argv.includes('--bundled')
+if (bundled && process.platform !== 'darwin') throw new Error('--bundled currently verifies the macOS application bundle')
+const executable = bundled
+  ? path.join(root, 'src-tauri/target/release/bundle/macos', `${productName}.app`, 'Contents/MacOS/micromatrix-service')
+  : path.join(root, 'src-tauri/binaries', `micromatrix-service-${nativeBuildTarget()}${extension}`)
 const temporary = await mkdtemp(path.join(os.tmpdir(), 'micromatrix-sidecar-smoke-'))
 const controlPort = await availablePort()
 let runtimePort = await availablePort()
@@ -73,7 +78,7 @@ while (runtimePort === controlPort) runtimePort = await availablePort()
 const baseUrl = `http://127.0.0.1:${controlPort}`
 const output = []
 const child = spawn(executable, [], {
-  cwd: root,
+  cwd: temporary,
   env: {
     ...process.env,
     MICROMATRIX_CONFIG_FILE: path.join(temporary, 'runtime.json'),
@@ -103,7 +108,7 @@ try {
 
   const indexResponse = await fetch(`${baseUrl}/`)
   const index = await indexResponse.text()
-  if (!indexResponse.ok || !index.includes('<title>MicroMatrix Workbench</title>')) {
+  if (!indexResponse.ok || !index.includes(`<title>${productName}</title>`)) {
     throw new Error('Sidecar did not serve the embedded Vite application')
   }
 
@@ -113,7 +118,7 @@ try {
     body: JSON.stringify({ method: 'bootstrap', args: [] }),
   })
   const bootstrap = await bootstrapResponse.json()
-  if (!bootstrapResponse.ok || bootstrap.app_name !== 'MicroMatrix Pi MCP' || bootstrap.version !== expectedVersion || bootstrap.runtime?.running !== false || bootstrap.runtime?.exit_reason !== '') {
+  if (!bootstrapResponse.ok || bootstrap.app_name !== productName || bootstrap.version !== expectedVersion || bootstrap.runtime?.running !== false || bootstrap.runtime?.exit_reason !== '') {
     throw new Error(`Unexpected bootstrap response: ${JSON.stringify(bootstrap)}`)
   }
 
@@ -125,6 +130,7 @@ try {
   if (!sameOriginResponse.ok) throw new Error('Embedded browser Origin was rejected by the control API')
   const sameOrigin = await sameOriginResponse.json()
   if (sameOrigin.runtime?.running !== false) throw new Error('Sidecar unexpectedly auto-started the runtime')
+  await assertReleased(`http://127.0.0.1:${runtimePort}/mcp`)
 
   child.kill('SIGTERM')
   const exit = await waitForExit(child)

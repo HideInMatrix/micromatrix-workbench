@@ -1,6 +1,7 @@
-import { isTauri } from '@tauri-apps/api/core'
+import { invoke, isTauri } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { controlBaseUrl } from './controlUrl'
+import { waitForControlService } from './serviceReadiness'
 import type {
   BootstrapDto,
   BodyPluginDto,
@@ -23,7 +24,26 @@ const controlUrl = controlBaseUrl({
   origin: window.location.origin,
 })
 
+let controlReady: Promise<void> | null = null
+async function waitForDesktopControl() {
+  if (!isTauri()) return
+  if (!controlReady) {
+    controlReady = waitForControlService({
+      diagnostic: () => invoke<string | null>('desktop_service_error'),
+      probe: async () => {
+        const response = await fetch(`${controlUrl}/healthz`, { signal: AbortSignal.timeout(1000) })
+        if (!response.ok) throw new Error(`控制服务健康检查失败：HTTP ${response.status}`)
+        if ((await response.json()).ok !== true) throw new Error('控制服务健康检查返回了无效响应')
+        return true
+      },
+      delay: () => new Promise(resolve => window.setTimeout(resolve, 150)),
+    }).catch(error => { controlReady = null; throw error })
+  }
+  await controlReady
+}
+
 async function call<T>(method: string, ...args: unknown[]): Promise<T> {
+  await waitForDesktopControl()
   const request: DesktopApiRequest = { method, args }
   const response = await fetch(`${controlUrl}/api/desktop`, {
     method: 'POST',

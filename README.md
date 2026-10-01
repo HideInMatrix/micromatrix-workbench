@@ -1,4 +1,4 @@
-# MicroMatrix Pi MCP Agent
+# micromatrix agent
 
 把网页 AI 模型作为推理端，把 Pi 工具作为本地执行端：
 
@@ -26,6 +26,10 @@ npm run dev:desktop
 - MCP：点击 UI 的“启动”后才监听 `http://127.0.0.1:8234/mcp`
 
 应用启动只加载配置并启动控制 API，**不会自动运行 Runtime 或 Tunnel**。旧配置的 `enabled` 和旧环境变量 `MICROMATRIX_ENABLED` 不再生效；未完成的 Tunnel 配置不会在打开应用时执行或反复报错。配置保存失败会保留原配置和工具；启动失败不会清空工具。
+
+桌面 UI 会先等待控制服务就绪，再加载配置；这不是启动 MCP 或 Tunnel。sidecar 无法启动或退出时，页面显示具体诊断和“重新加载配置”，不再只显示 `Load failed` 或无限等待。软件名为 `micromatrix agent`；桌面 PNG/ICO/ICNS 使用旧版提供的原图标，侧栏标识保持不变。为保留现有配置，应用 identifier 与配置目录不改名。
+
+SEA 中 Pi 的资源目录默认固定在可执行文件所在目录，不向上扫描源码目录寻找 `package.json`；避免尚未点击启动就触发工作目录/Documents 的读取授权。显式配置的 `PI_PACKAGE_DIR` 仍保留。
 
 `npm run dev` 只启动控制 API，不启动 Vite UI 或 MCP。Tauri 开发窗口使用：
 
@@ -129,5 +133,7 @@ Release 仅有 **6 个安装包 + 1 个 `SHA256SUMS.txt`**，加上 GitHub 自�
 `build:sidecar` 同时生成 Node/Pi 许可证、第三方通知和已知限制；Tauri 通过 `bundle.resources` 将其放进安装后应用的 `notices/` 资源目录，不再作为公开附件重复分发。生成目录不追踪 Git。这只覆盖目前列出的通知，完整依赖许可证审计仍未完成。[Tauri 资源配置](https://v2.tauri.app/reference/config/#resources)。
 
 macOS 使用 ad-hoc 签名、没有公证；Windows 未进行 Authenticode 签名。编译通过不是平台安装验收，当前仍是测试包。流水线依据 [Tauri 打包指南](https://v2.tauri.app/distribute/pipelines/github/)、[GitHub 手动触发要求](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)和 [Node SEA 构建流程](https://nodejs.org/download/release/latest-v22.x/docs/api/single-executable-applications.html)。
+
+macOS 保持 Hardened Runtime，补充 V8 所需 JIT/可执行内存 entitlements。不能只测打包前的 SEA：Tauri 会重新签名 sidecar，因此原生 macOS job 在打包后另跑 `scripts/smoke-sidecar.mjs --bundled`，验证最终包内进程能启动、显示版本正确、Runtime 闲置且 MCP 端口未监听。[Apple JIT 与 Hardened Runtime](https://developer.apple.com/documentation/Apple-Silicon/porting-just-in-time-compilers-to-apple-silicon)。
 
 开发约束见 [`docs/architecture.md`](docs/architecture.md)，第三方许可证见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。依赖版本以 `package.json`、`package-lock.json` 和 `src-tauri/Cargo.lock` 为准。

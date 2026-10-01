@@ -48,11 +48,13 @@ jobs:
           - runner: macos-15
             id: macos-arm64
             target: aarch64-apple-darwin
-            bundles: dmg
+            # Keep the signed .app for the post-bundle smoke test; only the
+            # DMG is selected for public release assets.
+            bundles: app,dmg
           - runner: macos-15-intel
             id: macos-x64
             target: x86_64-apple-darwin
-            bundles: dmg
+            bundles: app,dmg
           - runner: windows-2022
             id: windows-x64
             target: x86_64-pc-windows-msvc
@@ -110,6 +112,9 @@ jobs:
       - name: Build Tauri installers
         id: tauri-build
         run: npm run tauri -- build --ci --config src-tauri/tauri.prebuilt.conf.json --bundles ${{ matrix.bundles }} -- --locked --timings
+      - name: Smoke-test the final signed macOS sidecar
+        if: runner.os == 'macOS'
+        run: node scripts/smoke-sidecar.mjs --bundled
       - name: Collect installers, standalone service, notices and checksums
         run: node scripts/package-artifacts.mjs
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7, Node 24
@@ -178,7 +183,7 @@ jobs:
           else
             gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
               --verify-tag --draft --prerelease \
-              --title "MicroMatrix Pi MCP $RELEASE_TAG (test build)" \
+              --title "micromatrix agent $RELEASE_TAG (test build)" \
               --notes-file ../.github/release-notes.md
           fi
           gh release upload "$RELEASE_TAG" ./* --repo "$GITHUB_REPOSITORY" --clobber

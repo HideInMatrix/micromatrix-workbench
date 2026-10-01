@@ -70,7 +70,9 @@ export function usePermissionRequests() {
   let pollTimer = 0
 
   onMounted(async () => {
-    await actions.refreshPermissionRequests(true)
+    // Runtime bootstrap owns startup diagnostics; do not emit a second toast
+    // before the desktop control service has finished starting.
+    await actions.refreshPermissionRequests(false)
     pollTimer = window.setInterval(() => void actions.refreshPermissionRequests(false), 900)
   })
 

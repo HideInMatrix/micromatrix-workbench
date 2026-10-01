@@ -59,6 +59,7 @@ function navClass(name: AppRouteName): string[] {
         <div class="grid size-9 flex-none place-items-center rounded-md border border-sidebar-border bg-background/40">
           <img src="/workbench-mark.svg" alt="" class="size-6 dark:invert" />
         </div>
+        <span class="truncate text-xs font-medium" title="micromatrix agent">micromatrix agent</span>
       </div>
       <Button v-if="!collapsed" variant="ghost" size="icon" class="h-7 w-7" title="收起侧边栏" @click="toggleCollapsed">
         <PanelLeftClose :size="15" />

@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "MicroMatrix Pi MCP",
+  "productName": "micromatrix agent",
   "version": "0.5.0",
   "identifier": "org.micromatrix.pi-mcp",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "MicroMatrix Pi MCP",
+        "title": "micromatrix agent",
         "width": 1180,
         "height": 780,
         "minWidth": 960,
@@ -29,6 +29,9 @@
     "active": true,
     "targets": "all",
     "externalBin": ["binaries/micromatrix-service"],
+    "macOS": {
+      "entitlements": "Entitlements.plist"
+    },
     "resources": {
       "resources/notices/": "notices/"
     },
