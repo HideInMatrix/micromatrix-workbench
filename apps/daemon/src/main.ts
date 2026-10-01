@@ -3,6 +3,7 @@ import { webAssets } from "@micromatrix/web-assets";
 
 import { loadConfig } from "./config.js";
 import { RuntimeSupervisor } from "./runtime.js";
+import { APP_VERSION } from "./version.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -10,7 +11,7 @@ async function main(): Promise<void> {
   const runtime = new RuntimeSupervisor(config, logger);
   const control = new ControlPlaneHttpService({
     appName: "MicroMatrix Pi MCP",
-    version: "0.5.0",
+    version: APP_VERSION,
     host: config.controlHost,
     port: config.controlPort,
     runtime,

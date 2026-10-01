@@ -24,9 +24,9 @@ jobs:
         with:
           node-version: '22.23.3'
           cache: npm
+      - name: Prepare application version from tag
+        run: node scripts/release-version.mjs
       - run: npm ci
-      - name: Validate application and tag versions
-        run: node scripts/check-release-version.mjs
       - run: npm run check
       - name: Share the single frontend build with native jobs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7, Node 24
@@ -76,6 +76,8 @@ jobs:
         with:
           node-version: '22.23.3'
           cache: npm
+      - name: Prepare application version from tag
+        run: node scripts/release-version.mjs
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable action
         with:
           toolchain: '1.98.1'
@@ -87,8 +89,8 @@ jobs:
             libwebkit2gtk-4.1-dev build-essential libssl-dev libgtk-3-dev \
             libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file xdg-utils
       - run: npm ci
-      - name: Native-platform regression tests
-        run: npm run typecheck && npm test
+      - name: Native-platform typecheck
+        run: npm run typecheck
       - name: Download the verified shared frontend
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8, Node 24
         with:

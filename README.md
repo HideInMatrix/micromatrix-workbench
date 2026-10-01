@@ -33,6 +33,8 @@ npm run dev:desktop
 npm run tauri:dev
 ```
 
+所有 `tests/` 目录仅保留本地，Git 不再跟踪；新克隆不包含测试文件。`npm run check` 只做类型检查和 Web 构建，保留测试文件的开发机可以另跑 `npm test`。远端 CI 不再提供这些单元/集成测试的回归保障，桌面打包仍执行 SEA 冒烟检查。
+
 ## MCP 认证
 
 本机回环地址可以无认证运行。需要通过 Tunnel 或非回环地址公开时，必须配置以下任一项，否则 Runtime 拒绝启动：
@@ -88,27 +90,31 @@ UI 配置默认写入 `~/.micromatrix-pi-mcp/runtime.json`。关闭“保存敏�
 
 ## GitHub Actions 打包
 
-- 分支 push / PR：`CI` 自动运行版本一致性检查、类型检查、测试和 Web 构建。
-- 手动运行 `Desktop packages`：回归后构建 macOS arm64/x64、Windows x64、Linux x64 的实验性安装包，下载入口为该次运行的 **Artifacts**。
+- 分支 push / PR：`CI` 自动准备应用版本、运行类型检查和 Web 构建。
+- 手动运行 `Desktop packages`：检查后构建 macOS arm64/x64、Windows x64、Linux x64 的实验性安装包，并执行各平台 SEA 冒烟；下载入口为该次运行的 **Artifacts**。
 - 推送 `v*` tag：执行同样的打包流程；全部平台成功后创建 **Draft + Pre-release**，不自动公开发布。任意平台失败不会创建 Release。
 
-提交当前实现、测试、脚本和 `.github` 后推送分支，再推送测试 tag，例如：
+提交当前实现、脚本和 `.github` 后推送分支，再推送一个未使用的 tag，例如：
 
 ```bash
 git push origin master
-git tag v0.5.0-alpha.1
-git push origin v0.5.0-alpha.1
+git tag v0.5.2
+git push origin v0.5.2
 ```
 
-这些命令要求修改已经提交；不要把 tag 打在旧提交上。当前应用版本为 `0.5.0`，接受 `v0.5.0` 或 `v0.5.0-alpha/beta/rc.N` 标签。预发布标签只标识测试构建，**不会自动修改应用内版本号**；完整 tag、commit 和构建平台记录在 `build-*.json`。改变核心版本前须同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 及应用显示版本。
+这些命令要求修改已经提交；不要把 tag 打在旧提交上。**发布版本以 tag 为准，不再要求手动修改多处版本文件**。例如 `v0.5.2` 构建为 `0.5.2`，`v0.6.0-rc.1` 构建为 `0.6.0-rc.1`，不必与源码当前的 `0.5.0` 相等。
+
+`git tag` 本身只创建引用，不修改文件。Actions 根据 `GITHUB_REF_TYPE=tag` 和 `GITHUB_REF_NAME`，在每个构建 job 执行 `scripts/release-version.mjs`，自动同步根 `package.json`、npm 锁文件、Tauri 配置、Cargo 配置/锁文件和应用显示版本；只修改构建工作区，不自动提交回仓库，不改内部插件/依赖版本。完整 tag、commit 和构建平台记录在 `build-*.json`。非 tag 构建使用根 `package.json` 的版本。[GitHub 提供的引用变量](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)。
+
+只保留 `v` + SemVer 格式校验（如 `v1.2.3`、`v1.2.3-beta.1`）；任意字符串不能作为 npm/Cargo/Tauri 应用版本。安装包、服务和显示版本需要一致，但一致性由构建脚本自动生成，而非人工维护。
 
 旧 tag 的失败运行重新执行仍使用旧提交，不会自动读取 master 上的修复。提交并推送修复后，可手动选择 master 打包，或推送指向修复提交的新测试 tag；不要为重试擅自覆盖已存在的 tag。
 
-手动触发需要 workflow 文件已经存在于仓库默认分支，随后可在 Run workflow 选择当前开发分支；尚未合并时可先使用 tag 自动触发。Actions 必须启用且允许工作流中使用的固定提交 Actions。checkout/setup-node/upload/download 已使用 Node 24 运行时版本，项目测试与 SEA 构建的 Node 版本仍固定为 22.23.3；两者不是同一个配置。默认使用内置 `GITHUB_TOKEN`，无需提供个人 Token 或生产签名密钥；只有创建 Release 草稿的 job 获得 `contents: write`。
+手动触发需要 workflow 文件已经存在于仓库默认分支，随后可在 Run workflow 选择当前开发分支；尚未合并时可先使用 tag 自动触发。Actions 必须启用且允许工作流中使用的固定提交 Actions。checkout/setup-node/upload/download 已使用 Node 24 运行时版本，项目构建与 SEA 的 Node 版本仍固定为 22.23.3；两者不是同一个配置。默认使用内置 `GITHUB_TOKEN`，无需提供个人 Token 或生产签名密钥；只有创建 Release 草稿的 job 获得 `contents: write`。
 
 ### 构建复用与 Rust 缓存
 
-`Desktop packages` 的 verify 只构建一次 Vite 页面并上传 `shared-web`，四个原生 job 下载同一份页面。各平台保留类型检查和测试，随后通过 `build:sidecar -- --prebuilt-web` 内嵌页面；Tauri 使用 `tauri.prebuilt.conf.json` 关闭重复的前端 hook。服务 CJS、Node SEA 和 Rust 仍在各原生平台构建，不复用其他系统的可执行文件。本地默认构建命令仍会自动构建前端；预构建模式缺少有效 `index.html` 时会直接失败。
+`Desktop packages` 的 verify 只构建一次 Vite 页面并上传 `shared-web`，四个原生 job 下载同一份页面。各平台保留类型检查和 SEA 冒烟，随后通过 `build:sidecar -- --prebuilt-web` 内嵌页面；Tauri 使用 `tauri.prebuilt.conf.json` 关闭重复的前端 hook。服务 CJS、Node SEA 和 Rust 仍在各原生平台构建，不复用其他系统的可执行文件。本地默认构建命令仍会自动构建前端；预构建模式缺少有效 `index.html` 时会直接失败。
 
 Rust 使用固定 SHA 的 `Swatinem/rust-cache` 缓存 Cargo 下载和依赖编译产物，按平台/架构、工具链和依赖配置隔离，不降低 release 优化级别。建议提交推送后，先手动选择 **master** 跑一次完整构建，预热默认分支缓存；后续 tag 可以读取它。GitHub 不允许不同 tag 互读缓存，因此仅连续推送 tag 不能保证命中上个 tag 的缓存；本流程只在 master 保存缓存。[GitHub 缓存作用域](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache)、[Rust Cache 行为](https://github.com/Swatinem/rust-cache#cache-details)。
 

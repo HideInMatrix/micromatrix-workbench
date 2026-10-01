@@ -2,9 +2,9 @@
 
 ## 结论与范围
 
-当前应用版本标识 `0.5.0`，按已推送的 `v0.5.0` tag 同步；初始审阅使用 `0.1.0`，最新本机安装包构建使用 `0.5.0`。初始审阅基于 `codex/pi-agent-mcp` 的未提交工作树；本地 master 先同步远端至 `eda8130`，再备份到 `codex/backup-master-synced-20260930`，最后用新版完整快照替换文件内容并保留双方提交历史。首次同步前的备份 `codex/backup-master-20260930` 仍保留。
+源码默认开发版本为 `0.5.0`；发布构建已改为自动采用 Git tag 的完整 SemVer，不要求源码预先手动升版。本机最新 DMG 使用 `0.5.0`，本轮隔离 SEA 验证使用 `0.5.1`。初始审阅基于 `codex/pi-agent-mcp` 的未提交工作树；本地 master 先同步远端至 `eda8130`，再备份到 `codex/backup-master-synced-20260930`，最后用新版完整快照替换文件内容并保留双方提交历史。首次同步前的备份 `codex/backup-master-20260930` 仍保留。
 
-**核心功能闭环已经具备；适合继续内部开发验证，不具备公开发布的验收条件。** 本轮已修复前三项阻塞，剩余安全边界、桌面退出与真实 Tunnel 验收完成后再发布 `0.5.0-alpha.1`；当前不能宣称稳定版或跨平台正式支持。
+**核心功能闭环已经具备；适合继续内部开发验证，不具备公开发布的验收条件。** 本轮已修复前三项阻塞，剩余安全边界、桌面退出与真实 Tunnel 验收完成后再公开测试版；当前不能宣称稳定版或跨平台正式支持。
 
 初始审阅没有修改业务实现；下方保留其复现证据，已修复项明确标注。后续修复重建了 SEA 并验证了真实浏览器交互；GitHub 打包工作流也已补充。没有连接真实公网 Tunnel；macOS arm64 已用工作流固定的 Node 22.23.3 重建 DMG 与独立服务压缩包，跨平台远端运行与干净机器安装验收仍待执行。
 
@@ -15,12 +15,13 @@
 - 内嵌 Web UI 使用同源控制地址，允许实际控制端口的 loopback Origin；恶意 Origin 仍拒绝。真实浏览器已验证自定义端口下页面加载、手动启动/停止、地址显示/清空。
 - 应用只加载配置并启动控制 API。移除自动启动开关、API 和配置字段；旧 `enabled=true` / `MICROMATRIX_ENABLED=true` 被忽略。未完成 FRP 或 Workspace 配置不会在打开软件时执行，只有点击启动才检查。
 - 生命周期操作已串行化；补充 start/configure、start/stop/start 回归和端口冲突检查。stop/start 会重建 OAuth 对象，使旧 token 失效。
-- 最新 `0.5.0` 回归：Node 22.23.3 下 `npm run check` PASS（13 个 Vitest 文件 / 41 个测试 + 6 个 Web 测试 + 7 个构建/发布脚本测试）；预构建模式的 SEA 冒烟和 macOS arm64 DMG 构建 PASS。日志确认 verify 的 Vite 构建次数为 1，SEA 和 Tauri 为 0，Web 文件内容哈希保持不变；Rust 耗时报告已生成。此前 `cargo check --locked --offline` PASS。Windows 原生结果仍待远端重新运行，不能用 macOS 结果代替。
+- 此前 `0.5.0` 本地回归：Node 22.23.3 下原版 `npm run check` PASS（41 个 Vitest 测试 + 6 个 Web 测试 + 7 个脚本测试）；预构建 SEA 冒烟和 macOS arm64 DMG 构建 PASS。日志确认 verify 的 Vite 构建次数为 1，SEA 和 Tauri 为 0，Web 文件内容哈希保持不变；Rust 耗时报告已生成。此前 `cargo check --locked --offline` PASS。不能用 macOS 结果代替 Windows 原生验收。
 - 工作流静态检查：Actionlint 1.7.12 PASS。macOS arm64 的 `CI=true APPLE_SIGNING_IDENTITY=- npm run tauri -- build --ci --bundles dmg -- --locked` PASS；产物收集与 SHA-256 校验 PASS。Unix 服务归档保留执行权限，打包测试确认不含 `.env.local`；macOS 无交互打包需设置 `CI=true` 跳过 Finder 布局脚本。
-- GitHub 运行 `36725895175` 已在 tag `v0.5.0` / 提交 `87ea725` 的 verify 失败：应用配置仍为 `0.1.0`，本地带相同 tag 复现了版本校验拒绝。完整 job 日志需要登录，未直接下载。当前已将应用配置、锁文件和显示版本同步为 `0.5.0`，保留错误 tag 拒绝规则，并新增版本一致性回归。
-- checkout/setup-node/upload/download 已升级为官方 Node 24 运行时的固定 SHA 版本；项目测试与 SEA 构建继续使用 Node 22.23.3。本轮修复尚未推送，远端打包矩阵与 Draft Pre-release 仍需通过新提交的真实运行验证；重跑旧 tag 不会读取 master 的修复。
-- 后续用户截图显示 macOS arm64/x64 和 Linux job 成功，Windows 在 `config.test.ts` 的 `/tmp` 路径断言失败，并非 Rust 编译错误。本轮测试改用隔离的系统临时目录与平台路径解析，未禁用 Windows 测试。
-- 打包流水线改为 verify 上传一次 `shared-web`、各原生 job 下载复用；本地默认构建行为不变。新增按平台/架构隔离的 Rust 依赖缓存，只在 master 写入，tag 读取默认分支缓存；需先手动对 master 预热，不承诺首次冷构建或 runner 排队加速。新增 `rust-timings-*` 报告产物；本轮优化未提交或推送，远端缓存命中效果待验证。
+- 两次旧校验失败：运行 `36725895175` 的 `v0.5.0` 对上源码 `0.1.0`；运行 `36732602064` 的 `v0.5.1` / 提交 `235bcb0` 对上源码 `0.5.0`。已读取公开运行元数据，完整 job 日志需要登录，未直接下载。旧的版本相等校验现已删除，每个构建 job 根据 tag 自动同步 npm/Cargo/Tauri 配置、锁文件和显示版本；仅拒绝不合法的 SemVer tag。
+- checkout/setup-node/upload/download 已升级为官方 Node 24 运行时的固定 SHA 版本；项目构建与 SEA 继续使用 Node 22.23.3。此前缓存优化已提交至 `235bcb0`，本轮 tag 自动版本及 tests 取消跟踪尚未提交或推送；重跑旧 tag 不会读取 master 的修复。
+- 用户截图显示此前 macOS arm64/x64 和 Linux job 成功，Windows 在 `config.test.ts` 的 `/tmp` 路径断言失败，并非 Rust 编译错误。保留的本地测试已改用隔离的系统临时目录与平台路径解析；本轮按要求将所有 `tests/` 取消 Git 跟踪（17 个文件仍在本地），CI 不再执行这些测试。新克隆没有这部分回归保障，各平台仍执行类型检查和 SEA 冒烟。
+- 本轮本地验证：`npm test` PASS（41 个 Vitest + 14 个 Node 测试）；新版 `npm run check` PASS（类型检查、Web 构建），Actionlint PASS。用不含 tests、私密配置或旧构建产物的临时源码副本模拟 `v0.5.1`，`npm ci --offline`、类型检查、Vite、预构建 SEA 和冒烟全部 PASS；实际 bootstrap 显示 `0.5.1`，Cargo `--locked --offline` metadata 和 Tauri 配置也为 `0.5.1`。另用临时配置验证 `v1.2.3-rc.1` 的版本同步，未重建该版本安装包。远端新版本矩阵仍待运行。
+- 打包流水线改为 verify 上传一次 `shared-web`、各原生 job 下载复用；本地默认构建行为不变。按平台/架构隔离的 Rust 依赖缓存只在 master 写入，tag 读取默认分支缓存；需先手动对 master 预热，不承诺首次冷构建或 runner 排队加速。`rust-timings-*` 报告用于定位耗时；远端缓存命中效果待验证。
 
 ## 五项原始交付进度
 
@@ -122,9 +123,9 @@ MCP 官方明确要求 Streamable HTTP 服务校验 Origin，并建议本地回�
 - SDK 当前声明最新支持协议为 `2025-11-25`，不能声称兼容所有最新 MCP 客户端。先声明并实测目标客户端/协议范围，不要求为了首版追新重写。[当前协议与旧版兼容说明](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http)
 - OAuth 的 stop/start 失效语义已修复并补测试；仍需完善 DCR/密码认证限流、状态容量上限与过期回收。
 - `tsc` + 通用 `*.vue` shim 没有完整检查 Vue SFC；补充与 TS 7 兼容的 SFC 检查路径及真实 UI 回归。
-- 已补充 `.github/workflows/ci.yml` 和 `desktop.yml`：push/PR 检查，手动测试包，tag 通过完整矩阵后生成 Draft Pre-release。固定 Action SHA 与 Node/Rust 版本，验证应用/tag 版本，收集校验和与 commit 元数据。跨平台远端运行、干净机器安装和生产签名仍未验收，不能因新增 YAML 宣称发布流水线已经在 GitHub 跑通。
+- 已补充 `.github/workflows/ci.yml` 和 `desktop.yml`：push/PR 类型/构建检查，手动测试包，tag 通过完整矩阵后生成 Draft Pre-release。固定 Action SHA 与 Node/Rust 版本，自动采用 tag 版本并在 SEA 冒烟检查实际显示版本，收集校验和与 commit 元数据。tests 不随 Git 分发；本地回归结果不等于远端 CI 测试覆盖。完整跨平台远端流水线、干净机器安装和生产签名仍未验收。
 - `THIRD_PARTY_NOTICES.md` 目前只列 Pi；需要核对 Node SEA、前端、Rust 和其他被分发依赖的许可，并保证所需通知随最终包交付。这不是已完成的法律合规结论。
-- 新版实现、集成测试和构建脚本随本地 master 迁移一并提交；发布前仍须固定发布提交并重建产物，不能直接使用迁移前工作树生成的构建元数据。
+- 发布前仍须固定发布提交并重建产物；不要使用旧 tag 或旧工作树生成的构建元数据。tests 从后续提交移除，旧提交中的历史文件不会被改写。
 
 ## 初始审阅验证结果（修复前证据）
 
@@ -145,4 +146,4 @@ MCP 官方明确要求 Streamable HTTP 服务校验 Origin，并建议本地回�
 2. 继续修复控制面/代理信任策略、OAuth 限流与 Tauri 优雅退出，并扩展异常生命周期回归。
 3. 选定首版支持的 Tunnel / 网页客户端 / 平台做真实验收；未验收 Provider 明确标记实验性。
 4. 固定发布提交，补充许可证分发，重建并在干净机器测试安装包，输出校验和与限制说明。
-5. 满足以上门槛后发布 `0.5.0-alpha.1`。正式版再以稳定性和已声明的平台/客户端矩阵验收，不以“构建成功”作为发布条件。
+5. 满足以上门槛后用指向已验收提交的新 SemVer tag 发布测试版。正式版再以稳定性和已声明的平台/客户端矩阵验收，不以“构建成功”作为发布条件。

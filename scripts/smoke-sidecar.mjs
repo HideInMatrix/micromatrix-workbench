@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import net from 'node:net'
 import os from 'node:os'
@@ -6,6 +7,7 @@ import path from 'node:path'
 import { nativeBuildTarget } from './build-platform.mjs'
 
 const root = process.cwd()
+const expectedVersion = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version
 
 async function availablePort() {
   const server = net.createServer()
@@ -111,7 +113,7 @@ try {
     body: JSON.stringify({ method: 'bootstrap', args: [] }),
   })
   const bootstrap = await bootstrapResponse.json()
-  if (!bootstrapResponse.ok || bootstrap.app_name !== 'MicroMatrix Pi MCP' || bootstrap.runtime?.running !== false || bootstrap.runtime?.exit_reason !== '') {
+  if (!bootstrapResponse.ok || bootstrap.app_name !== 'MicroMatrix Pi MCP' || bootstrap.version !== expectedVersion || bootstrap.runtime?.running !== false || bootstrap.runtime?.exit_reason !== '') {
     throw new Error(`Unexpected bootstrap response: ${JSON.stringify(bootstrap)}`)
   }
 
@@ -130,7 +132,7 @@ try {
   // Unix SIGTERM cleanup path. Still assert that its listener is released.
   if (process.platform !== 'win32' && exit.code !== 0) throw new Error(`Sidecar exited abnormally: ${JSON.stringify(exit)}\n${output.join('')}`)
   await assertReleased(`${baseUrl}/healthz`)
-  console.log(`PASS: ${path.relative(root, executable)} served embedded UI/API and released its control port (${process.platform === 'win32' ? 'forced Windows termination' : 'graceful SIGTERM'})`)
+  console.log(`PASS: ${path.relative(root, executable)} reported version ${expectedVersion}, served embedded UI/API and released its control port (${process.platform === 'win32' ? 'forced Windows termination' : 'graceful SIGTERM'})`)
 } finally {
   if (child.exitCode === null && child.signalCode === null) {
     child.kill('SIGKILL')

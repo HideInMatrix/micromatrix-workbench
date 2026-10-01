@@ -4,7 +4,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync,
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { nativeBuildTarget } from './build-platform.mjs'
-import { releaseVersion } from './check-release-version.mjs'
+import { releaseVersion } from './release-version.mjs'
 
 const installerFormats = {
   darwin: [['dmg', '.dmg']],

@@ -24,6 +24,7 @@ jobs:
         with:
           node-version: '22.23.3'
           cache: npm
+      - name: Prepare application version
+        run: node scripts/release-version.mjs
       - run: npm ci
-      - run: node scripts/check-release-version.mjs
       - run: npm run check

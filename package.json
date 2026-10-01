@@ -29,7 +29,7 @@
     "start": "node apps/daemon/dist/main.js",
     "test": "vitest run packages plugins apps/daemon && node --test apps/web/tests/*.test.ts scripts/tests/*.test.mjs",
     "typecheck": "tsc -b --pretty false",
-    "check": "npm run typecheck && npm test && npm run build:web"
+    "check": "npm run typecheck && npm run build:web"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.87.1",
