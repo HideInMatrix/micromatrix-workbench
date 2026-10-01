@@ -30,6 +30,10 @@ function secretConfigured(key: string) {
   return draft.value.network.configured_secrets.includes(key)
 }
 
+function updateNetworkChoice(key: string, event: Event) {
+  draft.value.network.options[key] = (event.target as HTMLSelectElement).value
+}
+
 function updateNetworkSecret(key: string) {
   draft.value.network.secret_actions[key] = draft.value.network.options[key] ? 'set' : 'unchanged'
 }
@@ -150,6 +154,16 @@ const emit = defineEmits<{
             {{ draft.network.secret_actions[field.key] === 'clear' ? '保存后清除' : draft.network.secret_actions[field.key] === 'set' ? '保存后替换' : secretConfigured(field.key) ? '已配置 · 留空保留' : '未配置' }}
           </span>
         </div>
+        <select
+          v-else-if="field.choices"
+          :value="draft.network.options[field.key] || field.default_value"
+          :disabled="locked"
+          @change="updateNetworkChoice(field.key, $event)"
+        >
+          <option v-for="choice in field.choices" :key="choice.value" :value="choice.value">
+            {{ choice.label }}
+          </option>
+        </select>
         <input
           v-else
           v-model.trim="draft.network.options[field.key]"
@@ -157,6 +171,7 @@ const emit = defineEmits<{
           type="text"
           autocomplete="off"
         />
+        <span v-if="field.description" class="text-[10px] font-normal text-muted-foreground">{{ field.description }}</span>
       </FormField>
 
       <FormField label="OAuth 密码">

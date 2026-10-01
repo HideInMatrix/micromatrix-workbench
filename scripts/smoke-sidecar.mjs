@@ -162,6 +162,25 @@ try {
     if (!response.ok) throw new Error(`Smoke command ${method} failed: ${JSON.stringify(result)}`)
     return result
   }
+  const cloudflareProtocol = bootstrap.network_providers?.find(provider => provider.key === 'cloudflare')
+    ?.options.find(option => option.key === 'protocol')
+  if (cloudflareProtocol?.default_value !== 'auto' ||
+      JSON.stringify(cloudflareProtocol.choices.map(choice => choice.value)) !== JSON.stringify(['auto', 'http2', 'quic'])) {
+    throw new Error('Cloudflare provider did not advertise its transport selector')
+  }
+  for (const protocol of ['auto', 'http2', 'quic']) {
+    const configuredCloudflare = await command('configure_runtime', [{
+      ...bootstrap.runtime, remember_secrets: false,
+      network: { provider: 'cloudflare', public_url: '', options: { protocol } },
+    }])
+    const saved = JSON.parse(readFileSync(path.join(temporary, 'runtime.json'), 'utf8'))
+    if (configuredCloudflare.running !== false || configuredCloudflare.network?.options?.protocol !== protocol ||
+        saved.network?.options?.protocol !== protocol) {
+      throw new Error(`Cloudflare transport ${protocol} did not persist without auto-starting`)
+    }
+    await assertReleased(`http://127.0.0.1:${runtimePort}/`)
+  }
+  console.log('PASS: Cloudflare auto/http2/quic selector persists all choices without starting any Tunnel')
   const runtimeUrl = `http://127.0.0.1:${runtimePort}`
   const configured = await command('configure_runtime', [{
     ...bootstrap.runtime,

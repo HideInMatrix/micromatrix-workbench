@@ -73,6 +73,7 @@ Runtime 启动后，浏览器访问公网域名根路径 `/` 会返回 JSON 服�
 - `tailscale`：运行 Tailscale Funnel；需要填写 Funnel 公网 URL。
 
 Provider 只发布本地 MCP origin，不参与工具执行。完整环境变量见 [`.env.example`](.env.example)。
+Cloudflare 的“隧道传输协议”可选自动（默认）、HTTP/2（TCP）或 QUIC（UDP），Quick / Named Tunnel 均使用所选值；需要先停止 Runtime 才能修改，保存后不会自动启动。`MICROMATRIX_CLOUDFLARE_PROTOCOL` 可覆盖磁盘配置；未配置的旧版配置继续使用 `auto`。这控制 cloudflared 到 Cloudflare 的连接，不是把 MCP 改为 UDP；UDP 出站受限时可选择 HTTP/2。[官方传输参数与端口](https://developers.cloudflare.com/tunnel/configuration/)。
 点击启动 Runtime 后会检查 Workspace、认证、Tunnel executable 与 FRP 配置文件；Cloudflare、ngrok 或 FRP 进程异常退出时，Runtime 会关闭 MCP、清空已发布地址并在 UI 显示退出原因。
 
 桌面安装包内置 `cloudflared 2026.9.3`，Cloudflare 表单不再提供程序路径输入，默认使用包内程序，不依赖 Homebrew、系统 PATH 或另行安装。只在点击启动且选择 Cloudflare 后运行隧道。源码开发默认使用 PATH 上的 `cloudflared`，高级环境变量/API 路径覆盖仍保留；ngrok、FRP、Tailscale 仍需安装并配置各自客户端。

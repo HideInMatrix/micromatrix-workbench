@@ -17,6 +17,9 @@ export interface NetworkProviderOptionDto {
   label: string
   secret: boolean
   span: '1' | '2'
+  default_value?: string
+  description?: string
+  choices?: Array<{ value: string; label: string }>
 }
 
 export interface NetworkProviderDto {

@@ -24,10 +24,13 @@ export interface ExternalProviderOptions {
   readonly publicUrl: string;
 }
 
+export type CloudflareTunnelProtocol = "auto" | "http2" | "quic";
+
 export interface CloudflareProviderOptions {
   readonly executable: string;
   readonly publicUrl: string | undefined;
   readonly tunnelToken: string | undefined;
+  readonly protocol?: CloudflareTunnelProtocol | undefined;
 }
 
 export interface FrpProviderOptions {

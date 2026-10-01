@@ -84,6 +84,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DaemonConfig {
   const optionEnv: Readonly<Record<string, string>> = {
     executable: first(env, "MICROMATRIX_TUNNEL_EXECUTABLE", "MICROMATRIX_CLOUDFLARED") ?? "",
     tunnel_token: first(env, "MICROMATRIX_TUNNEL_TOKEN", "AGENT_RUNTIME_TUNNEL_TOKEN") ?? "",
+    protocol: first(env, "MICROMATRIX_CLOUDFLARE_PROTOCOL") ?? "",
     auth_token: first(env, "MICROMATRIX_NGROK_AUTH_TOKEN") ?? "",
     config_file: first(env, "MICROMATRIX_FRP_CONFIG") ?? "",
   };

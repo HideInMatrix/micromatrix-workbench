@@ -22,6 +22,16 @@ function providerDefinitions() {
       supports_public_url: true,
       ephemeral_without_public_url: true,
       options: [
+        {
+          key: "protocol", label: "隧道传输协议", secret: false, span: "2",
+          default_value: "auto",
+          description: "控制 cloudflared 到 Cloudflare 的连接；本地 MCP 仍使用 HTTP。UDP 受限时选择 HTTP/2。",
+          choices: [
+            { value: "auto", label: "自动（QUIC 优先，失败回退 HTTP/2）" },
+            { value: "http2", label: "HTTP/2（TCP）" },
+            { value: "quic", label: "QUIC（UDP）" },
+          ],
+        },
         { key: "tunnel_token", label: "Tunnel Token", secret: true, span: "2" },
       ],
     },
@@ -221,6 +231,14 @@ export class DesktopCommandRouter {
         .filter(([key]) => ordinaryKeys.has(key))
         .map(([key, item]) => [key, String(item)]))
       : {};
+    for (const field of definition?.options ?? []) {
+      if (!field.choices) continue;
+      const selected = parsedOptions[field.key] || field.default_value;
+      if (!field.choices.some((choice) => choice.value === selected)) {
+        throw new Error(`Invalid ${provider}.${field.key}: ${String(selected)}`);
+      }
+      parsedOptions[field.key] = selected;
+    }
     const parsedSecretUpdates = secretUpdates && typeof secretUpdates === "object"
       ? Object.fromEntries(Object.entries(secretUpdates)
         .filter(([key]) => secretKeys.has(key))

@@ -9,6 +9,7 @@ import {
   FrpNetworkProvider,
   NgrokNetworkProvider,
   TailscaleNetworkProvider,
+  parseCloudflareProtocol,
   type NetworkProvider,
   type NetworkProviderResult,
 } from "@micromatrix/network";
@@ -285,6 +286,7 @@ export class RuntimeSupervisor implements RuntimeControl {
         executable: executable || defaultCloudflaredExecutable(),
         publicUrl: config.network.publicUrl,
         tunnelToken: options.tunnel_token || undefined,
+        protocol: parseCloudflareProtocol(options.protocol),
       });
       case "frp": return new FrpNetworkProvider({
         executable: executable || "frpc",

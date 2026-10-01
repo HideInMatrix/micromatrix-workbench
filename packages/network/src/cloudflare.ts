@@ -2,6 +2,7 @@ import { assertExecutable, ManagedProcess } from "./process.js";
 import {
   providerResult,
   type CloudflareProviderOptions,
+  type CloudflareTunnelProtocol,
   type NetworkProvider,
   type NetworkProviderContext,
   type NetworkProviderResult,
@@ -9,9 +10,18 @@ import {
 
 const QUICK_TUNNEL_URL = /https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/;
 
+export function parseCloudflareProtocol(value: string | undefined): CloudflareTunnelProtocol {
+  const protocol = value || "auto";
+  if (protocol !== "auto" && protocol !== "http2" && protocol !== "quic") {
+    throw new Error(`Unsupported Cloudflare Tunnel protocol: ${protocol}; use auto, http2 or quic`);
+  }
+  return protocol;
+}
+
 export class CloudflareNetworkProvider implements NetworkProvider {
   readonly key = "cloudflare";
   readonly #options: CloudflareProviderOptions;
+  readonly #protocol: CloudflareTunnelProtocol;
   #process: ManagedProcess | undefined;
 
   constructor(options: CloudflareProviderOptions) {
@@ -19,6 +29,7 @@ export class CloudflareNetworkProvider implements NetworkProvider {
       throw new Error("Cloudflare Named Tunnel requires both publicUrl and tunnelToken");
     }
     this.#options = options;
+    this.#protocol = parseCloudflareProtocol(options.protocol);
   }
 
   async preflight(): Promise<void> {
@@ -30,7 +41,7 @@ export class CloudflareNetworkProvider implements NetworkProvider {
     if (this.#options.publicUrl && this.#options.tunnelToken) {
       this.#process.start(
         this.#options.executable,
-        ["--no-autoupdate", "tunnel", "--protocol", "auto", "run", "--token", this.#options.tunnelToken],
+        ["--no-autoupdate", "tunnel", "--protocol", this.#protocol, "run", "--token", this.#options.tunnelToken],
         "cloudflared",
       );
       await this.#process.waitFor(
@@ -44,7 +55,7 @@ export class CloudflareNetworkProvider implements NetworkProvider {
 
     this.#process.start(
       this.#options.executable,
-      ["--no-autoupdate", "tunnel", "--protocol", "auto", "--url", context.localBaseUrl],
+      ["--no-autoupdate", "tunnel", "--protocol", this.#protocol, "--url", context.localBaseUrl],
       "cloudflared",
     );
     const line = await this.#process.waitFor(

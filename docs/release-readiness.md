@@ -10,6 +10,7 @@
 
 ## 本轮修复跟进
 
+- Cloudflare Provider 补充 `auto / http2 / quic` 传输选择，分别展示自动、HTTP/2（TCP）、QUIC（UDP）；Quick / Named Tunnel 均传递所选 `--protocol`，旧配置默认 auto，环境变量支持覆盖。选项来自 Provider 表单元数据，API 与 Provider 都拒绝不支持的值；协议作为非敏感配置保存，不改变本地 MCP 的 HTTP 协议与手动启动规则。类型/Web 构建和本地 74 个 Vitest + 34 个 Node 测试 PASS，启动参数检查使用 mock，不连接 Cloudflare。隔离浏览器验证 HTTP/2、QUIC 切换/保存，刷新后选择保留且 Runtime 仍停止；macOS arm64 `.app` / DMG 重建及最终 sidecar 冒烟 PASS，三档配置均持久化且未启动 Tunnel。此次修改晚于已推送的 `v0.5.6`，不在该 tag 中；实际网络下两种传输可达性仍待验收。
 - 恢复旧 Python 版根路径服务卡片：MCP 数据面的 `GET /` / `HEAD /` 返回公开服务信息，名称/版本与 MCP initialize 一致；协议列表来自锁定 SDK，工具名称/数量来自当前 Registry，认证链接使用相对路径，不读取 forwarded headers。不公开工作目录、配置和密钥，不改变 `/mcp` 的认证/审批，也不启动 Runtime。类型检查与 Web 构建 PASS；本地 49 个 Vitest + 33 个 Node 测试 PASS，覆盖三种认证模式、HEAD/405/404、MCP 客户端初始化与工具列表一致性。Git 仍不追踪 tests；SEA 冒烟脚本补充临时 External 配置的显式启动、根路径响应、未认证 MCP 返回 401、停止释放端口，供打包 CI 执行；不等同于实际公网 Cloudflare 验收。
 - 上述服务卡片修复已重建 macOS arm64 SEA、最终重签名 `.app` 和 DMG（本地开发版本 `0.5.0`），原始 SEA 与最终 `.app` sidecar 的新增显式启动/停止冒烟均 PASS，包内 cloudflared 的离线 version/help 验证 PASS；未连接实际公网 Tunnel，未完成生产签名/公证。
 - OAuth 超限输入（Content-Length 和 chunked）返回 413，HTTP 顶层捕获未知异常；服务随后仍能进行正常 MCP 调用。
