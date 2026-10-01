@@ -7,9 +7,15 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   type CallToolResult,
+  type Implementation,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { PluginRegistry } from "@micromatrix/plugin-kit";
+
+export const DEFAULT_SERVER_INFO: Implementation = {
+  name: "micromatrix-pi-body",
+  version: "0.1.0",
+};
 
 export function toMcpTool(tool: AgentTool): Tool {
   return {
@@ -34,9 +40,10 @@ export function createProtocolServer(
   registry: PluginRegistry,
   gate?: ToolExecutionGate,
   executionContext?: ToolExecutionContext,
+  serverInfo: Implementation = DEFAULT_SERVER_INFO,
 ): Server {
   const server = new Server(
-    { name: "micromatrix-pi-body", version: "0.1.0" },
+    serverInfo,
     { capabilities: { tools: { listChanged: false } } },
   );
 

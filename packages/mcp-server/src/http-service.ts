@@ -2,11 +2,12 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { isIP } from "node:net";
 
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { SUPPORTED_PROTOCOL_VERSIONS, type Implementation } from "@modelcontextprotocol/sdk/types.js";
 import type { ToolExecutionContext, ToolExecutionGate } from "@micromatrix/approval";
 import type { McpAuthorization } from "@micromatrix/oauth";
 import type { PluginLogger, PluginRegistry } from "@micromatrix/plugin-kit";
 
-import { createProtocolServer } from "./adapter.js";
+import { createProtocolServer, DEFAULT_SERVER_INFO } from "./adapter.js";
 
 export interface McpHttpServiceOptions {
   readonly host: string;
@@ -15,6 +16,7 @@ export interface McpHttpServiceOptions {
   readonly executionGate?: ToolExecutionGate;
   readonly registry: PluginRegistry;
   readonly logger: PluginLogger;
+  readonly serverInfo?: Implementation;
 }
 
 function isLoopback(host: string): boolean {
@@ -81,6 +83,39 @@ export class McpHttpService {
   async #handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? "/", this.localBaseUrl);
     if (await this.#options.authorization.handle(request, response, url)) return;
+    if (url.pathname === "/") {
+      response.setHeader("cache-control", "no-store");
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        response.setHeader("allow", "GET, HEAD");
+        writeJson(response, 405, { error: "method_not_allowed" });
+        return;
+      }
+      if (request.method === "HEAD") {
+        response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        response.end();
+        return;
+      }
+      const names = this.#options.registry.listTools().map((tool) => tool.name);
+      const authorization = this.#options.authorization;
+      // A public server card is not the local control plane. Keep URLs relative
+      // so Quick Tunnel works without trusting Host or forwarded headers.
+      writeJson(response, 200, {
+        server: this.#options.serverInfo ?? DEFAULT_SERVER_INFO,
+        supportedProtocolVersions: SUPPORTED_PROTOCOL_VERSIONS,
+        transport: { type: "streamable_http", endpoint: "/mcp", methods: ["POST"] },
+        auth: authorization.oauthEnabled
+          ? {
+              type: "oauth2", scheme: "Bearer",
+              authorizationUrl: "/authorize", tokenUrl: "/token", registrationUrl: "/register",
+            }
+          : authorization.protectsRequests
+            ? { type: "bearer", scheme: "Bearer" }
+            : { type: "none" },
+        capabilities: { tools: { listChanged: false } },
+        tools: { count: names.length, names },
+      });
+      return;
+    }
     if (url.pathname === "/healthz") {
       writeJson(response, 200, {
         ok: true,
@@ -120,7 +155,9 @@ export class McpHttpService {
       ...(principal.clientId ? { clientId: principal.clientId } : {}),
       ...(principal.clientName ? { clientName: principal.clientName } : {}),
     };
-    const protocol = createProtocolServer(this.#options.registry, this.#options.executionGate, executionContext);
+    const protocol = createProtocolServer(
+      this.#options.registry, this.#options.executionGate, executionContext, this.#options.serverInfo,
+    );
     try {
       await protocol.connect(
         transport as unknown as Parameters<typeof protocol.connect>[0],

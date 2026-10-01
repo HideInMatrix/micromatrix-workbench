@@ -149,6 +149,47 @@ try {
   if (sameOrigin.runtime?.running !== false) throw new Error('Sidecar unexpectedly auto-started the runtime')
   await assertReleased(`http://127.0.0.1:${runtimePort}/mcp`)
 
+  // Exercise the public data plane only after an explicit start, using a
+  // temporary workspace and the local External provider (no real Tunnel).
+  async function command(method, args = []) {
+    const response = await fetch(`${baseUrl}/api/desktop`, {
+      method: 'POST',
+      headers: { origin: baseUrl, 'content-type': 'application/json' },
+      body: JSON.stringify({ method, args }),
+      signal: AbortSignal.timeout(10_000),
+    })
+    const result = await response.json()
+    if (!response.ok) throw new Error(`Smoke command ${method} failed: ${JSON.stringify(result)}`)
+    return result
+  }
+  const runtimeUrl = `http://127.0.0.1:${runtimePort}`
+  const configured = await command('configure_runtime', [{
+    ...bootstrap.runtime,
+    oauth_password_update: { action: 'set', value: 'smoke-only-private-password' },
+    network: { provider: 'external', public_url: runtimeUrl, options: {} },
+    remember_secrets: false,
+  }])
+  if (configured.running !== false) throw new Error('Configuration unexpectedly started the runtime')
+  await assertReleased(`${runtimeUrl}/`)
+  const started = await command('start_runtime')
+  if (started.running !== true) throw new Error('Explicit runtime start failed')
+  const cardResponse = await fetch(`${runtimeUrl}/`)
+  const card = await cardResponse.json()
+  if (!cardResponse.ok || card.server?.name !== productName || card.server?.version !== expectedVersion ||
+      card.transport?.endpoint !== '/mcp' || card.transport?.type !== 'streamable_http' ||
+      card.auth?.type !== 'oauth2' || !card.tools?.names?.includes('read') || card.tools.count !== card.tools.names.length) {
+    throw new Error(`Unexpected public MCP server card: ${JSON.stringify(card)}`)
+  }
+  if (JSON.stringify(card).includes(temporary) || JSON.stringify(card).includes('smoke-only-private-password')) {
+    throw new Error('Public MCP server card exposed private configuration')
+  }
+  const denied = await fetch(`${runtimeUrl}/mcp`, { method: 'POST' })
+  if (denied.status !== 401) throw new Error('Public server card bypassed MCP authentication')
+  const stopped = await command('stop_runtime')
+  if (stopped.running !== false) throw new Error('Explicit runtime stop failed')
+  await assertReleased(`${runtimeUrl}/`)
+  console.log('PASS: manual start exposes a safe public MCP server card; MCP stays protected and stop releases its port')
+
   child.kill('SIGTERM')
   const exit = await waitForExit(child)
   // Windows child.kill forcibly terminates the process; it cannot certify the

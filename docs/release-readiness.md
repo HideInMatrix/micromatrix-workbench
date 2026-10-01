@@ -10,6 +10,8 @@
 
 ## 本轮修复跟进
 
+- 恢复旧 Python 版根路径服务卡片：MCP 数据面的 `GET /` / `HEAD /` 返回公开服务信息，名称/版本与 MCP initialize 一致；协议列表来自锁定 SDK，工具名称/数量来自当前 Registry，认证链接使用相对路径，不读取 forwarded headers。不公开工作目录、配置和密钥，不改变 `/mcp` 的认证/审批，也不启动 Runtime。类型检查与 Web 构建 PASS；本地 49 个 Vitest + 33 个 Node 测试 PASS，覆盖三种认证模式、HEAD/405/404、MCP 客户端初始化与工具列表一致性。Git 仍不追踪 tests；SEA 冒烟脚本补充临时 External 配置的显式启动、根路径响应、未认证 MCP 返回 401、停止释放端口，供打包 CI 执行；不等同于实际公网 Cloudflare 验收。
+- 上述服务卡片修复已重建 macOS arm64 SEA、最终重签名 `.app` 和 DMG（本地开发版本 `0.5.0`），原始 SEA 与最终 `.app` sidecar 的新增显式启动/停止冒烟均 PASS，包内 cloudflared 的离线 version/help 验证 PASS；未连接实际公网 Tunnel，未完成生产签名/公证。
 - OAuth 超限输入（Content-Length 和 chunked）返回 413，HTTP 顶层捕获未知异常；服务随后仍能进行正常 MCP 调用。
 - 配置/插件更新先验证和保存候选资源，再替换；Provider 校验或磁盘保存失败保留原 snapshot、工具、审批策略和磁盘配置。
 - 内嵌 Web UI 使用同源控制地址，允许实际控制端口的 loopback Origin；恶意 Origin 仍拒绝。真实浏览器已验证自定义端口下页面加载、手动启动/停止、地址显示/清空。

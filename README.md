@@ -48,6 +48,8 @@ npm run tauri:dev
 
 客户端连接地址为 `https://<public-host>/mcp`。OAuth client、authorization code 和 token 只保存在进程内存中，Runtime 重启后失效。
 
+Runtime 启动后，浏览器访问公网域名根路径 `/` 会返回 JSON 服务信息：应用名称/版本、支持的 MCP 协议、`/mcp` 端点、认证方式和当前工具名称/数量。此信息无需认证，但不包含工作目录、配置或密钥，也不是本地管理页面；MCP 调用仍按配置认证和审批。端点使用相对路径，兼容 Cloudflare 随机域名与固定域名。
+
 ## 执行审批
 
 | 模式 | `read/grep/find/ls` | `edit/write` | `bash` / 未知工具 |

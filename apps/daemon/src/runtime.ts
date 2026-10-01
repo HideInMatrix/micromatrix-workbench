@@ -19,6 +19,7 @@ import { createWorkspacePlugin } from "@micromatrix/plugin-workspace";
 
 import { saveConfig, type DaemonConfig } from "./config.js";
 import { defaultCloudflaredExecutable } from "./tunnel-executable.js";
+import { APP_VERSION } from "./version.js";
 
 export class RuntimeSupervisor implements RuntimeControl {
   #config: DaemonConfig;
@@ -271,6 +272,7 @@ export class RuntimeSupervisor implements RuntimeControl {
       registry,
       logger: this.#logger,
       executionGate: this.approval,
+      serverInfo: { name: "micromatrix agent", version: APP_VERSION },
     });
   }
 
