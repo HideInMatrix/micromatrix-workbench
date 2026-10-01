@@ -18,6 +18,7 @@ import { createShellPlugin } from "@micromatrix/plugin-shell";
 import { createWorkspacePlugin } from "@micromatrix/plugin-workspace";
 
 import { saveConfig, type DaemonConfig } from "./config.js";
+import { defaultCloudflaredExecutable } from "./tunnel-executable.js";
 
 export class RuntimeSupervisor implements RuntimeControl {
   #config: DaemonConfig;
@@ -279,7 +280,7 @@ export class RuntimeSupervisor implements RuntimeControl {
     switch (config.network.provider) {
       case "external": return new ExternalNetworkProvider({ publicUrl: config.network.publicUrl ?? service.localBaseUrl });
       case "cloudflare": return new CloudflareNetworkProvider({
-        executable: executable || "cloudflared",
+        executable: executable || defaultCloudflaredExecutable(),
         publicUrl: config.network.publicUrl,
         tunnelToken: options.tunnel_token || undefined,
       });

@@ -28,7 +28,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["binaries/micromatrix-service"],
+    "externalBin": ["binaries/micromatrix-service", "binaries/cloudflared"],
     "macOS": {
       "entitlements": "Entitlements.plist"
     },

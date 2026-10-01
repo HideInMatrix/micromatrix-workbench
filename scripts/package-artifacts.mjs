@@ -36,6 +36,8 @@ export function packageArtifacts(root = process.cwd(), env = process.env) {
   const extension = process.platform === 'win32' ? '.exe' : ''
   const service = path.join(root, 'src-tauri/binaries', `micromatrix-service-${target}${extension}`)
   if (!existsSync(service)) throw new Error(`Build the sidecar before packaging: ${service}`)
+  const cloudflared = path.join(root, 'src-tauri/binaries', `cloudflared-${target}${extension}`)
+  if (!existsSync(cloudflared)) throw new Error(`Missing bundled cloudflared: ${cloudflared}`)
   const installers = collectInstallers(path.join(root, 'src-tauri/target/release/bundle'), process.platform)
   const nodeDirectory = path.dirname(process.execPath)
   const nodeLicense = [path.join(nodeDirectory, 'LICENSE'), path.join(nodeDirectory, '../LICENSE')].find(file => existsSync(file))
@@ -49,11 +51,13 @@ export function packageArtifacts(root = process.cwd(), env = process.env) {
   // Only these explicit distribution inputs are copied; never ship .env.local,
   // saved OAuth credentials, user workspaces or other repository state.
   copyFileSync(service, path.join(serviceDirectory, `micromatrix-service${extension}`))
+  copyFileSync(cloudflared, path.join(serviceDirectory, `cloudflared${extension}`))
   copyFileSync(nodeLicense, path.join(serviceDirectory, 'NODE_LICENSE'))
   for (const [source, destination] of [
     ['README.md', 'README.md'], ['.env.example', '.env.example'],
     ['THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_NOTICES.md'],
     ['third_party/pi/LICENSE', 'PI_LICENSE'], ['.github/release-notes.md', 'KNOWN_LIMITS.md'],
+    ['third_party/cloudflared/LICENSE', 'CLOUDFLARED_LICENSE'],
   ]) copyFileSync(path.join(root, source), path.join(serviceDirectory, destination))
 
   const label = env.GITHUB_REF_TYPE === 'tag' ? env.GITHUB_REF_NAME : `v${version}`

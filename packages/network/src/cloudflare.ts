@@ -30,7 +30,7 @@ export class CloudflareNetworkProvider implements NetworkProvider {
     if (this.#options.publicUrl && this.#options.tunnelToken) {
       this.#process.start(
         this.#options.executable,
-        ["tunnel", "--protocol", "auto", "run", "--token", this.#options.tunnelToken],
+        ["--no-autoupdate", "tunnel", "--protocol", "auto", "run", "--token", this.#options.tunnelToken],
         "cloudflared",
       );
       await this.#process.waitFor(
@@ -44,7 +44,7 @@ export class CloudflareNetworkProvider implements NetworkProvider {
 
     this.#process.start(
       this.#options.executable,
-      ["tunnel", "--protocol", "auto", "--url", context.localBaseUrl],
+      ["--no-autoupdate", "tunnel", "--protocol", "auto", "--url", context.localBaseUrl],
       "cloudflared",
     );
     const line = await this.#process.waitFor(

@@ -1,10 +1,11 @@
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { nativeBuildTarget } from './build-platform.mjs'
+import { cloudflaredManifest } from './prepare-cloudflared.mjs'
 
 const root = process.cwd()
 const expectedVersion = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version
@@ -72,6 +73,21 @@ const executable = bundled
   ? path.join(root, 'src-tauri/target/release/bundle/macos', `${productName}.app`, 'Contents/MacOS/micromatrix-service')
   : path.join(root, 'src-tauri/binaries', `micromatrix-service-${nativeBuildTarget()}${extension}`)
 const temporary = await mkdtemp(path.join(os.tmpdir(), 'micromatrix-sidecar-smoke-'))
+const cloudflared = path.join(path.dirname(executable), bundled ? 'cloudflared' : `cloudflared-${nativeBuildTarget()}${extension}`)
+try {
+  const version = execFileSync(cloudflared, ['--version'], {
+    encoding: 'utf8', timeout: 10_000, windowsHide: true,
+    env: { ...process.env, PATH: temporary },
+  })
+  if (!version.includes(`version ${cloudflaredManifest.version} `)) throw new Error(`Unexpected bundled cloudflared: ${version}`)
+  execFileSync(cloudflared, ['--no-autoupdate', 'tunnel', '--help'], {
+    timeout: 10_000, windowsHide: true, stdio: 'ignore', env: { ...process.env, PATH: temporary },
+  })
+  console.log(`PASS: bundled cloudflared ${cloudflaredManifest.version} executes without a system PATH installation`)
+} catch (error) {
+  await rm(temporary, { recursive: true, force: true })
+  throw error
+}
 const controlPort = await availablePort()
 let runtimePort = await availablePort()
 while (runtimePort === controlPort) runtimePort = await availablePort()
@@ -81,6 +97,7 @@ const child = spawn(executable, [], {
   cwd: temporary,
   env: {
     ...process.env,
+    PATH: temporary,
     MICROMATRIX_CONFIG_FILE: path.join(temporary, 'runtime.json'),
     MICROMATRIX_WORKSPACE: temporary,
     MICROMATRIX_CONTROL_HOST: '127.0.0.1',

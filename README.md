@@ -73,6 +73,10 @@ npm run tauri:dev
 Provider 只发布本地 MCP origin，不参与工具执行。完整环境变量见 [`.env.example`](.env.example)。
 点击启动 Runtime 后会检查 Workspace、认证、Tunnel executable 与 FRP 配置文件；Cloudflare、ngrok 或 FRP 进程异常退出时，Runtime 会关闭 MCP、清空已发布地址并在 UI 显示退出原因。
 
+桌面安装包内置 `cloudflared 2026.9.3`，Cloudflare 表单不再提供程序路径输入，默认使用包内程序，不依赖 Homebrew、系统 PATH 或另行安装。只在点击启动且选择 Cloudflare 后运行隧道。源码开发默认使用 PATH 上的 `cloudflared`，高级环境变量/API 路径覆盖仍保留；ngrok、FRP、Tailscale 仍需安装并配置各自客户端。
+
+`npm run build:sidecar` 自动下载对应平台的官方 cloudflared 固定版本，按 `scripts/cloudflared-manifest.json` 的 SHA-256 校验，缓存到 `.cache/cloudflared/`；下载、摘要或版本检查失败会阻止打包。`--version` 冒烟不连接公网，最终 macOS 包另检查重签名后的 cloudflared 和 Node sidecar；Apache-2.0 许可证随安装包资源交付。[官方固定版本](https://github.com/cloudflare/cloudflared/releases/tag/2026.9.3)。
+
 ## 构建
 
 ```bash

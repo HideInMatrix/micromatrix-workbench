@@ -4,6 +4,8 @@ This is an experimental prerelease, not a stable release. Review the known
 limitations and the current release-readiness report before using these packages.
 
 - Runtime and tunnels start only after the user clicks Start.
+- cloudflared 2026.9.3 is bundled; the desktop uses its private copy without an
+  executable-path form field. Other tunnel providers still require their clients.
 - macOS packages use ad-hoc signing, without Apple notarization. Windows packages
   are not Authenticode-signed. No production signing credentials are required by
   this workflow.

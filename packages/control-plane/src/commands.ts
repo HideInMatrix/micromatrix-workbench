@@ -22,7 +22,6 @@ function providerDefinitions() {
       supports_public_url: true,
       ephemeral_without_public_url: true,
       options: [
-        { key: "executable", label: "cloudflared 路径（可选）", secret: false, span: "2" },
         { key: "tunnel_token", label: "Tunnel Token", secret: true, span: "2" },
       ],
     },
@@ -213,6 +212,9 @@ export class DesktopCommandRouter {
     const secretUpdates = Reflect.get(network, "secret_updates");
     const definition = providerDefinitions().find((item) => item.key === provider);
     const ordinaryKeys = new Set(definition?.options.filter((item) => !item.secret).map((item) => item.key) ?? []);
+    // Desktop uses its bundled Cloudflare client, so no path field is shown.
+    // Preserve the existing API override for source development/integrations.
+    if (provider === "cloudflare") ordinaryKeys.add("executable");
     const secretKeys = new Set(definition?.options.filter((item) => item.secret).map((item) => item.key) ?? []);
     const parsedOptions = options && typeof options === "object"
       ? Object.fromEntries(Object.entries(options)

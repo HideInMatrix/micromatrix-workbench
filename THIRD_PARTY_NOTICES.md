@@ -8,3 +8,13 @@
 - License: MIT
 
 The complete upstream license is stored at `third_party/pi/LICENSE`.
+
+## cloudflared
+
+- Project: <https://github.com/cloudflare/cloudflared>
+- Version: `2026.9.3`
+- Copyright: Cloudflare, Inc.
+- License: Apache-2.0
+
+The upstream license is stored at `third_party/cloudflared/LICENSE` and included in desktop resources.
+Official release assets and their SHA-256 digests are pinned in `scripts/cloudflared-manifest.json`.

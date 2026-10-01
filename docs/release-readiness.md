@@ -28,6 +28,14 @@
 
 ## 五项原始交付进度
 
+### Cloudflare 分发遗漏修复（2026-10-01）
+
+表单跟进：移除 Cloudflare 的 executable 输入项，其他 Provider 的路径字段和高级 API 覆盖保留。`FormField` 使用顶部对齐，避免同一行密钥附加状态文字把右侧 select 推低；InputGroup 的边框内控件统一为 32px 外部高度。类型/Web 构建及 9 项 Web、5 项控制命令回归通过，本机 `.app` 已重建；桌面视觉验收权限审核两次超时，DMG 在受限执行中未打包成功，未宣称截图或最新 DMG 已通过。未运行真实 Tunnel，未修改已安装版本。
+
+此前桌面包只包含 Node SEA，Cloudflare 默认调用 PATH 上的 `cloudflared`，干净机器或 GUI 启动的 PATH 中没有它时会报 `Tunnel executable not found`。现 `build:sidecar` 按原生平台准备官方固定版本 `2026.9.3`，下载资产 SHA-256 锁定于 manifest，校验及 `--version` 失败阻止构建；Tauri `externalBin` 同时收录 cloudflared。SEA 默认使用相邻包内程序，保留明确的用户路径覆盖，源码开发仍使用 PATH；不修改全局 PATH、不安装系统服务、不启用自动启动，运行时禁用 cloudflared 自更新。Apache-2.0 许可证随桌面资源交付，独立服务归档仍只留 Actions Artifacts。
+
+本轮本地 45 个 Vitest + 33 个 Node 测试、类型/Web 构建、Actionlint 和 macOS arm64 `.app` + DMG 重建通过；最终签名的包内 cloudflared 在无系统 PATH 环境下可执行 `--version` 与 `--no-autoupdate tunnel --help`，SEA 控制界面健康且 Runtime 闲置。其他桌面平台已配置原生下载/打包与预打包冒烟，实际安装待远端验收；没有连接真实公网 Tunnel，不能把 binary 冒烟当作 Tunnel 端到端验收。修改尚未提交或推送，未覆盖 `/Applications` 的安装版本。
+
 | 交付项 | 已实现 | 未完成的验收 |
 | --- | --- | --- |
 | OAuth / DCR | metadata、DCR、授权码 PKCE、refresh、revoke、静态 Bearer；本机 OAuth → MCP → Pi 工具集成测试与 HTTP 异常回归通过 | 限流与状态容量、公网 issuer/proxy 信任策略、目标网页客户端实测 |
