@@ -1,7 +1,9 @@
-# Experimental desktop packages
+# micromatrix agent desktop release
 
-This is an experimental prerelease, not a stable release. Review the known
-limitations and the current release-readiness report before using these packages.
+Normal version tags publish automatically as stable releases and GitHub Latest;
+tags with a prerelease suffix remain prereleases. Review the known limitations
+and the release-readiness report before using these packages. A stable release
+label does not imply production signing or that all security work is complete.
 
 - Runtime and tunnels start only after the user clicks Start.
 - cloudflared 2026.9.3 is bundled; the desktop uses its private copy without an
@@ -14,7 +16,8 @@ limitations and the current release-readiness report before using these packages
   been validated on those platforms.
 - Pending work includes desktop graceful shutdown with an active Tunnel,
   control-plane/proxy trust hardening, OAuth rate limits and comprehensive license
-  auditing. Do not deploy these test builds as a public production MCP service.
+  auditing. These limits still apply to formally published releases.
+  The app does not yet provide in-app automatic download/installation of updates.
 - Public assets contain six desktop installers and one combined SHA256SUMS.txt.
   Standalone service archives and build metadata remain in Actions artifacts;
   they are not Release downloads. The desktop still includes its required service

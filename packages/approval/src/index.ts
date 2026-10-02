@@ -31,10 +31,19 @@ export interface ToolExecutionGate {
   ): Promise<void>;
 }
 
+type ApprovalOutcome = "allowed" | "denied" | "timed_out" | "cancelled" | "stopped";
+
+export interface ApprovalEvent {
+  readonly requestId: string;
+  readonly toolName: string;
+  readonly permission: ToolApprovalRequest["permission"];
+  readonly sessionId: string;
+  readonly outcome: "queued" | ApprovalOutcome;
+}
+
 interface PendingApproval {
   readonly request: ToolApprovalRequest;
-  readonly resolve: (allowed: boolean) => void;
-  readonly timer: ReturnType<typeof setTimeout>;
+  readonly settle: (outcome: ApprovalOutcome) => void;
 }
 
 const READ_ONLY = new Set(["read", "grep", "find", "ls"]);
@@ -51,10 +60,12 @@ export class ApprovalPolicy implements ToolExecutionGate {
   readonly #timeoutMs: number;
   readonly #pending = new Map<string, PendingApproval>();
   readonly #sessionAllowed = new Set<string>();
+  readonly #onEvent: ((event: ApprovalEvent) => void) | undefined;
 
-  constructor(mode: ApprovalMode = "safe", timeoutMs = 120_000) {
+  constructor(mode: ApprovalMode = "safe", timeoutMs = 120_000, onEvent?: (event: ApprovalEvent) => void) {
     this.#mode = mode;
     this.#timeoutMs = timeoutMs;
+    this.#onEvent = onEvent;
   }
 
   get mode(): ApprovalMode {
@@ -71,14 +82,17 @@ export class ApprovalPolicy implements ToolExecutionGate {
   }
 
   respond(requestId: string, decision: ApprovalDecision): boolean {
+    if (!["deny", "once", "session"].includes(decision)) return false;
     const pending = this.#pending.get(requestId);
     if (!pending) return false;
-    this.#pending.delete(requestId);
-    clearTimeout(pending.timer);
+    if (Date.now() / 1_000 >= pending.request.expiresAt) {
+      pending.settle("timed_out");
+      return false;
+    }
     if (decision === "session") {
       this.#sessionAllowed.add(this.#sessionKey(pending.request.context, pending.request.permission));
     }
-    pending.resolve(decision !== "deny");
+    pending.settle(decision === "deny" ? "denied" : "allowed");
     return true;
   }
 
@@ -88,6 +102,7 @@ export class ApprovalPolicy implements ToolExecutionGate {
     context: ToolExecutionContext = LOCAL_CONTEXT,
     signal?: AbortSignal,
   ): Promise<void> {
+    if (signal?.aborted) throw new Error(`Tool approval cancelled: ${toolName} (client disconnected or cancelled)`);
     const permission = this.#permission(toolName);
     if (!permission || this.#allowed(permission, context)) return;
     const request: ToolApprovalRequest = {
@@ -104,21 +119,29 @@ export class ApprovalPolicy implements ToolExecutionGate {
       createdAt: Date.now() / 1_000,
       expiresAt: (Date.now() + this.#timeoutMs) / 1_000,
     };
-    const allowed = await new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => {
+    const outcome = await new Promise<ApprovalOutcome>((resolve) => {
+      const settle = (result: ApprovalOutcome) => {
+        if (!this.#pending.has(request.requestId)) return;
         this.#pending.delete(request.requestId);
-        resolve(false);
-      }, this.#timeoutMs);
-      this.#pending.set(request.requestId, { request, resolve, timer });
-      signal?.addEventListener("abort", () => {
-        const pending = this.#pending.get(request.requestId);
-        if (!pending) return;
-        this.#pending.delete(request.requestId);
-        clearTimeout(pending.timer);
-        resolve(false);
-      }, { once: true });
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", cancel);
+        this.#event(request, result);
+        resolve(result);
+      };
+      const cancel = () => settle("cancelled");
+      const timer = setTimeout(() => settle("timed_out"), this.#timeoutMs);
+      this.#pending.set(request.requestId, { request, settle });
+      signal?.addEventListener("abort", cancel, { once: true });
+      this.#event(request, "queued");
     });
-    if (!allowed) throw new Error(`Tool approval denied: ${toolName}`);
+    if (outcome === "allowed") return;
+    const details: Record<Exclude<ApprovalOutcome, "allowed">, string> = {
+      denied: "denied by the user",
+      timed_out: "timed out waiting for desktop approval; open the desktop app and retry",
+      cancelled: "cancelled by the client or connection; retry and keep the call open",
+      stopped: "cancelled because the runtime stopped",
+    };
+    throw new Error(`Tool approval ${details[outcome]}: ${toolName}`);
   }
 
   dispose(): void {
@@ -127,11 +150,16 @@ export class ApprovalPolicy implements ToolExecutionGate {
 
   resetSession(): void {
     for (const pending of this.#pending.values()) {
-      clearTimeout(pending.timer);
-      pending.resolve(false);
+      pending.settle("stopped");
     }
     this.#pending.clear();
     this.#sessionAllowed.clear();
+  }
+
+  #event(request: ToolApprovalRequest, outcome: ApprovalEvent["outcome"]): void {
+    // Audit metadata only: never send command contents or secrets to logs.
+    this.#onEvent?.({ requestId: request.requestId, toolName: request.toolName,
+      permission: request.permission, sessionId: request.context.sessionId, outcome });
   }
 
   #permission(toolName: string): ToolApprovalRequest["permission"] | undefined {

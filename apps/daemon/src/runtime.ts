@@ -38,7 +38,10 @@ export class RuntimeSupervisor implements RuntimeControl {
   constructor(config: DaemonConfig, logger: PluginLogger) {
     this.#config = config;
     this.#logger = logger;
-    this.approval = new ApprovalPolicy(config.permissionMode);
+    this.approval = new ApprovalPolicy(config.permissionMode, 120_000, (event) => {
+      const level = event.outcome === "queued" || event.outcome === "allowed" ? "info" : "warn";
+      this.#logger.log(level, `Tool approval: ${event.outcome}`, { ...event });
+    });
     // Do not construct providers or bind MCP while loading an unfinished config.
     this.#registry = this.#createRegistry(config);
   }

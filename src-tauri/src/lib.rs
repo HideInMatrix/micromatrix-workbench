@@ -3,6 +3,8 @@ use std::sync::Mutex;
 use tauri::Manager;
 use tauri_plugin_shell::{process::{CommandChild, CommandEvent}, ShellExt};
 
+mod saved_secrets;
+
 #[derive(Default)]
 struct ServiceState {
   child: Option<CommandChild>,
@@ -16,12 +18,29 @@ fn desktop_service_error(state: tauri::State<'_, ServiceChild>) -> Option<String
   state.0.lock().ok().and_then(|service| service.error.clone())
 }
 
+#[tauri::command]
+fn show_permission_prompt(window: tauri::WebviewWindow) -> Result<(), String> {
+  window.show().map_err(|error| error.to_string())?;
+  window.unminimize().map_err(|error| error.to_string())?;
+  window.request_user_attention(Some(tauri::UserAttentionType::Critical)).map_err(|error| error.to_string())?;
+  window.set_focus().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn runtime_saved_secrets(app: tauri::AppHandle) -> Result<saved_secrets::SavedSecrets, String> {
+  let config_file = match std::env::var("MICROMATRIX_CONFIG_FILE").ok().filter(|value| !value.trim().is_empty()) {
+    Some(value) => std::path::PathBuf::from(value.trim()),
+    None => app.path().home_dir().map_err(|error| error.to_string())?.join(".micromatrix-pi-mcp/runtime.json"),
+  };
+  saved_secrets::read(&config_file, &std::env::vars().collect())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   let app = tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_shell::init())
-    .invoke_handler(tauri::generate_handler![desktop_service_error])
+    .invoke_handler(tauri::generate_handler![desktop_service_error, show_permission_prompt, runtime_saved_secrets])
     .setup(|app| {
       app.manage(ServiceChild(Mutex::new(ServiceState::default())));
       if cfg!(debug_assertions) {

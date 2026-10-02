@@ -6,6 +6,7 @@ import type {
   RuntimeDto,
   SecretAction,
   SecretUpdateDto,
+  SavedRuntimeSecrets,
 } from '../../types'
 
 export function cloneNetwork(network: NetworkConfigDto): NetworkConfigDto {
@@ -37,11 +38,16 @@ export function emptyRuntimeDraft(): RuntimeDraft {
   }
 }
 
-export function runtimeDraft(runtime: RuntimeDto): RuntimeDraft {
+export function runtimeDraft(runtime: RuntimeDto, previous?: RuntimeDraft): RuntimeDraft {
+  const sameProvider = previous?.network.provider === runtime.network.provider
+  const retainedOptions = Object.fromEntries(runtime.network.configured_secrets
+    .filter(key => sameProvider && previous.network.secret_actions[key] !== 'clear')
+    .map(key => [key, previous!.network.options[key] ?? '']))
   return {
     name: runtime.name,
     workspace: runtime.workspace,
-    oauth_password: '',
+    oauth_password: runtime.has_oauth_password && previous?.oauth_password_action !== 'clear'
+      ? previous?.oauth_password ?? '' : '',
     oauth_password_configured: runtime.has_oauth_password,
     oauth_password_action: 'unchanged',
     host: runtime.host,
@@ -50,7 +56,24 @@ export function runtimeDraft(runtime: RuntimeDto): RuntimeDraft {
     permission_mode: runtime.permission_mode,
     network: {
       ...cloneNetwork(runtime.network),
+      options: { ...runtime.network.options, ...retainedOptions },
       secret_actions: Object.fromEntries(runtime.network.configured_secrets.map(key => [key, 'unchanged' as const])),
+    },
+  }
+}
+
+export function restoreSavedSecrets(draft: RuntimeDraft, secrets: SavedRuntimeSecrets): RuntimeDraft {
+  return {
+    ...draft,
+    oauth_password: draft.oauth_password_configured ? secrets.oauth_password : '',
+    network: {
+      ...draft.network,
+      options: {
+        ...draft.network.options,
+        ...Object.fromEntries(draft.network.configured_secrets
+          .filter(key => secrets.provider === draft.network.provider && typeof secrets.options[key] === 'string')
+          .map(key => [key, secrets.options[key]!])),
+      },
     },
   }
 }
@@ -75,7 +98,9 @@ export function normalizedRuntimeDraft(value: RuntimeDraft): RuntimeConfiguratio
     network: {
       provider: value.network.provider,
       public_url: value.network.public_url.trim().replace(/\/+$/, ''),
-      options: { ...value.network.options },
+      // Secrets shown locally must travel only as explicit updates, not as
+      // ordinary options when the action is unchanged/clear.
+      options: Object.fromEntries(Object.entries(value.network.options).filter(([key]) => !secretKeys.has(key))),
       secret_updates: Object.fromEntries([...secretKeys].map(key => [
         key,
         secretUpdate(value.network.secret_actions[key] ?? 'unchanged', value.network.options[key] ?? ''),

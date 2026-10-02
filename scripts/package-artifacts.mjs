@@ -80,7 +80,8 @@ export function packageArtifacts(root = process.cwd(), env = process.env) {
   writeFileSync(path.join(output, `build-${profile}.json`), `${JSON.stringify({
     appVersion: version, tag: env.GITHUB_REF_TYPE === 'tag' ? env.GITHUB_REF_NAME : null,
     commit: env.GITHUB_SHA || execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
-    target, node: process.version, experimental: true, notarized: false,
+    target, node: process.version,
+    experimental: env.GITHUB_REF_TYPE !== 'tag' || version.split('+')[0].includes('-'), notarized: false,
     workflowRun: env.GITHUB_RUN_ID ?? null,
   }, null, 2)}\n`)
   const assets = readdirSync(output).sort()

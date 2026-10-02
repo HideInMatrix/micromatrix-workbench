@@ -5,6 +5,7 @@ import {
   emptyRuntimeDraft,
   normalizedRuntimeDraft,
   runtimeDraft,
+  restoreSavedSecrets,
   runtimeUrl,
 } from '../components/services/runtimeModels'
 import type { NetworkProviderDto, RuntimeDraft, RuntimeDto } from '../types'
@@ -59,7 +60,7 @@ export function useRuntimeManager() {
     validateDraft(value)
     const saved = await desktopApi.configureRuntime(value)
     runtime.value = saved
-    draft.value = runtimeDraft(saved)
+    draft.value = runtimeDraft(saved, draft.value)
     return saved
   }
 
@@ -86,7 +87,7 @@ export function useRuntimeManager() {
         await persistDraft()
         runtime.value = await desktopApi.startRuntime()
       }
-      if (runtime.value) draft.value = runtimeDraft(runtime.value)
+      if (runtime.value) draft.value = runtimeDraft(runtime.value, draft.value)
       toast.success(runtime.value?.running ? 'Runtime 已启动。' : 'Runtime 已停止。')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))
@@ -131,6 +132,12 @@ export function useRuntimeManager() {
         runtime.value = snapshot.runtime
         networkProviders.value = snapshot.network_providers
         draft.value = runtimeDraft(snapshot.runtime)
+        try {
+          const secrets = await desktopApi.savedRuntimeSecrets()
+          if (secrets) draft.value = restoreSavedSecrets(draft.value, secrets)
+        } catch {
+          toast.error('已保存的密钥未能回填；现有服务密钥仍保留，可重新输入。', { id: 'secret-restore' })
+        }
         ready.value = true
         initializationErrorShown = false
       } catch (error) {

@@ -59,6 +59,13 @@ export interface RuntimeDraft {
   network: NetworkDraft
 }
 
+// Available only over the native Tauri bridge, never the HTTP/MCP API.
+export interface SavedRuntimeSecrets {
+  oauth_password: string
+  provider: string
+  options: Record<string, string>
+}
+
 export interface NetworkDraft extends NetworkConfigDto {
   secret_actions: Record<string, SecretAction>
 }

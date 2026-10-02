@@ -10,6 +10,7 @@ import type {
   PermissionRequestDto,
   RuntimeConfigurationDto,
   RuntimeDto,
+  SavedRuntimeSecrets,
 } from '../types'
 
 interface DesktopApiRequest {
@@ -49,6 +50,7 @@ async function call<T>(method: string, ...args: unknown[]): Promise<T> {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(request),
+    ...(method === 'list_permission_requests' ? { signal: AbortSignal.timeout(5000) } : {}),
   })
   if (!response.ok) {
     const body = await response.text()
@@ -84,6 +86,10 @@ export const desktopApi = {
   capabilityCatalog: () => call<CapabilityCatalogDto>('get_workbench_capability_catalog'),
   logs: (after = 0) => call<{ cursor: number; entries: LogEntryDto[] }>('get_logs', after),
   clearLogs: () => call<number>('clear_logs'),
+  savedRuntimeSecrets: () => isTauri() ? invoke<SavedRuntimeSecrets>('runtime_saved_secrets') : Promise.resolve(null),
+  async showPermissionPrompt(): Promise<void> {
+    if (isTauri()) await invoke('show_permission_prompt')
+  },
   async chooseWorkspace(initial = ''): Promise<string> {
     if (!isTauri()) return call<string>('choose_workspace', initial)
     const selected = await open({ directory: true, multiple: false, ...(initial ? { defaultPath: initial } : {}) })

@@ -97,15 +97,21 @@ npm run tauri:build    # Tauri 2 应用与安装包
 
 GitHub macOS 打包先由 Tauri 构建/签名 `.app`，再运行 `node scripts/package-macos-dmg.mjs` 单独生成压缩、只读 DMG；不依赖 Finder/AppleScript 或可写镜像的挂载/缩容。原图标、签名和两项 sidecar 随 `.app` 原样复制，带 `/Applications` 拖拽安装链接。仅对磁盘镜像的明确临时忙碌错误最多尝试三次，不重编译 Rust/Vite；校验失败阻止发布。详细日志位于 `src-tauri/target/packaging-logs/create-dmg.log`，Actions 无论成功/失败均尝试上传 `packaging-logs-macos-*` 诊断附件。此路径适用于目前的实验性 ad-hoc 包，不代表已完成生产签名/公证；本地 `tauri:build` 仍走 Tauri 默认完整打包。
 
-UI 配置默认写入 `~/.micromatrix-pi-mcp/runtime.json`。关闭“保存敏感信息”后，OAuth 密码和网络令牌不写入磁盘。密码框留空表示保留现有值；只有点击对应的清除按钮并保存才会删除已有密钥。
+UI 配置默认写入 `~/.micromatrix-pi-mcp/runtime.json`。关闭“保存敏感信息”后，OAuth 密码和网络令牌不写入磁盘。密钥输入在保存、启停和页面切换后保留在界面内，默认以密码掩码显示，眼睛按钮可查看。Tauri 重启后通过原生桥回填已保存的密钥，不新增返回密钥的 HTTP/MCP 接口；关闭保存后仅保留在当前界面会话，退出后需重新输入。浏览器版不从服务回读明文；已有值仍由服务保留。只有点击清除按钮并保存才删除已有密钥。
+
+界面掩码不是磁盘加密：选择保存时，密钥仍在本机 JSON 配置内（Unix 文件权限 `0600`）。
 
 单文件服务上的内嵌 Web UI 使用页面自己的 origin，可使用自定义控制端口；Vite/Tauri 默认连接 `http://127.0.0.1:8233`，如需自定义应在构建前设置 `VITE_CONTROL_URL`。
+
+### 工具审批排查
+
+Shell 插件向 MCP 暴露的工具名是 `bash`。`safe` 和 `trusted` 模式的 Shell 调用都需批准；`trusted` 仅自动批准 Workspace 写入，不自动批准 Shell。待审批时桌面弹窗会提醒并激活窗口；仅在用户批准后执行。运行日志会区分 `queued`、`allowed`、`denied`、`timed_out`、`cancelled`、`stopped`，不记录完整命令或密钥。超时/客户端取消不再冒充用户拒绝。若模型称“没有权限”却没有 `queued` 日志，应检查其实际工具错误与 `tools/list`，不能把模型的总结当作已经到达本服务的证据；客户端自身的权限限制不由本应用审批控制。
 
 ## GitHub Actions 打包
 
 - 分支 push / PR：`CI` 自动准备应用版本、运行类型检查和 Web 构建。
 - 手动运行 `Desktop packages`：检查后构建 macOS arm64/x64、Windows x64、Linux x64 的实验性安装包，并执行各平台 SEA 冒烟；下载入口为该次运行的 **Artifacts**。
-- 推送 `v*` tag：执行同样的打包流程；全部平台成功后，只选择 6 个桌面安装包，验证各平台 SHA-256 并合并为 `SHA256SUMS.txt`，上传完成后自动公开为 **Pre-release**。独立服务、构建 JSON 和单独通知文件不上传 Release。任意平台失败不会进入发布；上传失败保留草稿，不公开不完整的版本。实验包不标记为稳定版 Latest。
+- 推送 `v*` tag：执行同样的打包流程；全部平台成功后，只选择 6 个桌面安装包，验证各平台 SHA-256 并合并为 `SHA256SUMS.txt`，上传完成后自动公开为正式 **Release / Latest**（如 `v0.5.9`）。显式 `-rc` / `-beta` tag 保持 Pre-release，避免进入正式渠道。独立服务、构建 JSON 和单独通知文件不上传 Release。任意平台失败不会进入发布；上传失败保留草稿，不公开不完整的版本。无需手动点击 Publish；目前不包含应用内自动下载/安装更新。
 
 提交当前实现、脚本和 `.github` 后推送分支，再推送一个未使用的 tag，例如：
 

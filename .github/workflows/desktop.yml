@@ -165,7 +165,7 @@ jobs:
           node-version: '22.23.3'
       - name: Select desktop installers and combine checksums
         run: node scripts/prepare-release-assets.mjs
-      - name: Upload desktop installers and publish the prerelease
+      - name: Upload desktop installers and publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
@@ -174,6 +174,18 @@ jobs:
           set -euo pipefail
           cd release-assets
           sha256sum --check SHA256SUMS.txt
+          # Normal SemVer tags publish stable/Latest automatically. Keep an
+          # explicitly requested -rc/-beta tag out of the stable update channel.
+          version=${RELEASE_TAG#v}
+          version=${version%%+*}
+          prerelease=false
+          latest=true
+          channel=release
+          if [[ "$version" == *-* ]]; then
+            prerelease=true
+            latest=false
+            channel=prerelease
+          fi
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             draft=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
             if [ "$draft" != true ]; then
@@ -192,15 +204,15 @@ jobs:
             done <<< "$existing_assets"
           else
             gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-              --verify-tag --draft --prerelease \
-              --title "micromatrix agent $RELEASE_TAG (test build)" \
+              --verify-tag --draft --prerelease="$prerelease" \
+              --title "micromatrix agent $RELEASE_TAG" \
               --notes-file ../.github/release-notes.md
           fi
           gh release upload "$RELEASE_TAG" ./* --repo "$GITHUB_REPOSITORY" --clobber
           # Keep incomplete uploads private. Publish only after every upload
-          # succeeds; never promote experimental packages to the stable Latest.
+          # succeeds. No manual draft publication is required.
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-            --draft=false --prerelease --latest=false
+            --draft=false --prerelease="$prerelease" --latest="$latest"
           url=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url)
-          printf 'Published prerelease: %s\n' "$url"
-          printf '### Published prerelease\n\n[%s](%s)\n' "$RELEASE_TAG" "$url" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Published %s: %s\n' "$channel" "$url"
+          printf '### Published %s\n\n[%s](%s)\n' "$channel" "$RELEASE_TAG" "$url" >> "$GITHUB_STEP_SUMMARY"
