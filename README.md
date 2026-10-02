@@ -95,6 +95,8 @@ npm run tauri:build    # Tauri 2 应用与安装包
 - `src-tauri/binaries/micromatrix-service-<target-triple>`
 - `src-tauri/target/release/bundle/`
 
+GitHub macOS 打包先由 Tauri 构建/签名 `.app`，再运行 `node scripts/package-macos-dmg.mjs` 单独生成压缩、只读 DMG；不依赖 Finder/AppleScript 或可写镜像的挂载/缩容。原图标、签名和两项 sidecar 随 `.app` 原样复制，带 `/Applications` 拖拽安装链接。仅对磁盘镜像的明确临时忙碌错误最多尝试三次，不重编译 Rust/Vite；校验失败阻止发布。详细日志位于 `src-tauri/target/packaging-logs/create-dmg.log`，Actions 无论成功/失败均尝试上传 `packaging-logs-macos-*` 诊断附件。此路径适用于目前的实验性 ad-hoc 包，不代表已完成生产签名/公证；本地 `tauri:build` 仍走 Tauri 默认完整打包。
+
 UI 配置默认写入 `~/.micromatrix-pi-mcp/runtime.json`。关闭“保存敏感信息”后，OAuth 密码和网络令牌不写入磁盘。密码框留空表示保留现有值；只有点击对应的清除按钮并保存才会删除已有密钥。
 
 单文件服务上的内嵌 Web UI 使用页面自己的 origin，可使用自定义控制端口；Vite/Tauri 默认连接 `http://127.0.0.1:8233`，如需自定义应在构建前设置 `VITE_CONTROL_URL`。

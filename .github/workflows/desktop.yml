@@ -48,13 +48,12 @@ jobs:
           - runner: macos-15
             id: macos-arm64
             target: aarch64-apple-darwin
-            # Keep the signed .app for the post-bundle smoke test; only the
-            # DMG is selected for public release assets.
-            bundles: app,dmg
+            # Build/sign .app once; create the DMG separately without Finder.
+            bundles: app
           - runner: macos-15-intel
             id: macos-x64
             target: x86_64-apple-darwin
-            bundles: app,dmg
+            bundles: app
           - runner: windows-2022
             id: windows-x64
             target: x86_64-pc-windows-msvc
@@ -109,12 +108,15 @@ jobs:
           # Default-branch caches are available to later tags; other tags are not.
           save-if: ${{ github.ref == 'refs/heads/master' }}
           cache-on-failure: true
-      - name: Build Tauri installers
+      - name: Build Tauri application and native installers
         id: tauri-build
-        run: npm run tauri -- build --ci --config src-tauri/tauri.prebuilt.conf.json --bundles ${{ matrix.bundles }} -- --locked --timings
+        run: npm run tauri -- build --ci --verbose --config src-tauri/tauri.prebuilt.conf.json --bundles ${{ matrix.bundles }} -- --locked --timings
       - name: Smoke-test the final signed macOS sidecar
         if: runner.os == 'macOS'
         run: node scripts/smoke-sidecar.mjs --bundled
+      - name: Create and verify headless macOS DMG
+        if: runner.os == 'macOS'
+        run: node scripts/package-macos-dmg.mjs
       - name: Collect installers, standalone service, notices and checksums
         run: node scripts/package-artifacts.mjs
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7, Node 24
@@ -123,6 +125,14 @@ jobs:
           path: dist/artifacts/*
           if-no-files-found: error
           compression-level: 0
+          retention-days: 14
+      - name: Upload macOS packaging diagnostics
+        if: always() && runner.os == 'macOS' && steps.tauri-build.outcome != 'skipped'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7, Node 24
+        with:
+          name: packaging-logs-${{ matrix.id }}
+          path: src-tauri/target/packaging-logs/
+          if-no-files-found: ignore
           retention-days: 14
       - name: Upload Rust compilation timings
         if: always() && steps.tauri-build.outcome != 'skipped'
