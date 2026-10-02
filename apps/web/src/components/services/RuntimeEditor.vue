@@ -34,8 +34,11 @@ function updateNetworkChoice(key: string, event: Event) {
   draft.value.network.options[key] = (event.target as HTMLSelectElement).value
 }
 
-function updateNetworkSecret(key: string) {
-  draft.value.network.secret_actions[key] = draft.value.network.options[key] ? 'set' : 'unchanged'
+// Use the emitted new value: a forwarded native input listener can run before
+// v-model updates, misclassifying a first paste as an unchanged empty secret.
+function updateNetworkSecret(key: string, value: string) {
+  draft.value.network.options[key] = value
+  draft.value.network.secret_actions[key] = value ? 'set' : 'unchanged'
 }
 
 function toggleNetworkSecretClear(key: string) {
@@ -44,8 +47,9 @@ function toggleNetworkSecretClear(key: string) {
   draft.value.network.secret_actions[key] = clearing ? 'unchanged' : 'clear'
 }
 
-function updateOAuthPassword() {
-  draft.value.oauth_password_action = draft.value.oauth_password ? 'set' : 'unchanged'
+function updateOAuthPassword(value: string) {
+  draft.value.oauth_password = value
+  draft.value.oauth_password_action = value ? 'set' : 'unchanged'
 }
 
 function toggleOAuthPasswordClear() {
@@ -130,12 +134,12 @@ const emit = defineEmits<{
         <div v-if="field.secret" class="grid gap-1.5">
           <InputGroup>
             <InputGroupInput
-              v-model="draft.network.options[field.key]"
+              :model-value="draft.network.options[field.key]"
               :disabled="locked || draft.network.secret_actions[field.key] === 'clear'"
               :type="tunnelTokenVisible ? 'text' : 'password'"
               autocomplete="new-password"
               placeholder="留空则保留现有值"
-              @input="updateNetworkSecret(field.key)"
+              @update:model-value="updateNetworkSecret(field.key, $event)"
             />
             <InputGroupButton
               :aria-label="tunnelTokenVisible ? '隐藏网络密钥' : '显示网络密钥'"
@@ -178,12 +182,12 @@ const emit = defineEmits<{
         <div class="grid gap-1.5">
           <InputGroup>
             <InputGroupInput
-              v-model="draft.oauth_password"
+              :model-value="draft.oauth_password"
               :disabled="locked || draft.oauth_password_action === 'clear'"
               :type="oauthPasswordVisible ? 'text' : 'password'"
               autocomplete="new-password"
               placeholder="留空则保留现有值"
-              @input="updateOAuthPassword"
+              @update:model-value="updateOAuthPassword"
             />
             <InputGroupButton
               :aria-label="oauthPasswordVisible ? '隐藏 OAuth 密码' : '显示 OAuth 密码'"
