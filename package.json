@@ -1,6 +1,6 @@
 {
   "name": "micromatrix-pi-agent-mcp",
-  "version": "0.5.0",
+  "version": "0.5.11",
   "private": true,
   "type": "module",
   "packageManager": "npm@11",
@@ -24,12 +24,13 @@
     "smoke:sidecar": "node scripts/smoke-sidecar.mjs",
     "check:sidecar": "npm run build:sidecar && npm run smoke:sidecar",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "npm run build:sidecar && tauri build",
+    "tauri:dev": "npm run prepare:version && tauri dev",
+    "tauri:build": "node scripts/build-desktop.mjs",
     "start": "node apps/daemon/dist/main.js",
     "test": "vitest run packages plugins apps/daemon && node --test apps/web/tests/*.test.ts scripts/tests/*.test.mjs",
     "typecheck": "tsc -b --pretty false",
-    "check": "npm run typecheck && npm run build:web"
+    "check": "npm run typecheck && npm run build:web",
+    "prepare:version": "node scripts/release-version.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.87.1",

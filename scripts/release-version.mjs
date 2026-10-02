@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -13,6 +14,15 @@ export function versionFromTag(tag) {
 
 export function releaseVersion(root = process.cwd(), env = process.env) {
   if (env.GITHUB_REF_TYPE === 'tag') return versionFromTag(env.GITHUB_REF_NAME)
+  // Use the newest reachable version tag for local builds, never a tag from
+  // an unrelated branch. Archive checkouts without Git keep package.json.
+  if (!env.GITHUB_ACTIONS) {
+    let tags = ''
+    try { tags = execFileSync('git', ['tag', '--merged', 'HEAD', '--sort=-version:refname', '--list', 'v*'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }) } catch { /* Source archive */ }
+    for (const tag of tags.trim().split(/\r?\n/)) {
+      try { return versionFromTag(tag) } catch { /* Ignore non-release tags */ }
+    }
+  }
   const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version
   if (!semver.test(version)) throw new Error('package.json must contain a SemVer application version')
   return version
@@ -55,7 +65,7 @@ export function prepareReleaseVersion(root = process.cwd(), env = process.env) {
     ['apps/daemon/src/version.ts', `// Release builds overwrite this value from the Git tag before compiling.\nexport const APP_VERSION = "${version}";\n`],
   ]
   for (const [file, contents] of updates) writeFileSync(path.join(root, file), contents)
-  console.log(`Prepared application version ${version} from ${env.GITHUB_REF_TYPE === 'tag' ? env.GITHUB_REF_NAME : 'package.json'}`)
+  console.log(`Prepared application version ${version} from ${env.GITHUB_REF_TYPE === 'tag' ? env.GITHUB_REF_NAME : 'reachable Git tag / package.json'}`)
   return version
 }
 

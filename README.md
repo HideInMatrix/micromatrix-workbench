@@ -123,7 +123,7 @@ git push origin v0.5.3
 
 这些命令要求修改已经提交；不要把 tag 打在旧提交上。**发布版本以 tag 为准，不再要求手动修改多处版本文件**。例如 `v0.5.2` 构建为 `0.5.2`，`v0.6.0-rc.1` 构建为 `0.6.0-rc.1`，不必与源码当前的 `0.5.0` 相等。
 
-`git tag` 本身只创建引用，不修改文件。Actions 根据 `GITHUB_REF_TYPE=tag` 和 `GITHUB_REF_NAME`，在每个构建 job 执行 `scripts/release-version.mjs`，自动同步根 `package.json`、npm 锁文件、Tauri 配置、Cargo 配置/锁文件和应用显示版本；只修改构建工作区，不自动提交回仓库，不改内部插件/依赖版本。完整 tag、commit 和构建平台记录在 `build-*.json`。非 tag 构建使用根 `package.json` 的版本。[GitHub 提供的引用变量](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)。
+`git tag` 本身只创建引用，不修改文件。Actions 根据 `GITHUB_REF_TYPE=tag` 和 `GITHUB_REF_NAME`，在每个构建 job 执行 `scripts/release-version.mjs`，自动同步根 `package.json`、npm 锁文件、Tauri 配置、Cargo 配置/锁文件和应用显示版本；只修改构建工作区，不自动提交回仓库，不改内部插件/依赖版本。完整 tag、commit 和构建平台记录在 `build-*.json`。GitHub 非 tag 构建使用根 `package.json` 的版本；本地 `tauri:dev` / `tauri:build` 自动读取当前 HEAD 可达的最新 SemVer tag 并同步版本，没有可用 tag 时使用 `package.json`。桌面“关于”读取 Tauri 原生版本，不依赖控制服务的版本或就绪状态。正在运行的旧程序不会因源码变化自动变成新版，必须重建并重新启动。[GitHub 提供的引用变量](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)。
 
 只保留 `v` + SemVer 格式校验（如 `v1.2.3`、`v1.2.3-beta.1`）；任意字符串不能作为 npm/Cargo/Tauri 应用版本。安装包、服务和显示版本需要一致，但一致性由构建脚本自动生成，而非人工维护。
 
@@ -131,7 +131,26 @@ git push origin v0.5.3
 
 旧流程只保存 Release 草稿，且附件包含独立服务和审计文件。新流程自动发布精简附件，但不会重写已有公开版本；已有附件不会因修改 workflow 自动消失。已有草稿若包含白名单外附件，新流程拒绝公开，须先手动清理或使用新 tag。
 
-手动触发需要 workflow 文件已经存在于仓库默认分支，随后可在 Run workflow 选择当前开发分支；尚未合并时可先使用 tag 自动触发。Actions 必须启用且允许工作流中使用的固定提交 Actions。checkout/setup-node/upload/download 已使用 Node 24 运行时版本，项目构建与 SEA 的 Node 版本仍固定为 22.23.3；两者不是同一个配置。默认使用内置 `GITHUB_TOKEN`，无需提供个人 Token 或生产签名密钥；只有 tag 的发布 job 获得 `contents: write`。
+手动触发需要 workflow 文件已经存在于仓库默认分支，随后可在 Run workflow 选择当前开发分支；尚未合并时可先使用 tag 自动触发。Actions 必须启用且允许工作流中使用的固定提交 Actions。checkout/setup-node/upload/download 已使用 Node 24 运行时版本，项目构建与 SEA 的 Node 版本仍固定为 22.23.3；两者不是同一个配置。GitHub 发布使用内置 `GITHUB_TOKEN`，无需个人 Token；只有 tag 的发布 job 获得 `contents: write`。Updater 签名使用下面说明的专用密钥，不等同于 Apple / Authenticode 签名。
+
+### 桌面自动更新与签名配置
+
+桌面启动后和每 6 小时自动检查 GitHub Latest 正式版；发现更新以 Sonner 提示，“关于”页面可查看版本、进度和错误，点击“下载更新并重启”完成应用内升级。下载与签名校验完成后才停止 Runtime / Tunnel，安装后重启；不会自动运行 Runtime。下载失败保留当前执行，停止失败不安装，安装或重启失败显示可重试状态。网页版本不会调用桌面 updater。
+
+更新强制校验签名和签名绑定的版本，拒绝改包、错版本、错误公钥。正式环境只允许 HTTPS。Windows 按 NSIS / MSI、Linux 按 AppImage / DEB 匹配安装格式；DEB 更新可能要求系统授权。首次安装含 updater 的版本仍需手动安装一次，旧版没有 updater，不能凭发布新 Release 获得该能力。[Tauri 官方 updater](https://v2.tauri.app/plugin/updater/)。
+
+本机已生成长期密钥，私钥位于 `.local/updater/micromatrix.key`，权限 `600`；整个 `.local/` 被 Git 忽略，只有公钥写入 Tauri 配置。**务必离线备份，不要重新生成替换，不要提交或粘贴私钥到聊天/日志。** 当前密钥没有额外口令，安全性依赖本机文件权限、离线备份和 GitHub Secret 保护。
+
+发布前在仓库 **Settings → Secrets and variables → Actions** 配置 `TAURI_SIGNING_PRIVATE_KEY`，值为私钥文件内容；当前无口令密钥不需要设置密码 Secret。若已安装并登录 GitHub CLI，可在项目目录执行（不打印私钥）：
+
+```bash
+gh secret set TAURI_SIGNING_PRIVATE_KEY \
+  --repo HideInMatrix/micromatrix-workbench < .local/updater/micromatrix.key
+```
+
+如使用有口令的密钥，另配置 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。本地 `npm run tauri:build` 自动使用上述私钥路径，也可通过同名环境变量指定自己的密钥；新克隆需从安全备份恢复私钥或设置环境变量。`tauri:dev` 不需要私钥。
+
+Workflow 在 verify 阶段检查 Secret 是否存在，缺少则立即失败，不浪费四平台编译时间；原生 build 生成签名包，发布前再次验证各平台校验和、签名与版本，完整成功才自动公开正式 Release。正常 tag 成为 Latest，预发布 tag 不进入正式更新通道。当前私钥只在本机生成，**不代表 GitHub Secret 已配置**。
 
 ### 构建复用与 Rust 缓存
 
@@ -141,7 +160,7 @@ Rust 使用固定 SHA 的 `Swatinem/rust-cache` 缓存 Cargo 下载和依赖编�
 
 首次冷构建仍需要编译 Rust 依赖；runner 排队、下载和安装包压缩不会被编译缓存消除，不保证固定分钟数。各平台的 `rust-timings-*` Artifact 保留 Cargo HTML 耗时报告，方便定位后续瓶颈；它和 `shared-web` 不会加入 Release。复用前端仅适用于目前各平台相同的 Vite 配置，未来如引入平台特定的构建变量需重新评估。
 
-Release 仅有 **6 个安装包 + 1 个 `SHA256SUMS.txt`**，加上 GitHub 自动提供的两个源码压缩包，共 9 项。`scripts/prepare-release-assets.mjs` 使用平台/格式白名单，缺少格式、重复安装包或校验失败都拒绝发布；不直接把 Actions 的所有文件上传。
+Release 提供 **6 个安装包 + 2 个 macOS `.app.tar.gz` 更新包 + `latest.json` + `SHA256SUMS.txt`**，加上 GitHub 自动提供的两个源码压缩包。macOS 更新包用于应用内升级，不是独立服务；Windows / Linux 复用签名后的安装包。签名嵌入 `latest.json`，`.sig`、构建 JSON 和通知不重复作为公开附件。`scripts/prepare-release-assets.mjs` 使用平台/格式白名单，缺少格式、重复安装包或校验失败都拒绝发布；不直接把 Actions 的所有文件上传。
 
 独立服务压缩包、构建 JSON、原始校验文件仍保留在 Actions 的 `micromatrix-*` Artifacts，不作为 Release 附件。**这不是私密存储策略**：公开仓库中，有权限访问 Actions 的用户仍可能下载这些文件。桌面应用内的 Node SEA sidecar 仍是运行所需组件，不会移除。
 

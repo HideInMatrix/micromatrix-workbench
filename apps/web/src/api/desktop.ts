@@ -1,3 +1,4 @@
+import { getVersion } from '@tauri-apps/api/app'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { controlBaseUrl } from './controlUrl'
@@ -70,7 +71,7 @@ async function call<T>(method: string, ...args: unknown[]): Promise<T> {
 
 export const desktopApi = {
   bootstrap: () => call<BootstrapDto>('bootstrap'),
-  appVersion: () => call<string>('get_app_version'),
+  appVersion: () => isTauri() ? getVersion() : call<string>('get_app_version'),
   runtime: () => call<RuntimeDto>('get_runtime'),
   configureRuntime: (payload: RuntimeConfigurationDto) => call<RuntimeDto>('configure_runtime', payload),
   startRuntime: () => call<RuntimeDto>('start_runtime'),

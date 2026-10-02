@@ -1,10 +1,32 @@
 <script setup lang="ts">
+import { onMounted, onBeforeUnmount } from 'vue'
+import { toast } from 'vue-sonner'
+import { useAppUpdater } from './composables/useAppUpdater'
+import { router } from './router'
 import { RouterView } from 'vue-router'
 import { Toaster } from 'vue-sonner'
 import 'vue-sonner/style.css'
 import { Button } from '@/components/ui/button'
 import AppSidebar from './components/AppSidebar.vue'
 import { usePermissionRequests } from './composables/usePermissionRequests'
+
+const updater = useAppUpdater()
+let updateTimer: ReturnType<typeof setInterval> | undefined
+async function checkForUpdates() {
+  await updater.check()
+  if (updater.state.phase === 'available') {
+    toast.info(`发现新版本 ${updater.state.version}`, {
+      id: 'app-update', duration: 15_000,
+      action: { label: '查看更新', onClick: () => { void router.push('/about') } },
+    })
+  }
+}
+onMounted(() => {
+  if (!updater.native) return
+  void checkForUpdates()
+  updateTimer = setInterval(() => void checkForUpdates(), 6 * 60 * 60 * 1000)
+})
+onBeforeUnmount(() => { if (updateTimer) clearInterval(updateTimer) })
 
 const {
   permissionResponding,

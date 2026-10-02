@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "micromatrix agent",
-  "version": "0.5.0",
+  "version": "0.5.11",
   "identifier": "org.micromatrix.pi-mcp",
   "build": {
     "frontendDist": "../apps/web/dist",
@@ -28,7 +28,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["binaries/micromatrix-service", "binaries/cloudflared"],
+    "externalBin": [
+      "binaries/micromatrix-service",
+      "binaries/cloudflared"
+    ],
     "macOS": {
       "entitlements": "Entitlements.plist"
     },
@@ -44,6 +47,19 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI2RkQzNzIzNDdENkI4QUQKUldTdHVOWkhJemY5dHVUUWs5UHN5QVMycVExZEoySXNhSnl6cm1lYmUrSUcwVDQyYVhROWN0UlAK",
+      "endpoints": [
+        "https://github.com/HideInMatrix/micromatrix-workbench/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      },
+      "requireSignedVersion": true
     }
   }
 }

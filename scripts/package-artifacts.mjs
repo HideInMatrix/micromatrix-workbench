@@ -38,7 +38,14 @@ export function packageArtifacts(root = process.cwd(), env = process.env) {
   if (!existsSync(service)) throw new Error(`Build the sidecar before packaging: ${service}`)
   const cloudflared = path.join(root, 'src-tauri/binaries', `cloudflared-${target}${extension}`)
   if (!existsSync(cloudflared)) throw new Error(`Missing bundled cloudflared: ${cloudflared}`)
-  const installers = collectInstallers(path.join(root, 'src-tauri/target/release/bundle'), process.platform)
+  const bundleRoot = path.join(root, 'src-tauri/target/release/bundle')
+  const installers = collectInstallers(bundleRoot, process.platform)
+  const updaterFiles = process.platform === 'darwin'
+    ? readdirSync(path.join(bundleRoot, 'macos')).filter(name => name.endsWith('.app.tar.gz')).map(name => path.join(bundleRoot, 'macos', name))
+    : installers
+  if (updaterFiles.length !== (process.platform === 'darwin' ? 1 : 2)) throw new Error('Missing or duplicate updater packages')
+  for (const file of updaterFiles) if (!existsSync(`${file}.sig`)) throw new Error(`Missing signed updater package: ${file}.sig`)
+
   const nodeDirectory = path.dirname(process.execPath)
   const nodeLicense = [path.join(nodeDirectory, 'LICENSE'), path.join(nodeDirectory, '../LICENSE')].find(file => existsSync(file))
   if (!nodeLicense) throw new Error('Node distribution LICENSE is required beside the Node executable or its parent directory')
@@ -70,7 +77,7 @@ export function packageArtifacts(root = process.cwd(), env = process.env) {
   } else {
     execFileSync('tar', ['-czf', archive, '-C', serviceDirectory, '.'], { stdio: 'inherit' })
   }
-  for (const installer of installers) {
+  for (const installer of new Set([...installers, ...updaterFiles, ...updaterFiles.map(file => `${file}.sig`)])) {
     const name = `${profile}-${path.basename(installer).replace(/\s+/g, '_')}`
     copyFileSync(installer, path.join(output, name))
   }

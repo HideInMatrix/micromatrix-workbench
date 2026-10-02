@@ -1,5 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
+import { updateInstallationLocked } from './useAppUpdater'
 import { desktopApi } from '../api/desktop'
 import {
   emptyRuntimeDraft,
@@ -29,7 +30,7 @@ let initializationErrorShown = false
 
 export function useRuntimeManager() {
   const running = computed(() => Boolean(runtime.value?.running))
-  const locked = computed(() => running.value || lifecycleBusy.value || busy.value)
+  const locked = computed(() => running.value || lifecycleBusy.value || busy.value || updateInstallationLocked.value)
 
   async function refreshRuntime() {
     const wasRunning = Boolean(runtime.value?.running)
@@ -78,7 +79,7 @@ export function useRuntimeManager() {
   }
 
   async function toggleRunning() {
-    if (busy.value || lifecycleBusy.value) return
+    if (busy.value || lifecycleBusy.value || updateInstallationLocked.value) return
     lifecycleBusy.value = true
     try {
       if (running.value) {

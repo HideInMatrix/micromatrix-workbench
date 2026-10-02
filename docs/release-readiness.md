@@ -142,6 +142,14 @@ Tauri 退出调用 shell plugin 的 `CommandChild.kill()`。本机锁定的 plug
 
 MCP 官方明确要求 Streamable HTTP 服务校验 Origin，并建议本地回环绑定和认证；控制 API 不是 MCP 协议端点，但它同样管理本机执行能力，不能只依赖监听地址。[官方 Transport 安全要求](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint)
 
+## 自动更新修复（2026-10-02）
+
+本地默认版本已从 0.5.0 同步到可达发布 tag，桌面版本改读 Tauri 原生值。已接入 updater/process 插件、最小权限、正式版自动检查、显式下载安装重启；更新停止 Runtime 后再安装，不自动启动执行。更新签名强制绑定版本，发布清单按系统及安装格式选择包，发布前验证签名/版本/校验和；独立服务不作为 Release 下载。
+
+已完成本地验证：76 个 Vitest 回归 + 56 个 Node 测试、5 个 Vue 真实组件测试、5 个 Rust 集成测试；类型检查 / Vite build / actionlint 通过。Rust release 与实际 macOS `.app` / `.app.tar.gz` 已在隔离目录生成，签名及签名版本校验通过，包内保留原图标、cloudflared、Node 服务和许可证。原生 updater 在临时应用目录完成签名下载与替换，篡改包和错版本均被拒绝；不等于 Windows / Linux 安装验收。
+
+本机签名私钥已生成但不提交。GitHub `TAURI_SIGNING_PRIVATE_KEY` Secret、首个 updater 正式 Release、四平台实际安装升级仍需发布验收；缺少 Secret 时 workflow 会在 verify 提前失败。旧版无 updater，需手动安装首个支持更新的版本。原有 macOS 公证、Windows Authenticode、安全边界缺口不因此消失。
+
 ## 发布前的其他验收缺口
 
 - Cloudflare Quick Tunnel 以 URL 日志作为 readiness；FRP 接受 login success；ngrok 正则能匹配一般 HTTPS 链接。均需用实际连接状态/可达性校验避免“有地址但未连通”。Tailscale 没有后台故障监测。

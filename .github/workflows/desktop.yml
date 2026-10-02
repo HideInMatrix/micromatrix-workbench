@@ -26,6 +26,15 @@ jobs:
           cache: npm
       - name: Prepare application version from tag
         run: node scripts/release-version.mjs
+      - name: Require updater signing secret before expensive native builds
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "Missing TAURI_SIGNING_PRIVATE_KEY repository Secret; signed updates cannot be released" >&2
+            exit 1
+          fi
       - run: npm ci
       - run: npm run check
       - name: Share the single frontend build with native jobs
@@ -110,6 +119,9 @@ jobs:
           cache-on-failure: true
       - name: Build Tauri application and native installers
         id: tauri-build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri -- build --ci --verbose --config src-tauri/tauri.prebuilt.conf.json --bundles ${{ matrix.bundles }} -- --locked --timings
       - name: Smoke-test the final signed macOS sidecar
         if: runner.os == 'macOS'
@@ -163,7 +175,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7, Node 24
         with:
           node-version: '22.23.3'
-      - name: Select desktop installers and combine checksums
+      - name: Verify signed update packages and prepare desktop release
         run: node scripts/prepare-release-assets.mjs
       - name: Upload desktop installers and publish the release
         env:

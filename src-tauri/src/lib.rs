@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use tauri::Manager;
 use tauri_plugin_shell::{process::{CommandChild, CommandEvent}, ShellExt};
@@ -11,7 +11,19 @@ struct ServiceState {
   error: Option<String>,
 }
 
-struct ServiceChild(Mutex<ServiceState>);
+struct ServiceChild(Arc<Mutex<ServiceState>>);
+
+// Windows updater exits directly after cleanup_before_exit, bypassing RunEvent.
+// Keep an app resource guard so its cleanup also releases the owned sidecar.
+struct ServiceCleanup(Arc<Mutex<ServiceState>>);
+impl tauri::Resource for ServiceCleanup {}
+impl Drop for ServiceCleanup {
+  fn drop(&mut self) {
+    if let Ok(mut service) = self.0.lock() {
+      if let Some(child) = service.child.take() { let _ = child.kill(); }
+    }
+  }
+}
 
 #[tauri::command]
 fn desktop_service_error(state: tauri::State<'_, ServiceChild>) -> Option<String> {
@@ -40,9 +52,13 @@ pub fn run() {
   let app = tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_shell::init())
+    .plugin(tauri_plugin_updater::Builder::new().build())
+    .plugin(tauri_plugin_process::init())
     .invoke_handler(tauri::generate_handler![desktop_service_error, show_permission_prompt, runtime_saved_secrets])
     .setup(|app| {
-      app.manage(ServiceChild(Mutex::new(ServiceState::default())));
+      let service = Arc::new(Mutex::new(ServiceState::default()));
+      app.manage(ServiceChild(service.clone()));
+      app.resources_table().add(ServiceCleanup(service));
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
