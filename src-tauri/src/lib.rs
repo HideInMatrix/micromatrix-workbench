@@ -4,6 +4,7 @@ use tauri::Manager;
 use tauri_plugin_shell::{process::{CommandChild, CommandEvent}, ShellExt};
 
 mod saved_secrets;
+mod updater_policy;
 
 #[derive(Default)]
 struct ServiceState {
@@ -49,6 +50,8 @@ fn runtime_saved_secrets(app: tauri::AppHandle) -> Result<saved_secrets::SavedSe
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+  let mut context = tauri::generate_context!();
+  updater_policy::configure(context.config_mut(), tauri::utils::platform::bundle_type());
   let app = tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_shell::init())
@@ -100,7 +103,7 @@ pub fn run() {
       }
       Ok(())
     })
-    .build(tauri::generate_context!())
+    .build(context)
     .expect("error while building Tauri application");
 
   app.run(|handle, event| {

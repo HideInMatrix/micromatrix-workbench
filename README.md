@@ -111,7 +111,7 @@ Shell 插件向 MCP 暴露的工具名是 `bash`。`safe` 和 `trusted` 模式�
 
 - 分支 push / PR：`CI` 自动准备应用版本、运行类型检查和 Web 构建。
 - 手动运行 `Desktop packages`：检查后构建 macOS arm64/x64、Windows x64、Linux x64 的实验性安装包，并执行各平台 SEA 冒烟；下载入口为该次运行的 **Artifacts**。
-- 推送 `v*` tag：执行同样的打包流程；全部平台成功后，只选择 6 个桌面安装包，验证各平台 SHA-256 并合并为 `SHA256SUMS.txt`，上传完成后自动公开为正式 **Release / Latest**（如 `v0.5.9`）。显式 `-rc` / `-beta` tag 保持 Pre-release，避免进入正式渠道。独立服务、构建 JSON 和单独通知文件不上传 Release。任意平台失败不会进入发布；上传失败保留草稿，不公开不完整的版本。无需手动点击 Publish；目前不包含应用内自动下载/安装更新。
+- 推送 `v*` tag：执行同样的打包流程；全部平台成功后，只选择 6 个桌面安装包，验证各平台 SHA-256 并合并为 `SHA256SUMS.txt`，上传完成后自动公开为正式 **Release / Latest**（如 `v0.5.9`）。显式 `-rc` / `-beta` tag 保持 Pre-release，避免进入正式渠道。独立服务、构建 JSON 和单独通知文件不上传 Release。任意平台失败不会进入发布；上传失败保留草稿，不公开不完整的版本。无需手动点击 Publish；签名更新包供桌面应用自动下载安装。
 
 提交当前实现、脚本和 `.github` 后推送分支，再推送一个未使用的 tag，例如：
 
@@ -135,9 +135,9 @@ git push origin v0.5.3
 
 ### 桌面自动更新与签名配置
 
-桌面启动后和每 6 小时自动检查 GitHub Latest 正式版；发现更新以 Sonner 提示，“关于”页面可查看版本、进度和错误，点击“下载更新并重启”完成应用内升级。下载与签名校验完成后才停止 Runtime / Tunnel，安装后重启；不会自动运行 Runtime。下载失败保留当前执行，停止失败不安装，安装或重启失败显示可重试状态。网页版本不会调用桌面 updater。
+正式桌面版启动后和每 6 小时自动检查 GitHub Latest 正式版；发现新版无需确认，自动下载、校验签名、安装并重启。“关于”页面展示版本、进度和失败信息，失败可手动重试，也会在后续定时检查时重试。下载与签名校验完成后才停止 Runtime / Tunnel，安装后重启；不会自动运行 Runtime。下载失败保留当前执行，停止失败不安装，安装或重启失败显示可重试状态。网页版本不会调用桌面 updater，开发壳不会自动更新为正式包。
 
-更新强制校验签名和签名绑定的版本，拒绝改包、错版本、错误公钥。正式环境只允许 HTTPS。Windows 按 NSIS / MSI、Linux 按 AppImage / DEB 匹配安装格式；DEB 更新可能要求系统授权。首次安装含 updater 的版本仍需手动安装一次，旧版没有 updater，不能凭发布新 Release 获得该能力。[Tauri 官方 updater](https://v2.tauri.app/plugin/updater/)。
+更新强制校验签名和签名绑定的版本，拒绝改包、错版本、错误公钥。正式环境只允许 HTTPS。Windows 按 NSIS / MSI、Linux 按 AppImage / DEB 匹配安装格式。默认 NSIS 为当前用户安装，updater 使用 `quiet` 模式，无安装向导升级；原生检测到 MSI 安装格式时采用 `passive` 无确认流程，以便系统请求所需管理员权限，避免 quiet 权限失败后应用直接退出。MSI 可能显示系统安装进度。Linux DEB 和无写权限的 macOS 安装目录可能需要系统授权，不能绕过；普通可写 macOS `.app` / Linux AppImage 可自动替换。自动重启前请及时保存正在编辑的配置。`v0.5.12` 起采用上述自动安装策略；`v0.5.11` 用户升级到 `v0.5.12` 时仍需点击一次“下载更新并重启”，之后的正式版无需确认。更早没有 updater 的版本需手动安装首个支持更新的版本，不能凭发布新 Release 获得该能力。[Tauri 官方 updater](https://v2.tauri.app/plugin/updater/)。
 
 本机已生成长期密钥，私钥位于 `.local/updater/micromatrix.key`，权限 `600`；整个 `.local/` 被 Git 忽略，只有公钥写入 Tauri 配置。**务必离线备份，不要重新生成替换，不要提交或粘贴私钥到聊天/日志。** 当前密钥没有额外口令，安全性依赖本机文件权限、离线备份和 GitHub Secret 保护。
 
@@ -150,7 +150,7 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY \
 
 如使用有口令的密钥，另配置 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。本地 `npm run tauri:build` 自动使用上述私钥路径，也可通过同名环境变量指定自己的密钥；新克隆需从安全备份恢复私钥或设置环境变量。`tauri:dev` 不需要私钥。
 
-Workflow 在 verify 阶段检查 Secret 是否存在，缺少则立即失败，不浪费四平台编译时间；原生 build 生成签名包，发布前再次验证各平台校验和、签名与版本，完整成功才自动公开正式 Release。正常 tag 成为 Latest，预发布 tag 不进入正式更新通道。当前私钥只在本机生成，**不代表 GitHub Secret 已配置**。
+Workflow 在 verify 阶段检查 Secret 是否存在，缺少则立即失败，不浪费四平台编译时间；原生 build 生成签名包，发布前再次验证各平台校验和、签名与版本，完整成功才自动公开正式 Release。正常 tag 成为 Latest，预发布 tag 不进入正式更新通道。GitHub 签名 Secret 已配置，`v0.5.11` 的四平台构建及正式 Release 已验证；新仓库仍须单独配置。
 
 ### 构建复用与 Rust 缓存
 

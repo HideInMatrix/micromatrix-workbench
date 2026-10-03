@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "micromatrix agent",
-  "version": "0.5.11",
+  "version": "0.5.12",
   "identifier": "org.micromatrix.pi-mcp",
   "build": {
     "frontendDist": "../apps/web/dist",
@@ -32,6 +32,11 @@
       "binaries/micromatrix-service",
       "binaries/cloudflared"
     ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
     "macOS": {
       "entitlements": "Entitlements.plist"
     },
@@ -57,7 +62,7 @@
         "https://github.com/HideInMatrix/micromatrix-workbench/releases/latest/download/latest.json"
       ],
       "windows": {
-        "installMode": "passive"
+        "installMode": "quiet"
       },
       "requireSignedVersion": true
     }

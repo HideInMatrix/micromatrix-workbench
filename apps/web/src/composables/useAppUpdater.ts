@@ -19,7 +19,7 @@ const progress = computed(() => state.total ? Math.min(100, Math.round(state.dow
 
 export function useAppUpdater() {
   return { state, native, busy, progress,
-    check: () => native ? controller.check() : Promise.resolve(),
+    check: () => native ? controller.check({ installAutomatically: !import.meta.env.DEV }) : Promise.resolve(),
     install: () => native ? controller.install() : Promise.resolve(),
     restart: () => native ? controller.restart() : Promise.resolve(),
   }
