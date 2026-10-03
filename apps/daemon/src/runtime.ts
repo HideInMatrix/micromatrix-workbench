@@ -268,6 +268,7 @@ export class RuntimeSupervisor implements RuntimeControl {
     const authorization = new LocalOAuthServer({
       password: config.oauthPassword,
       staticBearerToken: config.authToken,
+      clientStorePath: `${config.configFile}.oauth-clients.json`,
     });
     return new McpHttpService({
       host: config.host,

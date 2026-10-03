@@ -2,16 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import type { LocalOAuthOptions, McpAuthorization, McpPrincipal } from "./types.js";
-
-interface ClientRecord {
-  readonly client_id: string;
-  readonly client_id_issued_at: number;
-  readonly client_name?: string;
-  readonly redirect_uris: readonly string[];
-  readonly grant_types: readonly string[];
-  readonly response_types: readonly string[];
-  readonly token_endpoint_auth_method: "none";
-}
+import { loadClients, saveClients, validRedirectUri, type ClientRecord } from "./client-store.js";
 
 interface AuthorizationCode {
   readonly clientId: string;
@@ -93,16 +84,6 @@ async function readBody(request: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-function validRedirectUri(value: string): boolean {
-  try {
-    const url = new URL(value);
-    if (url.protocol === "https:") return true;
-    return url.protocol === "http:" && ["127.0.0.1", "localhost", "::1"].includes(url.hostname);
-  } catch {
-    return false;
-  }
-}
-
 function redirectWith(url: string, values: Readonly<Record<string, string | undefined>>): string {
   const destination = new URL(url);
   for (const [key, value] of Object.entries(values)) if (value !== undefined) destination.searchParams.set(key, value);
@@ -132,6 +113,9 @@ export class LocalOAuthServer implements McpAuthorization {
     this.#staticSessionId = options.staticBearerToken
       ? `static:${createHash("sha256").update(options.staticBearerToken).digest("hex").slice(0, 24)}`
       : "static:disabled";
+    if (options.clientStorePath) {
+      for (const client of loadClients(options.clientStorePath)) this.#clients.set(client.client_id, client);
+    }
   }
 
   get oauthEnabled(): boolean {
@@ -288,6 +272,14 @@ export class LocalOAuthServer implements McpAuthorization {
       response_types: ["code"],
       token_endpoint_auth_method: "none",
     };
+    if (this.#options.clientStorePath) {
+      try { saveClients(this.#options.clientStorePath, [...this.#clients.values(), record]); }
+      catch {
+        // Never hand a client an ID that will disappear on the next restart.
+        oauthError(response, 503, "temporarily_unavailable", "Client registration could not be saved; retry later");
+        return;
+      }
+    }
     this.#clients.set(clientId, record);
     writeJson(response, 201, record);
   }

@@ -46,7 +46,9 @@ npm run tauri:dev
 - `MICROMATRIX_OAUTH_PASSWORD`：供网页 MCP 客户端使用的 OAuth 2.0 + DCR + PKCE 流程。
 - `MICROMATRIX_AUTH_TOKEN`：兼容旧客户端的静态 Bearer Token。
 
-客户端连接地址为 `https://<public-host>/mcp`。OAuth client、authorization code 和 token 只保存在进程内存中，Runtime 重启后失效。
+客户端连接地址为 `https://<public-host>/mcp`。DCR 客户端注册信息保存在配置文件旁的 `<configFile>.oauth-clients.json`（Unix 权限 `0600`），Runtime 或软件重启后保留 client ID 和已登记的回调地址。授权码、access/refresh token 和工具审批仍只存在内存中，重启后必须重新授权，但不必重新注册客户端。注册文件不包含密码或 token，也不受“保存敏感信息”开关影响。
+
+旧版本重启已经丢失的 client ID 无法从授权 URL 安全恢复。遇到 `Unknown client or redirect URI` 时，需要在客户端删除旧连接并重新添加 `/mcp` 连接，完成一次新注册；持久化修复版本之后的重启不再需要重复添加。注册文件损坏或不可写时服务明确拒绝加载或注册，不静默覆盖，也不放宽回调地址校验。
 
 Runtime 启动后，浏览器访问公网域名根路径 `/` 会返回 JSON 服务信息：应用名称/版本、支持的 MCP 协议、`/mcp` 端点、认证方式和当前工具名称/数量。此信息无需认证，但不包含工作目录、配置或密钥，也不是本地管理页面；MCP 调用仍按配置认证和审批。端点使用相对路径，兼容 Cloudflare 随机域名与固定域名。
 

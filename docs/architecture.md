@@ -41,7 +41,9 @@ External、Cloudflare、ngrok、FRP 和 Tailscale Provider 只把本地 MCP orig
 
 ## Secrets and OAuth state
 
-DCR clients、authorization codes、access tokens 和 refresh tokens 只存在内存中。只有操作者明确开启本地敏感信息保存时，OAuth 密码和网络令牌才能写入 `0600` 配置文件。控制面更新密钥必须使用 `unchanged / set / clear` 三态协议，不能用空字符串同时表示“保留”和“删除”。Authorization Code 必须使用 PKCE S256。
+DCR 客户端的公开注册元数据持久化到 `<configFile>.oauth-clients.json`，与 Workspace 和 Runtime 生命周期分离；在返回注册成功前完成原子写入，Unix 文件权限为 `0600`。注册文件按版本、字段、大小、数量及重复 ID 校验，损坏时拒绝加载，写入失败返回 503，不发放重启后会丢失的 client ID。不得从未经注册的授权请求恢复或信任 client ID / redirect URI。
+
+Authorization codes、access tokens、refresh tokens 和工具会话审批仍只存在内存中，重启后失效；客户端使用原注册 ID 重新授权不会继承之前的工具审批。只有操作者明确开启本地敏感信息保存时，OAuth 密码和网络令牌才能写入 `0600` 配置文件；公开注册元数据不包含这些敏感信息。控制面更新密钥必须使用 `unchanged / set / clear` 三态协议，不能用空字符串同时表示“保留”和“删除”。Authorization Code 必须使用 PKCE S256，回调地址仍须与注册值精确匹配。
 
 ## Reproducible packaging
 

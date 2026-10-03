@@ -23,4 +23,6 @@ export interface LocalOAuthOptions {
   readonly staticBearerToken: string | undefined;
   readonly accessTokenTtlSeconds?: number;
   readonly refreshTokenTtlSeconds?: number;
+  /** Durable public DCR metadata only; authorization codes and tokens stay in memory. */
+  readonly clientStorePath?: string;
 }
