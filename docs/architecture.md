@@ -58,7 +58,7 @@ External、Cloudflare、ngrok、FRP 和 Tailscale Provider 只把本地 MCP orig
 
 对外 OAuth 只支持 URL-form client ID：专用 `CimdClientResolver` 获取公开元数据；没有动态注册 endpoint、opaque ID、注册 Map/落盘。CIMD 是客户端识别/发现机制，不替代用户密码、PKCE、resource 绑定或工具审批。采用精确字符串 ID/redirect 比较、公开客户端 `none` 认证；ChatGPT 的 plural auth-method 字段仅在显式包含 `none` 时协商，不假装验证 private_key_jwt，也不接受共享密钥或文档中的私钥。元数据变动不自动撤销已发 token；token/session 仍有原 TTL/停止失效语义。
 
-远端文档 GET 使用原 Host/SNI + 已验证公网 DNS 地址固定连接，不受代理环境变量影响；拒绝 private/loopback/reserved/IPv4-mapped/transition 地址及 HTTP 重定向。10 秒总期限、5 KiB、8 并发、60 次/分钟未命中发现与 100 项缓存边界；缓存遵循 HTTP 控制/Age，并上限 300 秒，不用 stale/error 结果。授权 UI 显示文档域名和回调（本机回调额外警告），不加载远端图标。响应 issuer 参数与 discovery issuer 一致；现有公网 issuer/forwarded-header 信任策略仍需独立收口，不能把 CIMD 当成这一边界的修复。
+元数据域名优先使用系统 DNS；仅 proxy fake-IP 回退固定 TLS-verified Cloudflare DoH（1.1.1.1），重新验证全部 A/AAAA 为公网再固定连接。普通内网/混入内网的响应不回退；TLS、拒绝重定向与总期限仍保留。DNS/HTTPS 可用性失败使用 temporarily_unavailable，不伪装为文档身份错误。远端文档 GET 使用原 Host/SNI + 已验证公网 DNS 地址固定连接，不受代理环境变量影响；拒绝 private/loopback/reserved/IPv4-mapped/transition 地址及 HTTP 重定向。10 秒总期限、5 KiB、8 并发、60 次/分钟未命中发现与 100 项缓存边界；缓存遵循 HTTP 控制/Age，并上限 300 秒，不用 stale/error 结果。授权 UI 显示文档域名和回调（本机回调额外警告），不加载远端图标。响应 issuer 参数与 discovery issuer 一致；现有公网 issuer/forwarded-header 信任策略仍需独立收口，不能把 CIMD 当成这一边界的修复。
 
 `plugins/mcp` 外部 OAuth 客户端也只用 CIMD：配置稳定公开 HTTPS `clientMetadataUrl` 与准确的固定 `oauthRedirectUri`，缺少时仅拒绝登录/启动该连接，不拒绝读取旧配置。SDK provider 始终给出该 URL 身份，因此 DCR 注册分支不可达；验证服务 discovery 的 CIMD/S256/none，缺少能力直接终止，绝不回退注册。回调仅绑定配置里的 127.0.0.1 高位端口及路径，核验 state、PKCE 和服务声明支持的 iss；被占用时不自动换端口。托管文档由操作者负责，不能借用别人的身份；临时 Tunnel 不等于稳定客户端身份。对自身客户端文档不额外自动 fetch，但外部授权服务器必须获取并校验它。
 

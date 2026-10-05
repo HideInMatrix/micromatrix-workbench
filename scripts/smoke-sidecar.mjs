@@ -1,4 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process'
+import { createHash, randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import net from 'node:net'
@@ -258,6 +259,36 @@ try {
     throw new Error('Packaged CIMD accepted a private metadata destination')
   }
   console.log('PASS: packaged OAuth is CIMD-only; unsafe metadata URLs are refused without a redirect')
+  // Opt-in external-network regression. Never visit the user-provided authorize
+  // URL, follow its redirect, or send locally generated tokens to ChatGPT.
+  if (process.argv.includes('--public-cimd')) {
+    const clientId = 'https://chatgpt.com/oauth/client.json'
+    const redirectUri = 'https://chatgpt.com/connector_platform_oauth_redirect'
+    const verifier = randomBytes(48).toString('base64url')
+    const query = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri,
+      response_type: 'code', code_challenge_method: 'S256', scope: 'mcp', resource: `${runtimeUrl}/mcp`,
+      state: 'packaged-public-cimd-smoke', code_challenge: createHash('sha256').update(verifier).digest('base64url') })
+    const consentUrl = `${runtimeUrl}/authorize?${query}`
+    const page = await fetch(consentUrl, { redirect: 'manual', signal: AbortSignal.timeout(15_000) })
+    if (page.status !== 200 || !(await page.text()).includes('name="password"')) throw new Error('Packaged public CIMD could not render consent')
+    const consent = await fetch(consentUrl, { method: 'POST', redirect: 'manual',
+      body: 'password=smoke-only-private-password', signal: AbortSignal.timeout(15_000) })
+    if (consent.status !== 302) throw new Error('Packaged public CIMD consent failed')
+    const callback = new URL(consent.headers.get('location'))
+    if (`${callback.origin}${callback.pathname}` !== redirectUri || callback.searchParams.get('state') !== query.get('state') ||
+        callback.searchParams.get('iss') !== runtimeUrl || !callback.searchParams.get('code')) throw new Error('Packaged public CIMD callback identity failed')
+    const token = await fetch(`${runtimeUrl}/token`, { method: 'POST', body: new URLSearchParams({
+      grant_type: 'authorization_code', client_id: clientId, redirect_uri: redirectUri,
+      code: callback.searchParams.get('code'), code_verifier: verifier,
+    }) })
+    const tokens = await token.json()
+    if (token.status !== 200 || !tokens.access_token || !tokens.refresh_token) throw new Error('Packaged public CIMD PKCE exchange failed')
+    const refresh = await fetch(`${runtimeUrl}/token`, { method: 'POST', body: new URLSearchParams({
+      grant_type: 'refresh_token', client_id: clientId, refresh_token: tokens.refresh_token,
+    }) })
+    if (refresh.status !== 200) throw new Error('Packaged public CIMD refresh failed')
+    console.log('PASS: SEA fetched real ChatGPT CIMD, rendered consent and completed local PKCE/refresh without visiting ChatGPT callback')
+  }
   const stopped = await command('stop_runtime')
   if (stopped.running !== false) throw new Error('Explicit runtime stop failed')
   const stoppedExtensions = await command('get_pi_extensions')

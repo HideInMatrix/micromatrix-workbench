@@ -2,7 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import type { LocalOAuthOptions, McpAuthorization, McpPrincipal } from "./types.js";
-import { CimdClientResolver } from "./cimd.js";
+import { CimdClientResolver, CimdDiscoveryError } from "./cimd.js";
 
 interface AuthorizationCode {
   readonly clientId: string;
@@ -250,9 +250,10 @@ export class LocalOAuthServer implements McpAuthorization {
     const state = params.get("state") ?? undefined;
     let client;
     try { client = await this.#cimd.resolve(clientId); }
-    catch {
+    catch (error) {
       // No opaque client IDs or registration fallback. No unverified redirect.
-      oauthError(response, 400, "invalid_client_metadata", "CIMD-only: client_id must be a verified public HTTPS metadata document URL supporting public-client auth");
+      if (error instanceof CimdDiscoveryError) oauthError(response, error.status, error.oauthError, error.message);
+      else oauthError(response, 400, "invalid_client_metadata", "CIMD client_id URL, fetched JSON document or public-client authentication is invalid");
       return;
     }
     if (!client.redirect_uris.includes(redirectUri)) {

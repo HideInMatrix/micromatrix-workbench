@@ -212,13 +212,22 @@ Daemon 的执行工具已改为官方 Pi 工厂实际注册的工具，不再仅
 
 验收：98 个服务/插件 Vitest、61 个 Node、15 个真实 Vue 组件测试及 Rust owned-service 清理测试通过；类型/Vite、服务 bundle 和 macOS arm64 SEA 通过。SEA 实际验证无系统 PATH 下的内置 cloudflared、官方 Pi 宿主与 Skill 编辑/支持文件发现、外部 stdio 真实握手/本地密钥注入/注册以及测试/停止后的进程退出。测试目录继续不跟踪；未替换用户安装，未提交或发布。本机尚不能证明 Windows/Linux/macOS Intel 安装包实机行为；各平台 CI 已接入同一 SEA 冒烟，需新标签打包后验收。旧 SSE、DCR-only/服务特有 OAuth、恶意进程 breakaway 和 OS 沙箱不是本阶段支持项。
 
-## CIMD-only 收口（2026-10-04，尚未发布）
+## CIMD-only 收口（2026-10-04，已纳入 v0.5.14 源码标签）
 
 - 对外 OAuth 移除 `/register`、registration_endpoint、动态 ID、注册存储和旧注册文件依赖；public server card 标记 `clientRegistration: cimd`。CIMD/PKCE、issuer 响应、SSRF/有界缓存仍保留。
 - 外部 OAuth 也移除注册 fallback，要求操作者托管自己稳定 HTTPS 文档、填写准确固定回环 callback。标准 SDK 仅做 discovery/CIMD 身份/PKCE/refresh；发现不支持 CIMD/S256/none 直接拒绝。旧配置可以加载并编辑，但不能继续动态注册登录；旧 OAuth token 不复用，已有本地密钥不清空。未配置或被占用的固定回调会明确报错。
 - 旧动态客户端连接是破坏性迁移：网页客户端须使用 CIMD 重建连接；只有 DCR 能力的客户端/外部服务不支持。没有替用户部署客户端文档，不能声称公网外部 OAuth 即开即用。
-- 本机 fake-IP DNS（`198.18.0.9` 及保留范围 AAAA）仍使真实 ChatGPT 文档 GET 被安全校验拒绝；不关闭防护，需真实公网 DNS 再测。Windows/Linux/macOS Intel 安装包实机仍待验收。
+- v0.5.14 的本机 fake-IP DNS 会使真实 ChatGPT 文档 GET 被安全校验拒绝；该问题现已在下述源码修复中验证。Windows/Linux/macOS Intel 安装包实机仍待验收。
 
-本轮验收：177 个服务/插件测试、61 个 Node 测试、15 个真实 Vue 组件测试通过，类型/Vite/服务 bundle 与 macOS arm64 SEA 冒烟通过。已覆盖服务端无注册入口、重启按 URL 重新授权、损坏旧注册文件不读不改、外部 SDK 不 POST 注册、CIMD discovery 不兼容拒绝、固定 callback/state/PKCE/refresh、旧 token 迁移与身份/回调隔离，以及新增 CIMD 表单保存不启动。issuer 校验已实现；公开 ChatGPT 联调仍未通过 fake-IP DNS 边界。未跳过原认证/审批测试；测试目录保持不跟踪，尚未提交或发布。
+本轮验收：177 个服务/插件测试、61 个 Node 测试、15 个真实 Vue 组件测试通过，类型/Vite/服务 bundle 与 macOS arm64 SEA 冒烟通过。已覆盖服务端无注册入口、重启按 URL 重新授权、损坏旧注册文件不读不改、外部 SDK 不 POST 注册、CIMD discovery 不兼容拒绝、固定 callback/state/PKCE/refresh、旧 token 迁移与身份/回调隔离，以及新增 CIMD 表单保存不启动。issuer 校验已实现；本阶段公开 ChatGPT 联调未通过 fake-IP DNS 边界，后续修复见下节。未跳过原认证/审批测试；测试目录保持不跟踪。
 
 依据：[MCP 2025-11-25 授权规范](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)、[CIMD IETF 草案 -02](https://www.ietf.org/archive/id/draft-ietf-oauth-client-id-metadata-document-02.html)、[OpenAI CIMD/认证方法协商说明](https://developers.openai.com/plugins/build/auth)。CIMD-only 是本项目的主动兼容性取舍，不能把 DCR 描述为已被标准废除。
+
+## CIMD fake-IP 修复（2026-10-05，v0.5.15 发布变更）
+
+- 真实复现：系统 DNS 把 `chatgpt.com` 解析为 `198.18.0.13` / `::ffff:0:c612:d`，不是 ChatGPT 文档不支持 CIMD。原授权页将 DNS、网络和文档问题全部折叠成 invalid_client_metadata，错误提示失真。
+- 仅对 fake-IP 回退固定 Cloudflare HTTPS DNS，所有恢复地址再次做公网校验，并保留原域名 Host/SNI、TLS 校验、不跟随重定向及 10 秒总期限；普通内网/保留地址不回退。回退只暴露元数据域名给该 DNS 服务，不传递文档路径、用户密码或 OAuth 状态。
+- DNS/HTTPS 暂时不可用使用 HTTP 503 temporarily_unavailable；无效文档、unsafe URL、非公网地址和回调匹配失败继续拒绝，不能退回 DCR 或静态信任客户端文档。
+- 在本机相同 fake-IP 环境使用真实 ChatGPT 公网文档验证：授权页 200、准确登记回调、密码授权 302、PKCE 换取 token 200、ChatGPT principal 及 refresh 200。仅使用临时本地测试服务器；未回跳到 ChatGPT，未更改用户已安装服务。真实桌面经公网 Tunnel 的 ChatGPT 接入仍需新包后验收。
+
+本轮验收：205 个服务/插件测试、61 个 Node 测试、15 个 Vue 组件测试通过（合计 281），类型/Vite/服务 bundle 与 macOS arm64 SEA 冒烟通过。`npm run smoke:sidecar -- --public-cimd` 显式开启真实外网文档回归，并已在打包后 SEA 中通过授权页、PKCE、刷新检查；默认 CI 冒烟不强制依赖外站可用性。测试目录继续不跟踪。修复纳入 v0.5.15；v0.5.14 安装包不包含此修复。安装包与正式 Release 由标签工作流在全部构建成功后自动发布，源码标签不代表已完成安装包发布。

@@ -60,7 +60,7 @@ npm run tauri:dev
 
 客户端连接地址为 `https://<public-host>/mcp`。授权服务器 metadata 声明 `client_id_metadata_document_supported: true`，客户端必须使用公开 HTTPS JSON 文档 URL 作为 client ID；`/register` 和 `registration_endpoint` 已移除。服务核验文档 `client_id` 与请求值完全相同、有效名称及精确回调地址；只协商 `none` 公共客户端认证，仍必须验证密码和 PKCE，不支持只提供 `private_key_jwt` 的客户端。授权页显示元数据域名与回调地址，并提示回环回调的身份风险；授权重定向成功/错误响应都带 `iss`，与 discovery 中的 issuer 一致。
 
-CIMD 文档只作有界内存缓存，不使用本地客户端注册文件；只允许标准 HTTPS 端口和非根文档路径，不接受 query、userinfo、fragment 或 dot path。不跟随重定向，不下载文档里的 logo/JWKS；DNS 所有地址必须是公网地址，连接使用已校验地址固定 DNS，保留 TLS/Host 校验。单次 DNS/HTTP 总期限 10 秒、JSON 最大 5 KiB、最多 8 个并行发现、每分钟最多 60 次未命中发现、缓存最多 100 项且不超过 5 分钟，尊重 no-store/no-cache/Age。发现失败不会回退到未验证或过期文档。如果代理 fake-IP DNS 返回 `198.18.x.x`、内网或保留地址，会拒绝；需要在代理/DNS 侧让客户端元数据域名解析为真实公网地址，不应关闭 SSRF 防护。
+CIMD 文档只作有界内存缓存，不使用本地客户端注册文件；只允许标准 HTTPS 端口和非根文档路径，不接受 query、userinfo、fragment 或 dot path。不跟随重定向，不下载文档里的 logo/JWKS；DNS 所有地址必须是公网地址，连接使用已校验地址固定 DNS，保留 TLS/Host 校验。单次 DNS/HTTP 总期限 10 秒、JSON 最大 5 KiB、最多 8 个并行发现、每分钟最多 60 次未命中发现、缓存最多 100 项且不超过 5 分钟，尊重 no-store/no-cache/Age。发现失败不会回退到未验证或过期文档。普通内网/保留地址和混入内网的结果仍拒绝。仅遇到代理 fake-IP（`198.18.0.0/15` 及对应 mapped/translated AAAA），会向固定 `cloudflare-dns.com`（连接固定 `1.1.1.1:443`，验证 DNS 服务 TLS）查询该公开元数据域名的 A/AAAA；不发送文档路径、密码、授权码或令牌。DNS 响应也须全部是公网地址，再固定该地址连接原元数据域名并验证其 TLS；从不连接 fake-IP 本身，也不跟随 DoH 重定向。此回退会将元数据域名交给 Cloudflare DNS，不能代替全局代理配置。DoH 失败、DNS/HTTPS 不可用或超时返回 `temporarily_unavailable` 与具体排查提示，不再一律误报 `invalid_client_metadata`；文档/URL/回调不合规则仍拒绝。
 
 旧 DCR 的随机 client ID 不再接受，客户端需更新为 CIMD 或删除旧连接后重建；仅支持 DCR 的客户端无法连接。旧 `<configFile>.oauth-clients.json` 不再读取/写入，损坏的旧文件不影响启动；不自动删除用户磁盘上的旧数据，可自行清理。授权码、access/refresh token 和工具审批仍只存在内存，重启后按文档 URL 重新授权，不继承旧工具审批。密码、Bearer Token、Tunnel 配置与“手动启动”语义不变。
 
