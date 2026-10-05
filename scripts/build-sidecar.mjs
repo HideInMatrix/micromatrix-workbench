@@ -4,10 +4,12 @@ import path from 'node:path'
 import { nativeBuildTarget } from './build-platform.mjs'
 import { prepareDesktopResources } from './prepare-desktop-resources.mjs'
 import { prepareCloudflared } from './prepare-cloudflared.mjs'
+import { prepareComputerUse } from './prepare-computer-use.mjs'
 
 const root = process.cwd()
 const triple = nativeBuildTarget()
 await prepareCloudflared(root)
+prepareComputerUse(root)
 const serviceArgs = ['scripts/build-service.mjs']
 if (process.argv.includes('--prebuilt-web')) serviceArgs.push('--prebuilt-web')
 execFileSync(process.execPath, serviceArgs, { cwd: root, stdio: 'inherit' })

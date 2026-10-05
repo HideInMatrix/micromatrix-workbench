@@ -89,6 +89,7 @@ export const desktopApi = {
   ) => call<boolean>('respond_permission_request', requestId, decision),
   capabilityCatalog: () => call<CapabilityCatalogDto>('get_workbench_capability_catalog'),
   piExtensions: () => call<PiExtensionsDto>('get_pi_extensions'),
+  computerUseMcpTemplate: () => call<PiMcpConnectionDto>('get_computer_use_mcp_template'),
   configurePiExtensions: (configuration: PiExtensionConfigurationDto) => call<boolean>('configure_pi_extensions', configuration),
   createPiSkill: (id: string, description: string, instructions: string) => call<boolean>('create_pi_skill', id, description, instructions),
   testPiMcp: (connection: PiMcpConnectionDto) => call<{ tools: string[] }>('test_pi_mcp', connection),

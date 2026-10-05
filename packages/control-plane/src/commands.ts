@@ -180,6 +180,9 @@ export class DesktopCommandRouter {
       case "get_pi_extensions":
         return { configuration: runtime.extensions ?? EMPTY_EXTENSIONS, running: runtime.running,
           host_active: runtime.extensionHostActive ?? false, loaded_skills: runtime.skills ?? [], mcp_status: runtime.mcpStatus ?? {} };
+      case "get_computer_use_mcp_template":
+        if (!this.#options.runtime.computerUseConnection) throw new Error("Computer Use MCP template unavailable");
+        return this.#options.runtime.computerUseConnection();
       case "configure_pi_extensions":
         if (!this.#options.runtime.configureExtensions) throw new Error("Pi extension management unavailable");
         await this.#options.runtime.configureExtensions(parseExtensions(request.args[0]));

@@ -32,6 +32,10 @@ MCP transport、Tunnel Provider 和 UI 不得实现文件、Shell 等业务工�
 
 当前边界：只加载产品内置工厂，不自动执行用户提供的任意 TypeScript；技能来源可通过 UI 导入标准资源。外部 MCP 支持本地密钥变量、CIMD-only/PKCE OAuth、远端目录通知及显式刷新；旧 SSE 和服务特有 OAuth / 预注册客户端表单不在当前接入范围。OAuth 只在明确登录时打开浏览器；回调 state/verifier 不落盘，外部凭证与本服务向网页客户端颁发的 OAuth token 不得混用。扩展并非操作系统沙箱，尤其 stdio 服务自身运行所拥有的操作系统权限；配置添加和点击测试是用户对启动该程序的明确操作，不代表后续外部工具自动获得权限。
 
+### Computer Use 的能力边界
+
+ASIL 风格服务是同一可执行文件的独立 stdio MCP 模式，通过现有 Pi MCP 扩展注册，不构造 Runtime/Tunnel 或本地模型。UI 预填配置不启动进程；读操作也不自动请求系统授权。适配器拥有结构化状态、语义动作、revision 校验和动作后验证，禁止任意 eval/坐标点击回退。统一 DesktopProxy 组合惰性 NativeDesktopChannel，由 OS descriptor 选择 macOS Swift/Accessibility 或 Windows C#/UI Automation helper；状态、动作校验、审批、过期/revision、回读及生命周期共用，不按系统复制执行引擎。JSON 适配遵循 Workspace 边界。Linux 客户端构建和更新目标暂停，纯 TS CI 的 Linux runner 不属于产品客户端。状态是模型的不可信输入，工具审批与 OS 授权独立；动作默认禁用，打开后仍遵循外部 MCP 审批策略。具体合同及限制见 [Computer Use](computer-use.md)。
+
 ## Approval before execution
 
 MCP adapter 必须先调用 approval policy，再调用 `AgentTool.execute`。审批只允许本次调用或当前认证客户端会话；会话授权键必须包含 OAuth authorization grant session，不能只按 permission 全局缓存。refresh token 轮换保持原 session，Runtime 停止时清空全部授权。传给 UI 的敏感参数必须递归脱敏。

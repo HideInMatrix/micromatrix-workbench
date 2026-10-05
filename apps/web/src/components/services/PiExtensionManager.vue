@@ -69,6 +69,19 @@ function editConnection(connection?: PiMcpConnectionDto) {
   headersText.value = JSON.stringify(mcp.value.headers, null, 2)
   form.value = 'mcp'
 }
+async function computerUse() {
+  await action(async () => {
+    const existing = state.value!.configuration.mcp.find(item => item.id === 'computer_use')
+    editConnection(existing ?? await desktopApi.computerUseMcpTemplate())
+    if (!existing) editingId.value = ''
+  })
+}
+function allowComputerActions(enabled: boolean) {
+  try {
+    const args = JSON.parse(argsText.value) as string[]
+    argsText.value = JSON.stringify([...args.filter(arg => arg !== '--allow-actions'), ...(enabled ? ['--allow-actions'] : [])], null, 2)
+  } catch { toast.error('请先修正参数 JSON 数组。') }
+}
 function connectionDraft(): PiMcpConnectionDto {
   const stdio = mcp.value.transport === 'stdio'
   return { ...mcp.value, args: stdio ? JSON.parse(argsText.value) : [], envRefs: stdio ? JSON.parse(envText.value) : {}, headers: stdio ? {} : JSON.parse(headersText.value) }
@@ -135,6 +148,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     <div class="flex items-center justify-between gap-3">
       <h2 class="m-0 text-sm font-medium">Pi 扩展 · MCP 与 Skills</h2>
       <div class="flex gap-2">
+        <Button size="sm" variant="outline" :disabled="busy || !state || state.running" @click="computerUse">Computer Use</Button>
         <Button size="sm" variant="outline" :disabled="busy || !state || state.running" @click="editConnection()">添加 MCP</Button>
         <Button size="sm" variant="outline" :disabled="busy || !state || state.running" @click="form = 'skill'">添加 Skill</Button>
       </div>
@@ -150,6 +164,11 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
           </div>
           <label class="block text-xs">传输<select v-model="mcp.transport" :class="fieldClass"><option value="stdio">stdio · 本地子进程</option><option value="http">Streamable HTTP</option></select></label>
           <template v-if="mcp.transport === 'stdio'">
+            <div v-if="mcp.id === 'computer_use'" class="rounded-lg border border-border p-3 space-y-2">
+              <p class="text-[10px] leading-4 text-muted-foreground">ASIL 风格：先读取结构化状态，再执行语义动作并回读。同一代理按系统选择 macOS Accessibility 或 Windows UI Automation；Linux 客户端暂不支持。不是完整复刻论文 15 个应用。</p>
+              <label class="flex items-center gap-2 text-xs"><input type="checkbox" :checked="argsText.includes('--allow-actions')" @change="allowComputerActions(($event.target as HTMLInputElement).checked)" />允许电脑控制动作（默认只读）</label>
+              <p class="text-[10px] leading-4 text-muted-foreground">保存不会启动服务；启动 Runtime 后接入 Pi。动作仍走现有权限模式审批；“危险模式”或会话批准会放行。macOS 辅助功能权限由你确认，request=true 才请求；Windows 不自动提权，不控制 UAC 或锁屏桌面。按钮操作可能发送、删除或提交，请审阅具体动作。</p>
+            </div>
             <label class="block text-xs">可执行程序<input v-model="mcp.command" :class="fieldClass" placeholder="npx 或绝对路径（不是 shell 命令）" /></label>
             <label class="block text-xs">参数 JSON 数组<textarea v-model="argsText" :class="[fieldClass, 'h-20 py-2 font-mono']" placeholder='["-y", "your-mcp-package"]' /></label>
             <label class="block text-xs">环境变量引用 JSON<textarea v-model="envText" :class="[fieldClass, 'h-20 py-2 font-mono']" placeholder='{"API_KEY":"MY_API_KEY"}' /></label>

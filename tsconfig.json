@@ -1,6 +1,7 @@
 {
   "files": [],
   "references": [
+    { "path": "packages/computer-use" },
     { "path": "packages/plugin-kit" },
     { "path": "packages/pi-body" },
     { "path": "packages/approval" },

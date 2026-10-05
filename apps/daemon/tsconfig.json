@@ -7,6 +7,7 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "references": [
+    { "path": "../../packages/computer-use" },
     { "path": "../../packages/approval" },
     { "path": "../../packages/plugin-kit" },
     { "path": "../../packages/control-plane" },

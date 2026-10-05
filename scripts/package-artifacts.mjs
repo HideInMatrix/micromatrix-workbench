@@ -9,7 +9,6 @@ import { releaseVersion } from './release-version.mjs'
 const installerFormats = {
   darwin: [['dmg', '.dmg']],
   win32: [['nsis', '.exe'], ['msi', '.msi']],
-  linux: [['deb', '.deb'], ['appimage', '.AppImage']],
 }
 
 export function collectInstallers(bundleRoot, platform) {
@@ -32,7 +31,7 @@ export function sha256File(file) {
 export function packageArtifacts(root = process.cwd(), env = process.env) {
   const target = nativeBuildTarget(process.platform, process.arch, env.MICROMATRIX_BUILD_TARGET)
   const version = releaseVersion(root, env)
-  const profile = `${{ darwin: 'macos', win32: 'windows', linux: 'linux' }[process.platform]}-${process.arch}`
+  const profile = `${{ darwin: 'macos', win32: 'windows' }[process.platform]}-${process.arch}`
   const extension = process.platform === 'win32' ? '.exe' : ''
   const service = path.join(root, 'src-tauri/binaries', `micromatrix-service-${target}${extension}`)
   if (!existsSync(service)) throw new Error(`Build the sidecar before packaging: ${service}`)
@@ -59,6 +58,11 @@ export function packageArtifacts(root = process.cwd(), env = process.env) {
   // saved OAuth credentials, user workspaces or other repository state.
   copyFileSync(service, path.join(serviceDirectory, `micromatrix-service${extension}`))
   copyFileSync(cloudflared, path.join(serviceDirectory, `cloudflared${extension}`))
+  if (process.platform === 'darwin' || process.platform === 'win32') {
+    const computer = path.join(root, 'src-tauri/binaries', `micromatrix-computer-${target}${extension}`)
+    if (!existsSync(computer)) throw new Error('Missing bundled Computer Use native helper')
+    copyFileSync(computer, path.join(serviceDirectory, `micromatrix-computer${extension}`))
+  }
   copyFileSync(nodeLicense, path.join(serviceDirectory, 'NODE_LICENSE'))
   for (const [source, destination] of [
     ['README.md', 'README.md'], ['.env.example', '.env.example'],

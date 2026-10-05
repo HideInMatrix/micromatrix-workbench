@@ -1,0 +1,44 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { isSea } from "node:sea";
+import { fail } from "./protocol.js";
+
+export interface DesktopPlatform {
+  readonly os: "darwin" | "win32";
+  readonly name: "macos" | "windows";
+  readonly source: string;
+  readonly operations: readonly string[];
+  readonly limitation: string;
+}
+
+// Only native access differs. State, action validation, approvals and lifecycle
+// remain in one DesktopProxy / ComputerUseRuntime path, not two agents.
+const platforms: Record<string, DesktopPlatform> = {
+  darwin: { os: "darwin", name: "macos", source: "macos_accessibility",
+    operations: ["press", "show_menu", "raise"],
+    limitation: "Requires user-granted Accessibility. Secure fields are refused; AX is not full internal software state." },
+  win32: { os: "win32", name: "windows", source: "windows_uiautomation",
+    operations: ["press", "toggle", "select", "expand", "collapse"],
+    limitation: "Requires an unlocked interactive desktop and accessible UI Automation providers. No elevation, UIAccess, secure desktop or password controls." },
+};
+
+export function desktopPlatform(os = process.platform): DesktopPlatform {
+  return platforms[os] ?? fail("UNSUPPORTED_PLATFORM", "Desktop clients support macOS and Windows only; Linux support is suspended");
+}
+
+export function nativeHelperPath(platform = desktopPlatform(), arch = process.arch): string {
+  const ext = platform.os === "win32" ? ".exe" : "";
+  if (isSea()) {
+    const name = path.basename(process.execPath);
+    const base = ext && name.endsWith(ext) ? name.slice(0, -ext.length) : name;
+    const suffix = base.slice("micromatrix-service".length);
+    return path.join(path.dirname(process.execPath), `micromatrix-computer${suffix.startsWith("-") ? suffix : ""}${ext}`);
+  }
+  const triple = platform.os === "darwin"
+    ? ({ arm64: "aarch64-apple-darwin", x64: "x86_64-apple-darwin" } as Record<string,string>)[arch]
+    : ({ x64: "x86_64-pc-windows-msvc" } as Record<string,string>)[arch];
+  if (!triple) fail("UNSUPPORTED_PLATFORM", `Computer Use native helper does not support ${platform.os}/${arch}`);
+  const binary = `micromatrix-computer-${triple}${ext}`;
+  if (process.argv[1]?.endsWith("micromatrix-service.cjs")) return path.resolve(path.dirname(process.argv[1]), `../src-tauri/binaries/${binary}`);
+  return fileURLToPath(new URL(`../../../src-tauri/binaries/${binary}`, import.meta.url));
+}

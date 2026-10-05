@@ -16,6 +16,7 @@
     "@micromatrix/web-assets": "0.1.0",
     "@micromatrix/plugin-mcp": "0.1.0",
     "@micromatrix/plugin-skills": "0.1.0",
-    "@micromatrix/pi-body": "0.1.0"
+    "@micromatrix/pi-body": "0.1.0",
+    "@micromatrix/computer-use": "0.1.0"
   }
 }

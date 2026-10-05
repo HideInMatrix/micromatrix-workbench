@@ -231,3 +231,23 @@ Daemon 的执行工具已改为官方 Pi 工厂实际注册的工具，不再仅
 - 在本机相同 fake-IP 环境使用真实 ChatGPT 公网文档验证：授权页 200、准确登记回调、密码授权 302、PKCE 换取 token 200、ChatGPT principal 及 refresh 200。仅使用临时本地测试服务器；未回跳到 ChatGPT，未更改用户已安装服务。真实桌面经公网 Tunnel 的 ChatGPT 接入仍需新包后验收。
 
 本轮验收：205 个服务/插件测试、61 个 Node 测试、15 个 Vue 组件测试通过（合计 281），类型/Vite/服务 bundle 与 macOS arm64 SEA 冒烟通过。`npm run smoke:sidecar -- --public-cimd` 显式开启真实外网文档回归，并已在打包后 SEA 中通过授权页、PKCE、刷新检查；默认 CI 冒烟不强制依赖外站可用性。测试目录继续不跟踪。修复纳入 v0.5.15；v0.5.14 安装包不包含此修复。安装包与正式 Release 由标签工作流在全部构建成功后自动发布，源码标签不代表已完成安装包发布。
+
+## Computer Use / ASIL 风格首版（2026-10-05，未发布）
+
+- 独立 TS stdio MCP 模式，不构造控制面、Runtime/Tunnel 或第二个模型。macOS 固定 Swift Accessibility helper；跨平台 JSON 文件适配。共享 observe / validate / execute / post-state 协议，有效观察 ID、revision、一次性动作与独立目标验证。
+- 插件页 Computer Use 只预填配置，默认只读，明确勾选才允许动作；通过现有 Pi MCP ExtensionFactory 注册，仍走同一审批入口。保存不启动，停止清理子进程；不请求系统权限，不绕过 OS 授权。Windows / Linux 原生桌面控制不在首版范围。
+- macOS helper 已在构建阶段准备，平台 Tauri 配置加入 externalBin；本机最终 `.app` 实际包含 helper，签名检查与包内 SEA 冒烟通过。另已修正 Swift 默认继承构建机 macOS 27 的兼容性问题，Mach-O 最低版本核验为 11.0，平台配置同步为 11.0（未进行旧系统实机验收）。原图标、应用名、手动启动和更新签名设置保留；安装/发布行为未触发。
+- 真实 SDK stdio 临时 JSON 语义修改与随机 marker 保留、回读验证、旧观察拒绝通过；真实 Pi HTTP 投影通过，一次批准才执行，拒绝时文件不变。包内 helper 权限检查和应用发现可用，未授权观察返回真实权限错误，不是模拟桌面执行成功。
+
+本轮结果：231 个服务/插件测试、61 个 Node 测试、17 个 Vue 组件测试通过（合计 309）；类型/Vite/SEA 和最终 macOS arm64 `.app` 的包内冒烟、codesign deep/strict 校验通过。首次直接调用 Tauri 缺少 updater 私钥，补齐后本地默认未重签 Apple bundle 的 strict 校验仍失败；最终使用 CI 相同的 APPLE_SIGNING_IDENTITY=- 与项目既有 updater 密钥路径重建，签名校验及包内冒烟均通过，未生成或更换密钥。本机未授予 Accessibility，**真实 GUI 输入/按钮操作尚待用户授权后验收**；未证明 Windows/Linux/macOS Intel 的安装或原生控制。全部 tests 继续忽略，CI 用受跟踪的 SEA 冒烟覆盖基本链路。
+
+未提交、推送、打 tag、替换用户安装或修改其 Runtime 配置。已有 v0.5.15 Release 不含此能力。使用与限制见 [Computer Use](computer-use.md)。
+
+### 双平台系统代理与 Linux 暂停（2026-10-05，v0.5.16 发布变更）
+
+- 取消直接绑定 MacDesktopAdapter，统一为 DesktopProxy + 惰性 NativeDesktopChannel。MCP/schema、审批、观察 TTL/revision、动作串行化、回读验证、关闭清理共用，OS descriptor 只选择原生 ABI 与允许的操作。
+- macOS 保留 Accessibility/Swift；Windows 新增 .NET Framework 4.8 UI Automation/C# helper，支持 Value/RangeValue、Invoke、Toggle、SelectionItem、ExpandCollapse 及已观察应用的激活。显式 asInvoker/uiAccess=false manifest，不自动提权、不注入键鼠，不控制 UAC/锁屏/密码字段。原生错误保留 Win32/HRESULT 码。
+- 两个平台分别编译并打包对应 helper，Windows .exe 路径/SEA 后缀正确分离；构建不下载 Python/PowerShell 解释器或在运行时编译模型代码。
+- 暂停 Linux 客户端：移除桌面 matrix、安装包/更新条目、原生 build target 与 cloudflared 固定资产；Rust client/桌面工厂拒绝不支持系统。Linux runner 只保留 TS/Web 检查和 Release 附件整理。新 Release 为 4 个安装包、2 个 macOS 更新归档、latest.json 与 SHA256SUMS.txt，不删历史发布或用户文件。
+
+本轮验证：236 个服务/插件、61 个 Node、17 个 Vue 回归通过（合计 314）。初次完整回归出现一次既有 Cloudflare 退出测试 5 秒超时，重跑全部通过；没有更改该超时或跳过测试。统一代理两个 OS 的契约测试是 backend doubles，不冒充实机 GUI。Windows 源码使用 Microsoft Roslyn 4.11、C#5 模式及 .NET Framework 4.8 引用实际交叉编译为 x64 PE，包含明确的无提权 manifest；临时编译工具仅在 /tmp，不加入产品或 Git。**未在 Windows 上运行 UIA，尚需 Windows CI 原生构建及实机交互验收**。macOS arm64 实际 SEA、最终 .app 内代理/helper 执行与 deep/strict 签名检查通过；辅助功能仍未授权，真实 GUI 动作未验收。测试目录继续忽略。本阶段源码随 v0.5.16 标签发布；安装包与正式 Release 必须等待标签工作流全部构建成功，不能用源码标签或本地验收代替安装包验收。

@@ -59,6 +59,7 @@ export interface RuntimeTool {
 }
 
 export interface RuntimeControl {
+  computerUseConnection?(): McpConnectionConfig;
   snapshot(): RuntimeSnapshot;
   start(): Promise<void>;
   stop(): Promise<void>;

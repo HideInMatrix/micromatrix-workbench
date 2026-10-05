@@ -20,6 +20,10 @@ Web AI → OAuth MCP → approval policy → Pi BodyPlugin → local workspace
 
 配置保存在 Runtime 配置的 `extensions` 中；创建的 Skill 文件位于配置目录下的 `skills/<id>/SKILL.md`。Skills 的支持文件保持原样，只提供按 Skill ID + 相对路径的读取；执行支持脚本仍要调用受审批的工具，并受对应工具的路径边界约束。MCP 密钥和外部 OAuth token 单独保存在 `<configFile>.mcp-credentials.json`（Unix `0600`，最大 2 MB），绑定服务 ID 和目标 URL/程序参数；修改目标不会复用旧凭证。遵循 Runtime 的“在本机保存秘密”开关，关闭后删除落盘副本，但本次服务会话可继续使用内存凭证。这不是加密 keychain，也不通过 HTTP/MCP 导出明文。
 
+## Computer Use MCP
+
+插件页新增 **Computer Use** 预填入口，以独立 stdio MCP 通过现有 Pi 扩展注册：先读结构化状态，再执行语义动作并回读验证。统一 DesktopProxy 自动选择 macOS Accessibility 或 Windows UI Automation，Workspace JSON 保持共用逻辑。Linux 客户端暂时停止支持。默认只读，保存不启动，动作及 OS 授权都需明确操作，不是完整复刻论文的 15 个应用。[接入、工具合同、权限与验收边界](docs/computer-use.md)。
+
 ## 开发运行
 
 要求：Node.js `>=22.19`。运行 Tauri 还需要 Rust `>=1.90`。
@@ -126,7 +130,7 @@ npm run tauri:build    # Tauri 2 应用与安装包
 - `src-tauri/binaries/micromatrix-service-<target-triple>`
 - `src-tauri/target/release/bundle/`
 
-GitHub macOS 打包先由 Tauri 构建/签名 `.app`，再运行 `node scripts/package-macos-dmg.mjs` 单独生成压缩、只读 DMG；不依赖 Finder/AppleScript 或可写镜像的挂载/缩容。原图标、签名和两项 sidecar 随 `.app` 原样复制，带 `/Applications` 拖拽安装链接。仅对磁盘镜像的明确临时忙碌错误最多尝试三次，不重编译 Rust/Vite；校验失败阻止发布。详细日志位于 `src-tauri/target/packaging-logs/create-dmg.log`，Actions 无论成功/失败均尝试上传 `packaging-logs-macos-*` 诊断附件。此路径适用于目前的实验性 ad-hoc 包，不代表已完成生产签名/公证；本地 `tauri:build` 仍走 Tauri 默认完整打包。
+GitHub macOS 打包先由 Tauri 构建/签名 `.app`，再运行 `node scripts/package-macos-dmg.mjs` 单独生成压缩、只读 DMG；不依赖 Finder/AppleScript 或可写镜像的挂载/缩容。原图标、签名及各平台 sidecar 随 `.app` 原样复制，带 `/Applications` 拖拽安装链接。仅对磁盘镜像的明确临时忙碌错误最多尝试三次，不重编译 Rust/Vite；校验失败阻止发布。详细日志位于 `src-tauri/target/packaging-logs/create-dmg.log`，Actions 无论成功/失败均尝试上传 `packaging-logs-macos-*` 诊断附件。此路径适用于目前的实验性 ad-hoc 包，不代表已完成生产签名/公证；本地 `tauri:build` 仍走 Tauri 默认完整打包。
 
 UI 配置默认写入 `~/.micromatrix-pi-mcp/runtime.json`。关闭“保存敏感信息”后，OAuth 密码和网络令牌不写入磁盘。密钥输入在保存、启停和页面切换后保留在界面内，默认以密码掩码显示，眼睛按钮可查看。Tauri 重启后通过原生桥回填已保存的密钥，不新增返回密钥的 HTTP/MCP 接口；关闭保存后仅保留在当前界面会话，退出后需重新输入。浏览器版不从服务回读明文；已有值仍由服务保留。只有点击清除按钮并保存才删除已有密钥。
 
@@ -142,9 +146,11 @@ Shell 插件向 MCP 暴露的工具名是 `bash`。`safe` 和 `trusted` 模式�
 
 ## GitHub Actions 打包
 
+当前仅发布 macOS arm64/x64 与 Windows x64。Linux 客户端构建、安装包和 updater 目标已暂停；Linux runner 仍用于纯 TS/Web 校验与 Release 附件整理，不代表发布 Linux 客户端。不删除旧 GitHub Release，已安装 Linux 版本不会获得本次新版本的 Linux 更新包。
+
 - 分支 push / PR：`CI` 自动准备应用版本、运行类型检查和 Web 构建。
-- 手动运行 `Desktop packages`：检查后构建 macOS arm64/x64、Windows x64、Linux x64 的实验性安装包，并执行各平台 SEA 冒烟；下载入口为该次运行的 **Artifacts**。
-- 推送 `v*` tag：执行同样的打包流程；全部平台成功后，只选择 6 个桌面安装包，验证各平台 SHA-256 并合并为 `SHA256SUMS.txt`，上传完成后自动公开为正式 **Release / Latest**（如 `v0.5.9`）。显式 `-rc` / `-beta` tag 保持 Pre-release，避免进入正式渠道。独立服务、构建 JSON 和单独通知文件不上传 Release。任意平台失败不会进入发布；上传失败保留草稿，不公开不完整的版本。无需手动点击 Publish；签名更新包供桌面应用自动下载安装。
+- 手动运行 `Desktop packages`：检查后构建 macOS arm64/x64、Windows x64 的实验性安装包，并执行各平台 SEA 冒烟；下载入口为该次运行的 **Artifacts**。
+- 推送 `v*` tag：执行同样的打包流程；全部平台成功后，只选择 4 个桌面安装包，验证各平台 SHA-256 并合并为 `SHA256SUMS.txt`，上传完成后自动公开为正式 **Release / Latest**（如 `v0.5.9`）。显式 `-rc` / `-beta` tag 保持 Pre-release，避免进入正式渠道。独立服务、构建 JSON 和单独通知文件不上传 Release。任意平台失败不会进入发布；上传失败保留草稿，不公开不完整的版本。无需手动点击 Publish；签名更新包供桌面应用自动下载安装。
 
 提交当前实现、脚本和 `.github` 后推送分支，再推送一个未使用的 tag，例如：
 
@@ -170,7 +176,7 @@ git push origin v0.5.3
 
 正式桌面版启动后和每 6 小时自动检查 GitHub Latest 正式版；发现新版无需确认，自动下载、校验签名、安装并重启。“关于”页面展示版本、进度和失败信息，失败可手动重试，也会在后续定时检查时重试。下载与签名校验完成后才停止 Runtime / Tunnel，安装后重启；不会自动运行 Runtime。下载失败保留当前执行，停止失败不安装，安装或重启失败显示可重试状态。网页版本不会调用桌面 updater，开发壳不会自动更新为正式包。
 
-更新强制校验签名和签名绑定的版本，拒绝改包、错版本、错误公钥。正式环境只允许 HTTPS。Windows 按 NSIS / MSI、Linux 按 AppImage / DEB 匹配安装格式。默认 NSIS 为当前用户安装，updater 使用 `quiet` 模式，无安装向导升级；原生检测到 MSI 安装格式时采用 `passive` 无确认流程，以便系统请求所需管理员权限，避免 quiet 权限失败后应用直接退出。MSI 可能显示系统安装进度。Linux DEB 和无写权限的 macOS 安装目录可能需要系统授权，不能绕过；普通可写 macOS `.app` / Linux AppImage 可自动替换。自动重启前请及时保存正在编辑的配置。`v0.5.12` 起采用上述自动安装策略；`v0.5.11` 用户升级到 `v0.5.12` 时仍需点击一次“下载更新并重启”，之后的正式版无需确认。更早没有 updater 的版本需手动安装首个支持更新的版本，不能凭发布新 Release 获得该能力。[Tauri 官方 updater](https://v2.tauri.app/plugin/updater/)。
+更新强制校验签名和签名绑定的版本，拒绝改包、错版本、错误公钥。正式环境只允许 HTTPS。Windows 按 NSIS / MSI 匹配安装格式；本次不再生成 Linux 更新目标。默认 NSIS 为当前用户安装，updater 使用 `quiet` 模式，无安装向导升级；原生检测到 MSI 安装格式时采用 `passive` 无确认流程，以便系统请求所需管理员权限，避免 quiet 权限失败后应用直接退出。MSI 可能显示系统安装进度。无写权限的 macOS 安装目录可能需要系统授权，不能绕过；普通可写 macOS `.app` 可自动替换。自动重启前请及时保存正在编辑的配置。`v0.5.12` 起采用上述自动安装策略；`v0.5.11` 用户升级到 `v0.5.12` 时仍需点击一次“下载更新并重启”，之后的正式版无需确认。更早没有 updater 的版本需手动安装首个支持更新的版本，不能凭发布新 Release 获得该能力。[Tauri 官方 updater](https://v2.tauri.app/plugin/updater/)。
 
 本机已生成长期密钥，私钥位于 `.local/updater/micromatrix.key`，权限 `600`；整个 `.local/` 被 Git 忽略，只有公钥写入 Tauri 配置。**务必离线备份，不要重新生成替换，不要提交或粘贴私钥到聊天/日志。** 当前密钥没有额外口令，安全性依赖本机文件权限、离线备份和 GitHub Secret 保护。
 
@@ -183,17 +189,17 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY \
 
 如使用有口令的密钥，另配置 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。本地 `npm run tauri:build` 自动使用上述私钥路径，也可通过同名环境变量指定自己的密钥；新克隆需从安全备份恢复私钥或设置环境变量。`tauri:dev` 不需要私钥。
 
-Workflow 在 verify 阶段检查 Secret 是否存在，缺少则立即失败，不浪费四平台编译时间；原生 build 生成签名包，发布前再次验证各平台校验和、签名与版本，完整成功才自动公开正式 Release。正常 tag 成为 Latest，预发布 tag 不进入正式更新通道。GitHub 签名 Secret 已配置，`v0.5.11` 的四平台构建及正式 Release 已验证；新仓库仍须单独配置。
+Workflow 在 verify 阶段检查 Secret 是否存在，缺少则立即失败，不浪费三个原生构建目标的编译时间；原生 build 生成签名包，发布前再次验证各平台校验和、签名与版本，完整成功才自动公开正式 Release。正常 tag 成为 Latest，预发布 tag 不进入正式更新通道。GitHub 签名 Secret 已配置，`v0.5.11` 的四平台构建及正式 Release 已验证；新仓库仍须单独配置。
 
 ### 构建复用与 Rust 缓存
 
-`Desktop packages` 的 verify 只构建一次 Vite 页面并上传 `shared-web`，四个原生 job 下载同一份页面。各平台保留类型检查和 SEA 冒烟，随后通过 `build:sidecar -- --prebuilt-web` 内嵌页面；Tauri 使用 `tauri.prebuilt.conf.json` 关闭重复的前端 hook。服务 CJS、Node SEA 和 Rust 仍在各原生平台构建，不复用其他系统的可执行文件。本地默认构建命令仍会自动构建前端；预构建模式缺少有效 `index.html` 时会直接失败。
+`Desktop packages` 的 verify 只构建一次 Vite 页面并上传 `shared-web`，三个原生 job 下载同一份页面。各平台保留类型检查和 SEA 冒烟，随后通过 `build:sidecar -- --prebuilt-web` 内嵌页面；Tauri 使用 `tauri.prebuilt.conf.json` 关闭重复的前端 hook。服务 CJS、Node SEA 和 Rust 仍在各支持平台构建，不复用其他系统的可执行文件。本地默认构建命令仍会自动构建前端；预构建模式缺少有效 `index.html` 时会直接失败。
 
 Rust 使用固定 SHA 的 `Swatinem/rust-cache` 缓存 Cargo 下载和依赖编译产物，按平台/架构、工具链和依赖配置隔离，不降低 release 优化级别。建议提交推送后，先手动选择 **master** 跑一次完整构建，预热默认分支缓存；后续 tag 可以读取它。GitHub 不允许不同 tag 互读缓存，因此仅连续推送 tag 不能保证命中上个 tag 的缓存；本流程只在 master 保存缓存。[GitHub 缓存作用域](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache)、[Rust Cache 行为](https://github.com/Swatinem/rust-cache#cache-details)。
 
 首次冷构建仍需要编译 Rust 依赖；runner 排队、下载和安装包压缩不会被编译缓存消除，不保证固定分钟数。各平台的 `rust-timings-*` Artifact 保留 Cargo HTML 耗时报告，方便定位后续瓶颈；它和 `shared-web` 不会加入 Release。复用前端仅适用于目前各平台相同的 Vite 配置，未来如引入平台特定的构建变量需重新评估。
 
-Release 提供 **6 个安装包 + 2 个 macOS `.app.tar.gz` 更新包 + `latest.json` + `SHA256SUMS.txt`**，加上 GitHub 自动提供的两个源码压缩包。macOS 更新包用于应用内升级，不是独立服务；Windows / Linux 复用签名后的安装包。签名嵌入 `latest.json`，`.sig`、构建 JSON 和通知不重复作为公开附件。`scripts/prepare-release-assets.mjs` 使用平台/格式白名单，缺少格式、重复安装包或校验失败都拒绝发布；不直接把 Actions 的所有文件上传。
+Release 提供 **4 个安装包 + 2 个 macOS `.app.tar.gz` 更新包 + `latest.json` + `SHA256SUMS.txt`**，加上 GitHub 自动提供的两个源码压缩包。macOS 更新包用于应用内升级，不是独立服务；Windows 复用签名后的安装包。签名嵌入 `latest.json`，`.sig`、构建 JSON 和通知不重复作为公开附件。`scripts/prepare-release-assets.mjs` 使用平台/格式白名单，缺少格式、重复安装包或校验失败都拒绝发布；不直接把 Actions 的所有文件上传。
 
 独立服务压缩包、构建 JSON、原始校验文件仍保留在 Actions 的 `micromatrix-*` Artifacts，不作为 Release 附件。**这不是私密存储策略**：公开仓库中，有权限访问 Actions 的用户仍可能下载这些文件。桌面应用内的 Node SEA sidecar 仍是运行所需组件，不会移除。
 

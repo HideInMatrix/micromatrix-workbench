@@ -1,5 +1,7 @@
 import { BufferedPluginLogger, ControlPlaneHttpService } from "@micromatrix/control-plane";
 import { webAssets } from "@micromatrix/web-assets";
+import { startComputerUseMcp } from "@micromatrix/computer-use";
+import path from "node:path";
 
 import { loadConfig } from "./config.js";
 import { RuntimeSupervisor } from "./runtime.js";
@@ -42,7 +44,14 @@ async function main(): Promise<void> {
   }
 }
 
-void main().catch((error) => {
+async function entry(): Promise<void> {
+  if (!process.argv.includes("--computer-use-mcp")) return main();
+  const index = process.argv.indexOf("--workspace");
+  if (index >= 0 && (!process.argv[index+1] || process.argv[index+1]!.startsWith("--"))) throw new Error("--workspace requires a directory");
+  await startComputerUseMcp({ workspace: path.resolve(index >= 0 ? process.argv[index+1]! : process.cwd()),
+    allowActions: process.argv.includes("--allow-actions"), version: APP_VERSION });
+}
+void entry().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

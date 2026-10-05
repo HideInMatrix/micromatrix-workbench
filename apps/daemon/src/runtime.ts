@@ -1,5 +1,8 @@
 import { stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { isSea } from "node:sea";
+import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 
 import { ApprovalPolicy } from "@micromatrix/approval";
 import type { RuntimeConfigurationUpdate, RuntimeControl, RuntimeSnapshot, SecretUpdate } from "@micromatrix/control-plane";
@@ -27,6 +30,14 @@ import { defaultCloudflaredExecutable } from "./tunnel-executable.js";
 import { APP_VERSION } from "./version.js";
 
 export class RuntimeSupervisor implements RuntimeControl {
+  computerUseConnection(): McpConnectionConfig {
+    // Return configuration only: do not spawn, prompt or modify user config.
+    const source = fileURLToPath(import.meta.url);
+    const entry = source.endsWith(".cjs") ? source : join(dirname(source), source.endsWith(".ts") ? "main.ts" : "main.js");
+    const args = isSea() ? [] : [...(entry.endsWith(".ts") ? ["--import",createRequire(import.meta.url).resolve("tsx")] : []),entry];
+    return { id:"computer_use",name:"Computer Use · ASIL",enabled:true,transport:"stdio",command:process.execPath,
+      args:[...args,"--computer-use-mcp"],url:"",envRefs:{},headers:{} };
+  }
   #config: DaemonConfig;
   readonly #logger: PluginLogger;
   readonly approval: ApprovalPolicy;

@@ -9,13 +9,11 @@ const formats = {
   'macos-arm64': ['.dmg', '.app.tar.gz'],
   'macos-x64': ['.dmg', '.app.tar.gz'],
   'windows-x64': ['.exe', '.msi'],
-  'linux-x64': ['.deb', '.AppImage'],
 }
 const updaterTargets = {
   'macos-arm64': ['darwin-aarch64', '.app.tar.gz'],
   'macos-x64': ['darwin-x86_64', '.app.tar.gz'],
   'windows-x64': ['windows-x86_64', '.exe'],
-  'linux-x64': ['linux-x86_64', '.AppImage'],
 }
 
 // Public: desktop installers, two macOS updater archives, latest.json and one
@@ -48,14 +46,14 @@ export function prepareReleaseAssets(input = path.resolve('build-artifacts'), ou
       const asset = checked(matches[0])
       assets.push(asset)
       const [target, updateExtension] = updaterTargets[profile]
-      // Preserve the installed package type: MSI stays MSI, DEB stays DEB.
+      // Preserve the installed package type: MSI stays MSI.
       // Generic targets are fallbacks for older bundle-type detection.
-      if (extension === '.app.tar.gz' || profile === 'linux-x64' || profile === 'windows-x64') {
+      if (extension === '.app.tar.gz' || profile === 'windows-x64') {
         const signature = checked(`${asset.name}.sig`).bytes.toString('utf8').trim()
         verifyUpdaterSignature(asset.bytes, signature, publicKey, version)
         const entry = { signature, url: `https://github.com/${repository}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(asset.name)}` }
         if (extension === updateExtension) platforms[target] = entry
-        const installer = { '.exe': 'nsis', '.msi': 'msi', '.deb': 'deb', '.AppImage': 'appimage', '.app.tar.gz': 'app' }[extension]
+        const installer = { '.exe': 'nsis', '.msi': 'msi', '.app.tar.gz': 'app' }[extension]
         platforms[`${target}-${installer}`] = entry
       }
     }
@@ -74,7 +72,7 @@ export function prepareReleaseAssets(input = path.resolve('build-artifacts'), ou
     else copyFileSync(path.join(input, name), path.join(output, name))
   }
   writeFileSync(path.join(output, 'SHA256SUMS.txt'), assets.map(({ name, digest }) => `${digest}  ${name}\n`).join(''))
-  console.log('Prepared six installers, two signed macOS update archives, latest.json and checksums; no standalone service published')
+  console.log('Prepared four installers, two signed macOS update archives, latest.json and checksums; no standalone service published')
   return output
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) prepareReleaseAssets()

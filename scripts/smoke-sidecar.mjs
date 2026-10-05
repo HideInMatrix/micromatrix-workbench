@@ -8,6 +8,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { nativeBuildTarget } from './build-platform.mjs'
 import { cloudflaredManifest } from './prepare-cloudflared.mjs'
+import { smokeComputerUse } from './smoke-computer-use.mjs'
 
 const root = process.cwd()
 const expectedVersion = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version
@@ -86,6 +87,7 @@ try {
     timeout: 10_000, windowsHide: true, stdio: 'ignore', env: { ...process.env, PATH: temporary },
   })
   console.log(`PASS: bundled cloudflared ${cloudflaredManifest.version} executes without a system PATH installation`)
+  await smokeComputerUse(executable)
 } catch (error) {
   await rm(temporary, { recursive: true, force: true })
   throw error
@@ -208,7 +210,9 @@ try {
   const sdk = file => JSON.stringify(pathToFileURL(path.join(root, 'node_modules/@modelcontextprotocol/sdk/dist/esm', file)).href)
   await writeFile(fixturePath, `import {Server} from ${sdk('server/index.js')};import{StdioServerTransport}from ${sdk('server/stdio.js')};import{ListToolsRequestSchema}from ${sdk('types.js')};import{writeFileSync}from'node:fs';writeFileSync(${JSON.stringify(pidPath)},String(process.pid));const server=new Server({name:'SEA fixture',version:'1'},{capabilities:{tools:{}}});server.setRequestHandler(ListToolsRequestSchema,()=>{if(process.env.MCP_SMOKE_SECRET!=='sea-fixture-private-value')throw Error('missing credential');return{tools:[{name:'fixture',description:'SEA bridge fixture',inputSchema:{type:'object',properties:{}}}]}});await server.connect(new StdioServerTransport());`)
   const connection = { id: 'fixture', name: 'SEA fixture', enabled: true, transport: 'stdio', command: process.execPath, args: [fixturePath], envRefs: { MCP_SMOKE_SECRET: 'SMOKE_SECRET' } }
-  await command('configure_pi_extensions', [{ ...idleExtensions.configuration, mcp: [connection] }])
+  const computerUse = await command('get_computer_use_mcp_template')
+  if (computerUse.command !== executable || computerUse.args.includes('--allow-actions')) throw new Error('Computer Use preset must use the owned SEA, read-only by default')
+  await command('configure_pi_extensions', [{ ...idleExtensions.configuration, mcp: [connection, computerUse] }])
   await command('set_pi_mcp_credentials', ['fixture', { SMOKE_SECRET: 'sea-fixture-private-value' }])
   const savedExtensions = await command('get_pi_extensions')
   if (JSON.stringify(savedExtensions).includes('sea-fixture-private-value') || savedExtensions.host_active) throw new Error('Credential save exposed a value or auto-started Pi')
@@ -239,6 +243,9 @@ try {
   }
   if (!card.tools.names.includes('skills_read') || !card.tools.names.includes('skills_list') || !card.tools.names.includes('skills_file_read') || !card.tools.names.some(name => name.startsWith('mcp__fixture__'))) {
     throw new Error('Pi registered Skill tools were not exposed by the packaged MCP service')
+  }
+  if (card.tools.names.filter(name => name.startsWith('mcp__computer_use__')).length !== 7) {
+    throw new Error('Packaged Computer Use was not registered through the official Pi extension host')
   }
   if (JSON.stringify(card).includes(temporary) || JSON.stringify(card).includes('smoke-only-private-password')) {
     throw new Error('Public MCP server card exposed private configuration')

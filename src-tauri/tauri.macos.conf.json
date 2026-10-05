@@ -1,0 +1,7 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "bundle": {
+    "macOS": { "minimumSystemVersion": "11.0" },
+    "externalBin": ["binaries/micromatrix-service", "binaries/cloudflared", "binaries/micromatrix-computer"]
+  }
+}
