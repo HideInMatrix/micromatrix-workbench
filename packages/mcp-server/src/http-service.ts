@@ -32,6 +32,7 @@ function writeJson(response: ServerResponse, status: number, value: unknown): vo
 export class McpHttpService {
   readonly #options: McpHttpServiceOptions;
   readonly #server;
+  readonly #protocols = new Set<ReturnType<typeof createProtocolServer>>();
 
   constructor(options: McpHttpServiceOptions) {
     if (!isLoopback(options.host) && !options.authorization.protectsRequests) {
@@ -75,6 +76,7 @@ export class McpHttpService {
 
   async stop(): Promise<void> {
     if (!this.#server.listening) return;
+    await Promise.all([...this.#protocols].map(protocol => protocol.close().catch(() => {})));
     await new Promise<void>((resolve, reject) =>
       this.#server.close((error) => (error ? reject(error) : resolve())),
     );
@@ -102,16 +104,16 @@ export class McpHttpService {
       writeJson(response, 200, {
         server: this.#options.serverInfo ?? DEFAULT_SERVER_INFO,
         supportedProtocolVersions: SUPPORTED_PROTOCOL_VERSIONS,
-        transport: { type: "streamable_http", endpoint: "/mcp", methods: ["POST"] },
+        transport: { type: "streamable_http", endpoint: "/mcp", methods: ["POST", "GET"] },
         auth: authorization.oauthEnabled
           ? {
               type: "oauth2", scheme: "Bearer",
-              authorizationUrl: "/authorize", tokenUrl: "/token", registrationUrl: "/register",
+              authorizationUrl: "/authorize", tokenUrl: "/token", clientRegistration: "cimd",
             }
           : authorization.protectsRequests
             ? { type: "bearer", scheme: "Bearer" }
             : { type: "none" },
-        capabilities: { tools: { listChanged: false } },
+        capabilities: { tools: { listChanged: true } },
         tools: { count: names.length, names },
       });
       return;
@@ -137,12 +139,13 @@ export class McpHttpService {
       return;
     }
 
-    if (request.method !== "POST") {
-      response.setHeader("allow", "POST");
+    if (request.method !== "POST" && request.method !== "GET") {
+      response.setHeader("allow", "POST, GET");
       writeJson(response, 405, { error: "method_not_allowed" });
       return;
     }
 
+    if (this.#protocols.size >= 64) { writeJson(response, 503, { error: "too_many_connections" }); return; }
     // The SDK documents `undefined` as stateless mode, while its published
     // declaration currently conflicts with exactOptionalPropertyTypes.
     const transport = new StreamableHTTPServerTransport({
@@ -158,6 +161,7 @@ export class McpHttpService {
     const protocol = createProtocolServer(
       this.#options.registry, this.#options.executionGate, executionContext, this.#options.serverInfo,
     );
+    this.#protocols.add(protocol);
     try {
       await protocol.connect(
         transport as unknown as Parameters<typeof protocol.connect>[0],
@@ -169,6 +173,7 @@ export class McpHttpService {
       });
       if (!response.headersSent) writeJson(response, 500, { error: "internal_error" });
     } finally {
+      this.#protocols.delete(protocol);
       await protocol.close().catch(() => undefined);
     }
   }

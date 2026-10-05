@@ -12,6 +12,9 @@ import type {
   RuntimeConfigurationDto,
   RuntimeDto,
   SavedRuntimeSecrets,
+  PiExtensionConfigurationDto,
+  PiExtensionsDto,
+  PiMcpConnectionDto,
 } from '../types'
 
 interface DesktopApiRequest {
@@ -85,6 +88,22 @@ export const desktopApi = {
     decision: 'deny' | 'once' | 'session',
   ) => call<boolean>('respond_permission_request', requestId, decision),
   capabilityCatalog: () => call<CapabilityCatalogDto>('get_workbench_capability_catalog'),
+  piExtensions: () => call<PiExtensionsDto>('get_pi_extensions'),
+  configurePiExtensions: (configuration: PiExtensionConfigurationDto) => call<boolean>('configure_pi_extensions', configuration),
+  createPiSkill: (id: string, description: string, instructions: string) => call<boolean>('create_pi_skill', id, description, instructions),
+  testPiMcp: (connection: PiMcpConnectionDto) => call<{ tools: string[] }>('test_pi_mcp', connection),
+  setPiMcpCredentials: (id: string, updates: Record<string, string | null>) => call<boolean>('set_pi_mcp_credentials', id, updates),
+  loginPiMcp: (id: string) => call<{ url: string }>('login_pi_mcp', id),
+  cancelPiMcpLogin: (id: string) => call<boolean>('cancel_pi_mcp_login', id),
+  logoutPiMcp: (id: string) => call<boolean>('logout_pi_mcp', id),
+  refreshPiMcp: (id: string) => call<boolean>('refresh_pi_mcp', id),
+  piSkillDocuments: () => call<Array<{ id: string; description: string }>>('list_pi_skill_documents'),
+  readPiSkill: (id: string) => call<{ id: string; document: string; revision: string; files: Array<{ path: string; size: number }> }>('read_pi_skill_document', id),
+  editPiSkill: (id: string, document: string, revision: string) => call<boolean>('edit_pi_skill_document', id, document, revision),
+  async openAuthorizationUrl(url: string): Promise<void> {
+    if (isTauri()) await invoke('open_authorization_url', { url })
+    else if (!window.open(url, '_blank', 'noopener,noreferrer')) throw new Error('浏览器拦截了授权窗口，请允许弹窗后重试。')
+  },
   logs: (after = 0) => call<{ cursor: number; entries: LogEntryDto[] }>('get_logs', after),
   clearLogs: () => call<number>('clear_logs'),
   savedRuntimeSecrets: () => isTauri() ? invoke<SavedRuntimeSecrets>('runtime_saved_secrets') : Promise.resolve(null),

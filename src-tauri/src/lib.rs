@@ -4,6 +4,7 @@ use tauri::Manager;
 use tauri_plugin_shell::{process::{CommandChild, CommandEvent}, ShellExt};
 
 mod saved_secrets;
+mod service_cleanup;
 mod updater_policy;
 
 #[derive(Default)]
@@ -21,7 +22,7 @@ impl tauri::Resource for ServiceCleanup {}
 impl Drop for ServiceCleanup {
   fn drop(&mut self) {
     if let Ok(mut service) = self.0.lock() {
-      if let Some(child) = service.child.take() { let _ = child.kill(); }
+      if let Some(child) = service.child.take() { service_cleanup::close(child); }
     }
   }
 }
@@ -48,6 +49,17 @@ fn runtime_saved_secrets(app: tauri::AppHandle) -> Result<saved_secrets::SavedSe
   saved_secrets::read(&config_file, &std::env::vars().collect())
 }
 
+#[tauri::command]
+fn open_authorization_url(url: String) -> Result<(), String> {
+  let parsed = tauri::Url::parse(&url).map_err(|_| "Invalid OAuth URL")?;
+  let loopback = matches!(parsed.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+  if !parsed.username().is_empty() || parsed.password().is_some()
+    || !(parsed.scheme() == "https" || (parsed.scheme() == "http" && loopback)) {
+    return Err("OAuth requires HTTPS or loopback HTTP".into());
+  }
+  open::that_detached(parsed.as_str()).map_err(|error| error.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   let mut context = tauri::generate_context!();
@@ -57,7 +69,7 @@ pub fn run() {
     .plugin(tauri_plugin_shell::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
     .plugin(tauri_plugin_process::init())
-    .invoke_handler(tauri::generate_handler![desktop_service_error, show_permission_prompt, runtime_saved_secrets])
+    .invoke_handler(tauri::generate_handler![desktop_service_error, show_permission_prompt, runtime_saved_secrets, open_authorization_url])
     .setup(|app| {
       let service = Arc::new(Mutex::new(ServiceState::default()));
       app.manage(ServiceChild(service.clone()));
@@ -107,9 +119,15 @@ pub fn run() {
     .expect("error while building Tauri application");
 
   app.run(|handle, event| {
-    if matches!(event, tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }) {
-      if let Some(child) = handle.state::<ServiceChild>().0.lock().expect("sidecar state").child.take() {
-        let _ = child.kill();
+    if let tauri::RunEvent::ExitRequested { api, .. } = event {
+      let child = handle.state::<ServiceChild>().0.lock().expect("sidecar state").child.take();
+      if let Some(child) = child {
+        api.prevent_exit();
+        let handle = handle.clone();
+        tauri::async_runtime::spawn(async move {
+          let _ = tauri::async_runtime::spawn_blocking(move || service_cleanup::close(child)).await;
+          handle.exit(0);
+        });
       }
     }
   });

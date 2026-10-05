@@ -6,7 +6,19 @@
 Web AI → OAuth MCP → approval policy → Pi BodyPlugin → local workspace
 ```
 
-本地服务不运行第二个模型循环。当前 BodyPlugin 提供 Workspace Tools（必需）和 Shell Tool（可选）；网络层支持 External、Cloudflare、ngrok、FRP 与 Tailscale Funnel。
+本地服务不运行第二个模型循环。Pi 扩展宿主提供 Workspace Tools（必需）、Shell Tool（可选）、外部 MCP 桥接和 Skills 资源；网络层支持 External、Cloudflare、ngrok、FRP 与 Tailscale Funnel。
+
+## 添加 MCP 与 Skills
+
+插件页面提供“添加 MCP / 添加 Skill”。它只保存配置；Runtime 点击启动后，官方 Pi `ExtensionFactory`、`ExtensionRunner` 和 `DefaultResourceLoader` 才加载能力，不自动执行 Workspace 中的未知扩展代码。
+
+- **MCP**：配置 stdio 的可执行程序与参数 JSON 数组，或 Streamable HTTP 的 `/mcp` 地址。测试连接仅执行握手和工具发现，结束后关闭连接，不调用工具。启用服务通过 Pi 扩展注册为 `mcp__<id>__<tool>_<hash>`，名称不与内置工具冲突。编辑、启停和移除需要先停止 Runtime。
+- **Skills**：导入本地目录 / `SKILL.md` 的绝对路径，或在界面填写名称、描述和方法说明创建标准 `SKILL.md`。Pi `resources_discover` 提供路径，由 Pi 解析与校验；网页 AI 用 `skills_list` / `skills_read` 按需读取，不运行本地模型循环，也不自动执行 Skill 内的脚本。移除来源只解除引用，不删除用户文件；可打开完整文档编辑，使用 revision 防止覆盖并发改动；修改后 stop/start 重新加载。网页 AI 还可用 `skills_files` / `skills_file_read` 读取 Skill 目录内的 UTF-8 支持文件（最大 256 KB），拒绝绝对路径、越界和符号链接。
+- **审批与清理**：外部 MCP 工具和 Skill 读取沿用审批，不能凭外部服务自报 `readOnlyHint` 自动批准。Runtime 停止、启动失败或 Tunnel 异常会关闭扩展连接和 owned stdio 进程树。支持远端 `tools/list_changed` 和界面“刷新工具”，同步增加、替换和删除 Pi 工具；变更撤销旧审批，待审批调用不得执行被替换的定义。发现失败撤销旧工具；断线后停止再启动以重连。
+
+认证配置保存变量引用，真实值可在界面填写本地密钥，也可来自服务环境：stdio `envRefs` 示例 `{"API_KEY":"MY_API_KEY"}`，HTTP headers 示例 `{"Authorization":"Bearer ${MY_TOKEN}"}`。本地填写值优先，空白保留已有值，清除按钮显式删除；保存后编辑表单不清空。不要把密钥写入 command / args。HTTP 可选择 OAuth：先保存连接，再点击“授权登录”，桌面通过系统浏览器打开授权，浏览器版需允许弹窗；标准 SDK 负责 discovery、CIMD 身份、PKCE 和 token refresh，本地固定端口回调校验 state 与服务声明的 issuer。只有显式登录打开浏览器，取消、超时、停止和退出会关闭回调监听。OAuth 仅支持声明 CIMD / S256 / none 的服务，不回退 DCR。必须填写自己的公网 HTTPS `clientMetadataUrl` 和文档中登记的固定 `oauthRedirectUri`（`http://127.0.0.1:空闲端口/路径`，端口 >= 1024）；缺少时可编辑旧配置，登录明确报错。未实现服务特有登录或预注册客户端表单。HTTP 使用 HTTPS，回环地址可使用 HTTP；旧 SSE 不支持。stdio 依赖相应外部程序已安装，安装包不会代装所有 Node/Python MCP 服务。
+
+配置保存在 Runtime 配置的 `extensions` 中；创建的 Skill 文件位于配置目录下的 `skills/<id>/SKILL.md`。Skills 的支持文件保持原样，只提供按 Skill ID + 相对路径的读取；执行支持脚本仍要调用受审批的工具，并受对应工具的路径边界约束。MCP 密钥和外部 OAuth token 单独保存在 `<configFile>.mcp-credentials.json`（Unix `0600`，最大 2 MB），绑定服务 ID 和目标 URL/程序参数；修改目标不会复用旧凭证。遵循 Runtime 的“在本机保存秘密”开关，关闭后删除落盘副本，但本次服务会话可继续使用内存凭证。这不是加密 keychain，也不通过 HTTP/MCP 导出明文。
 
 ## 开发运行
 
@@ -43,12 +55,29 @@ npm run tauri:dev
 
 本机回环地址可以无认证运行。需要通过 Tunnel 或非回环地址公开时，必须配置以下任一项，否则 Runtime 拒绝启动：
 
-- `MICROMATRIX_OAUTH_PASSWORD`：供网页 MCP 客户端使用的 OAuth 2.0 + DCR + PKCE 流程。
+- `MICROMATRIX_OAUTH_PASSWORD`：供网页 MCP 客户端使用的 OAuth Authorization Code + PKCE 流程；仅支持 CIMD，不再提供 DCR。
 - `MICROMATRIX_AUTH_TOKEN`：兼容旧客户端的静态 Bearer Token。
 
-客户端连接地址为 `https://<public-host>/mcp`。DCR 客户端注册信息保存在配置文件旁的 `<configFile>.oauth-clients.json`（Unix 权限 `0600`），Runtime 或软件重启后保留 client ID 和已登记的回调地址。授权码、access/refresh token 和工具审批仍只存在内存中，重启后必须重新授权，但不必重新注册客户端。注册文件不包含密码或 token，也不受“保存敏感信息”开关影响。
+客户端连接地址为 `https://<public-host>/mcp`。授权服务器 metadata 声明 `client_id_metadata_document_supported: true`，客户端必须使用公开 HTTPS JSON 文档 URL 作为 client ID；`/register` 和 `registration_endpoint` 已移除。服务核验文档 `client_id` 与请求值完全相同、有效名称及精确回调地址；只协商 `none` 公共客户端认证，仍必须验证密码和 PKCE，不支持只提供 `private_key_jwt` 的客户端。授权页显示元数据域名与回调地址，并提示回环回调的身份风险；授权重定向成功/错误响应都带 `iss`，与 discovery 中的 issuer 一致。
 
-旧版本重启已经丢失的 client ID 无法从授权 URL 安全恢复。遇到 `Unknown client or redirect URI` 时，需要在客户端删除旧连接并重新添加 `/mcp` 连接，完成一次新注册；持久化修复版本之后的重启不再需要重复添加。注册文件损坏或不可写时服务明确拒绝加载或注册，不静默覆盖，也不放宽回调地址校验。
+CIMD 文档只作有界内存缓存，不使用本地客户端注册文件；只允许标准 HTTPS 端口和非根文档路径，不接受 query、userinfo、fragment 或 dot path。不跟随重定向，不下载文档里的 logo/JWKS；DNS 所有地址必须是公网地址，连接使用已校验地址固定 DNS，保留 TLS/Host 校验。单次 DNS/HTTP 总期限 10 秒、JSON 最大 5 KiB、最多 8 个并行发现、每分钟最多 60 次未命中发现、缓存最多 100 项且不超过 5 分钟，尊重 no-store/no-cache/Age。发现失败不会回退到未验证或过期文档。如果代理 fake-IP DNS 返回 `198.18.x.x`、内网或保留地址，会拒绝；需要在代理/DNS 侧让客户端元数据域名解析为真实公网地址，不应关闭 SSRF 防护。
+
+旧 DCR 的随机 client ID 不再接受，客户端需更新为 CIMD 或删除旧连接后重建；仅支持 DCR 的客户端无法连接。旧 `<configFile>.oauth-clients.json` 不再读取/写入，损坏的旧文件不影响启动；不自动删除用户磁盘上的旧数据，可自行清理。授权码、access/refresh token 和工具审批仍只存在内存，重启后按文档 URL 重新授权，不继承旧工具审批。密码、Bearer Token、Tunnel 配置与“手动启动”语义不变。
+
+外部 MCP 的 CIMD 文档示例（自己控制的 HTTPS 站点托管，服务端必须可读取）：
+
+```json
+{
+  "client_id": "https://your-domain.example/oauth/client.json",
+  "client_name": "micromatrix agent",
+  "redirect_uris": ["http://127.0.0.1:18456/oauth/callback"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none"
+}
+```
+
+在 MCP 编辑器填入同一文档 URL 与准确回调后保存，再点击授权登录。端口被占用会报错，不随机换端口破坏文档登记；临时 Tunnel 地址不是稳定客户端身份，也不会在保存时启动服务来托管文档。不能借用 ChatGPT/其他应用的 CIMD URL。修改文档身份或回调会取消挂起授权、丢弃该外部服务的旧 OAuth token；已有本地 Header 密钥保留。未发布任何公共元数据文档，也没有假定部署域名。
 
 Runtime 启动后，浏览器访问公网域名根路径 `/` 会返回 JSON 服务信息：应用名称/版本、支持的 MCP 协议、`/mcp` 端点、认证方式和当前工具名称/数量。此信息无需认证，但不包含工作目录、配置或密钥，也不是本地管理页面；MCP 调用仍按配置认证和审批。端点使用相对路径，兼容 Cloudflare 随机域名与固定域名。
 
@@ -60,7 +89,7 @@ Runtime 启动后，浏览器访问公网域名根路径 `/` 会返回 JSON 服�
 | `trusted` | 自动允许 | 自动允许 | 本地审批 |
 | `dangerous` | 自动允许 | 自动允许 | 自动允许 |
 
-审批发生在 `AgentTool.execute` 之前。“本次客户端会话允许”按 OAuth authorization grant 隔离；refresh token 轮换保持同一会话，但其他客户端或新的授权会话不会继承。Runtime 停止、重启或权限模式变化时清空全部会话授权。Workspace Tools 会对路径和文件操作执行 canonical boundary 检查，拒绝指向 Workspace 外部的绝对路径、`..` 和 symlink/junction；Workspace 内部的绝对路径仍可使用。
+审批发生在 `AgentTool.execute` 之前。“本次客户端会话允许”按 OAuth authorization grant 隔离；refresh token 轮换保持同一会话，但其他客户端或新的授权会话不会继承。Runtime 停止、重启、权限模式或外部工具定义变化时清空全部会话授权。Workspace Tools 会对路径和文件操作执行 canonical boundary 检查，拒绝指向 Workspace 外部的绝对路径、`..` 和 symlink/junction；Workspace 内部的绝对路径仍可使用。
 
 静态 Bearer Token 本身没有客户端身份，因此持有同一个静态 Token 的请求共享审批会话；需要严格客户端隔离时使用 OAuth。
 
@@ -102,6 +131,8 @@ GitHub macOS 打包先由 Tauri 构建/签名 `.app`，再运行 `node scripts/p
 UI 配置默认写入 `~/.micromatrix-pi-mcp/runtime.json`。关闭“保存敏感信息”后，OAuth 密码和网络令牌不写入磁盘。密钥输入在保存、启停和页面切换后保留在界面内，默认以密码掩码显示，眼睛按钮可查看。Tauri 重启后通过原生桥回填已保存的密钥，不新增返回密钥的 HTTP/MCP 接口；关闭保存后仅保留在当前界面会话，退出后需重新输入。浏览器版不从服务回读明文；已有值仍由服务保留。只有点击清除按钮并保存才删除已有密钥。
 
 界面掩码不是磁盘加密：选择保存时，密钥仍在本机 JSON 配置内（Unix 文件权限 `0600`）。
+
+控制面校验回环 Host / 端口及 Origin，修改请求必须使用 `application/json`，拒绝未授权跨站请求（保留 Vite/Tauri 的受信 Origin）；不代表对本机恶意进程提供隔离。桌面正常退出先核验 sidecar PID 并请求停止 Runtime，最多等待 6 秒后终止 owned sidecar；不停止占用同端口的其他服务。
 
 单文件服务上的内嵌 Web UI 使用页面自己的 origin，可使用自定义控制端口；Vite/Tauri 默认连接 `http://127.0.0.1:8233`，如需自定义应在构建前设置 `VITE_CONTROL_URL`。
 

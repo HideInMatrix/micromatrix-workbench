@@ -15,7 +15,10 @@
     { "path": "../../packages/oauth" },
     { "path": "../../packages/web-assets" },
     { "path": "../../plugins/workspace" },
-    { "path": "../../plugins/shell" }
+    { "path": "../../plugins/shell" },
+    { "path": "../../plugins/mcp" },
+    { "path": "../../plugins/skills" },
+    { "path": "../../packages/pi-body" }
   ],
   "include": ["src/**/*.ts"]
 }

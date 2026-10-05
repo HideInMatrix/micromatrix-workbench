@@ -1,9 +1,10 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { nativeBuildTarget } from './build-platform.mjs'
 import { cloudflaredManifest } from './prepare-cloudflared.mjs'
 
@@ -123,6 +124,8 @@ child.stderr.setEncoding('utf8').on('data', chunk => output.push(chunk))
 try {
   await waitForHealth(`${baseUrl}/healthz`, child, output)
 
+  const health = await fetch(`${baseUrl}/healthz`).then(response => response.json())
+  if (health.process_id !== child.pid) throw new Error('Native shutdown cannot identify the owned service PID')
   const indexResponse = await fetch(`${baseUrl}/`)
   const index = await indexResponse.text()
   if (!indexResponse.ok || !index.includes(`<title>${productName}</title>`)) {
@@ -189,9 +192,43 @@ try {
     remember_secrets: false,
   }])
   if (configured.running !== false) throw new Error('Configuration unexpectedly started the runtime')
+  await command('create_pi_skill', ['smoke', 'SEA Pi resource discovery smoke test', 'marker=pi_resource_in_sea'])
+  const idleExtensions = await command('get_pi_extensions')
+  if (idleExtensions.host_active !== false || idleExtensions.configuration.skills.length !== 1 || idleExtensions.loaded_skills.length !== 0) {
+    throw new Error('Saving a Pi Skill unexpectedly started its extension host')
+  }
+  const document = await command('read_pi_skill_document', ['smoke'])
+  await command('edit_pi_skill_document', ['smoke', document.document.replace('pi_resource_in_sea', 'pi_edited_resource_in_sea'), document.revision])
+  await writeFile(path.join(temporary, 'skills/smoke/guide.md'), 'SEA support file marker')
+  const editedDocument = await command('read_pi_skill_document', ['smoke'])
+  if (!editedDocument.document.includes('pi_edited_resource_in_sea') || !editedDocument.files.some(file => file.path === 'guide.md')) throw new Error('Packaged Skill editor/support-file discovery failed')
+  const fixturePath = path.join(temporary, 'mcp-fixture.mjs')
+  const pidPath = path.join(temporary, 'mcp-pid.txt')
+  const sdk = file => JSON.stringify(pathToFileURL(path.join(root, 'node_modules/@modelcontextprotocol/sdk/dist/esm', file)).href)
+  await writeFile(fixturePath, `import {Server} from ${sdk('server/index.js')};import{StdioServerTransport}from ${sdk('server/stdio.js')};import{ListToolsRequestSchema}from ${sdk('types.js')};import{writeFileSync}from'node:fs';writeFileSync(${JSON.stringify(pidPath)},String(process.pid));const server=new Server({name:'SEA fixture',version:'1'},{capabilities:{tools:{}}});server.setRequestHandler(ListToolsRequestSchema,()=>{if(process.env.MCP_SMOKE_SECRET!=='sea-fixture-private-value')throw Error('missing credential');return{tools:[{name:'fixture',description:'SEA bridge fixture',inputSchema:{type:'object',properties:{}}}]}});await server.connect(new StdioServerTransport());`)
+  const connection = { id: 'fixture', name: 'SEA fixture', enabled: true, transport: 'stdio', command: process.execPath, args: [fixturePath], envRefs: { MCP_SMOKE_SECRET: 'SMOKE_SECRET' } }
+  await command('configure_pi_extensions', [{ ...idleExtensions.configuration, mcp: [connection] }])
+  await command('set_pi_mcp_credentials', ['fixture', { SMOKE_SECRET: 'sea-fixture-private-value' }])
+  const savedExtensions = await command('get_pi_extensions')
+  if (JSON.stringify(savedExtensions).includes('sea-fixture-private-value') || savedExtensions.host_active) throw new Error('Credential save exposed a value or auto-started Pi')
+  const tested = await command('test_pi_mcp', [connection])
+  if (JSON.stringify(tested.tools) !== '["fixture"]') throw new Error('Packaged MCP client discovery or local credential injection failed')
+  async function assertFixtureExited() {
+    const pid = Number(readFileSync(pidPath, 'utf8'))
+    for (let i = 0; i < 30; i++) {
+      try { process.kill(pid, 0) } catch { return }
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    throw new Error('Packaged MCP child was not cleaned up')
+  }
+  await assertFixtureExited()
   await assertReleased(`${runtimeUrl}/`)
   const started = await command('start_runtime')
   if (started.running !== true) throw new Error('Explicit runtime start failed')
+  const activeExtensions = await command('get_pi_extensions')
+  if (activeExtensions.host_active !== true || activeExtensions.loaded_skills[0]?.id !== 'smoke') {
+    throw new Error('SEA did not load the official Pi extension host and Skill resource')
+  }
   const cardResponse = await fetch(`${runtimeUrl}/`)
   const card = await cardResponse.json()
   if (!cardResponse.ok || card.server?.name !== productName || card.server?.version !== expectedVersion ||
@@ -199,15 +236,39 @@ try {
       card.auth?.type !== 'oauth2' || !card.tools?.names?.includes('read') || card.tools.count !== card.tools.names.length) {
     throw new Error(`Unexpected public MCP server card: ${JSON.stringify(card)}`)
   }
+  if (!card.tools.names.includes('skills_read') || !card.tools.names.includes('skills_list') || !card.tools.names.includes('skills_file_read') || !card.tools.names.some(name => name.startsWith('mcp__fixture__'))) {
+    throw new Error('Pi registered Skill tools were not exposed by the packaged MCP service')
+  }
   if (JSON.stringify(card).includes(temporary) || JSON.stringify(card).includes('smoke-only-private-password')) {
     throw new Error('Public MCP server card exposed private configuration')
   }
   const denied = await fetch(`${runtimeUrl}/mcp`, { method: 'POST' })
   if (denied.status !== 401) throw new Error('Public server card bypassed MCP authentication')
+  const oauthMetadata = await fetch(`${runtimeUrl}/.well-known/oauth-authorization-server`).then(response => response.json())
+  if (oauthMetadata.client_id_metadata_document_supported !== true || oauthMetadata.authorization_response_iss_parameter_supported !== true ||
+      oauthMetadata.registration_endpoint !== undefined || JSON.stringify(oauthMetadata.token_endpoint_auth_methods_supported) !== '["none"]') {
+    throw new Error('Packaged OAuth did not advertise CIMD, issuer identification and no registration endpoint')
+  }
+  if ((await fetch(`${runtimeUrl}/register`, { method: 'POST', body: '{}' })).status !== 404) throw new Error('Removed DCR endpoint is still reachable')
+  const unsafeClient = await fetch(`${runtimeUrl}/authorize?${new URLSearchParams({
+    client_id: 'https://127.0.0.1/private', redirect_uri: 'https://client.example/callback',
+    response_type: 'code', code_challenge_method: 'S256', code_challenge: 'x'.repeat(43),
+  })}`, { redirect: 'manual' })
+  if (unsafeClient.status !== 400 || unsafeClient.headers.has('location') || (await unsafeClient.json()).error !== 'invalid_client_metadata') {
+    throw new Error('Packaged CIMD accepted a private metadata destination')
+  }
+  console.log('PASS: packaged OAuth is CIMD-only; unsafe metadata URLs are refused without a redirect')
   const stopped = await command('stop_runtime')
   if (stopped.running !== false) throw new Error('Explicit runtime stop failed')
+  const stoppedExtensions = await command('get_pi_extensions')
+  if (stoppedExtensions.host_active !== false || stoppedExtensions.loaded_skills.length !== 0) {
+    throw new Error('Pi extension resources survived Runtime shutdown')
+  }
   await assertReleased(`${runtimeUrl}/`)
+  await assertFixtureExited()
+  console.log('PASS: packaged MCP stdio bridge resolves local credentials, registers real discovered tools, and closes test/runtime children')
   console.log('PASS: manual start exposes a safe public MCP server card; MCP stays protected and stop releases its port')
+  console.log('PASS: packaged Pi ExtensionFactory/ResourceLoader loads Skills only on explicit start and clears them on stop')
 
   child.kill('SIGTERM')
   const exit = await waitForExit(child)

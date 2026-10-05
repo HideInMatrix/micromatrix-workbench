@@ -24,8 +24,8 @@ async function main(): Promise<void> {
   async function stop(): Promise<void> {
     if (stopping) return;
     stopping = true;
-    await control.stop().catch((error) => logger.log("warn", "Control plane stop failed", { error: String(error) }));
     await runtime.dispose().catch((error) => logger.log("warn", "Runtime stop failed", { error: String(error) }));
+    await control.stop().catch((error) => logger.log("warn", "Control plane stop failed", { error: String(error) }));
   }
 
   process.once("SIGINT", () => void stop().finally(() => process.exit(0)));

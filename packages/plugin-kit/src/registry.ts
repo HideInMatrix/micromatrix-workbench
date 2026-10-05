@@ -5,6 +5,7 @@ import type { BodyPlugin, LoadedBodyPlugin, PluginContext } from "./types.js";
 export class PluginRegistry {
   readonly #context: PluginContext;
   readonly #plugins = new Map<string, LoadedBodyPlugin>();
+  readonly #listeners = new Set<() => void>();
   readonly #tools = new Map<string, AgentTool>();
 
   constructor(context: PluginContext) {
@@ -28,6 +29,24 @@ export class PluginRegistry {
     this.#plugins.set(plugin.id, loaded);
     for (const tool of tools) this.#tools.set(tool.name, tool);
     return loaded;
+  }
+
+  subscribe(listener: () => void): () => void { this.#listeners.add(listener); return () => { this.#listeners.delete(listener); }; }
+
+  replaceTools(pluginId: string, tools: readonly AgentTool[]): void {
+    const previous = this.#plugins.get(pluginId);
+    if (!previous) throw new Error(`Unknown plugin: ${pluginId}`);
+    if (new Set(tools.map(tool => tool.name)).size !== tools.length) throw new Error("Duplicate tool names");
+    for (const tool of tools) {
+      const owner = this.ownerOf(tool.name);
+      if (owner && owner !== pluginId) throw new Error(`Tool ${tool.name} is owned by ${owner}`);
+    }
+    if (tools.length === previous.tools.length && tools.every((tool, i) => tool === previous.tools[i])) return;
+    for (const tool of previous.tools) this.#tools.delete(tool.name);
+    const frozen = Object.freeze([...tools]);
+    this.#plugins.set(pluginId, Object.freeze({ plugin: previous.plugin, tools: frozen }));
+    for (const tool of frozen) this.#tools.set(tool.name, tool);
+    for (const listener of this.#listeners) listener();
   }
 
   listPlugins(): readonly LoadedBodyPlugin[] {
@@ -55,5 +74,6 @@ export class PluginRegistry {
     }
     this.#tools.clear();
     this.#plugins.clear();
+    this.#listeners.clear();
   }
 }

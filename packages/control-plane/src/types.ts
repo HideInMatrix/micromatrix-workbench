@@ -1,3 +1,5 @@
+import type { ExtensionConfiguration, McpConnectionConfig } from "@micromatrix/plugin-kit";
+
 export interface DesktopApiRequest {
   readonly method: string;
   readonly args: readonly unknown[];
@@ -22,6 +24,10 @@ export interface RuntimeSnapshot {
   readonly networkOptions: Readonly<Record<string, string>>;
   readonly pluginIds: readonly string[];
   readonly tools: readonly RuntimeTool[];
+  readonly extensions?: ExtensionConfiguration;
+  readonly skills?: readonly { readonly id: string; readonly name: string; readonly description: string; readonly disableModelInvocation: boolean }[];
+  readonly extensionHostActive?: boolean;
+  readonly mcpStatus?: Readonly<Record<string, { keys: string[]; oauth: string; status: string; message: string; discoveredAt: number }>>;
 }
 
 export interface RuntimeConfigurationUpdate {
@@ -58,6 +64,17 @@ export interface RuntimeControl {
   stop(): Promise<void>;
   configure(update: RuntimeConfigurationUpdate): Promise<void>;
   setPluginEnabled(pluginId: string, enabled: boolean): Promise<void>;
+  configureExtensions?(value: ExtensionConfiguration): Promise<void>;
+  createSkill?(id: string, description: string, instructions: string): Promise<void>;
+  setMcpCredentials?(id: string, updates: unknown): Promise<void>;
+  beginMcpLogin?(id: string): Promise<{ url: string }>;
+  cancelMcpLogin?(id: string): Promise<void>;
+  logoutMcp?(id: string): Promise<void>;
+  refreshMcpTools?(id: string): Promise<void>;
+  skillDocuments?(): Promise<readonly { id: string; description: string }[]>;
+  readSkill?(id: string): Promise<{ id: string; document: string; revision: string; files: readonly { path: string; size: number }[] }>;
+  editSkill?(id: string, document: string, revision: string): Promise<void>;
+  testMcpConnection?(value: McpConnectionConfig): Promise<{ readonly tools: readonly string[] }>;
 }
 
 export interface ControlPlaneOptions {

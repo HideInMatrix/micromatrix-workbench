@@ -6,6 +6,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { BodyPlugin, PluginContext } from "@micromatrix/plugin-kit";
 
+export { PiBodyHost } from "./host.js";
+
 export function registerAgentTools(pi: ExtensionAPI, tools: readonly AgentTool[]): void {
   for (const tool of tools) {
     const definition: ToolDefinition = {

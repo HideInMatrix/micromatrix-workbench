@@ -1,4 +1,5 @@
 import { stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import { ApprovalPolicy } from "@micromatrix/approval";
 import type { RuntimeConfigurationUpdate, RuntimeControl, RuntimeSnapshot, SecretUpdate } from "@micromatrix/control-plane";
@@ -14,7 +15,10 @@ import {
   type NetworkProviderResult,
 } from "@micromatrix/network";
 import { LocalOAuthServer } from "@micromatrix/oauth";
-import { PluginRegistry, type PluginLogger } from "@micromatrix/plugin-kit";
+import { PluginRegistry, parseExtensions, type ExtensionConfiguration, type McpConnectionConfig, type PluginLogger } from "@micromatrix/plugin-kit";
+import { PiBodyHost, createPiBodyExtension } from "@micromatrix/pi-body";
+import { createMcpExtension, McpConnection, McpAuthStore, type McpExtensionController, type McpOptions } from "@micromatrix/plugin-mcp";
+import { createSkillsExtension, createSkillFile, loadedSkills, removeCreatedSkill, validateSkillSource, readSkillDocument, editSkillDocument, discoverSkillFiles } from "@micromatrix/plugin-skills";
 import { createShellPlugin } from "@micromatrix/plugin-shell";
 import { createWorkspacePlugin } from "@micromatrix/plugin-workspace";
 
@@ -27,17 +31,25 @@ export class RuntimeSupervisor implements RuntimeControl {
   readonly #logger: PluginLogger;
   readonly approval: ApprovalPolicy;
   #registry: PluginRegistry;
+  #host: PiBodyHost | undefined;
   #service: McpHttpService | undefined;
   #provider: NetworkProvider | undefined;
   #network: NetworkProviderResult | undefined;
   #running = false;
+  #startingAbort: AbortController | undefined;
+  #testingMcp: McpConnection | undefined;
   #transition: Promise<void> | undefined;
   #failureCleanup: Promise<void> | undefined;
   #exitReason = "";
+  readonly #mcpAuth: McpAuthStore;
+  readonly #mcpControllers = new Map<string, McpExtensionController>();
+  readonly #mcpCatalogs = new Map<string, readonly string[]>();
+  readonly #mcpHealth = new Map<string, { status: string; message: string; discoveredAt: number }>();
 
   constructor(config: DaemonConfig, logger: PluginLogger) {
     this.#config = config;
     this.#logger = logger;
+    this.#mcpAuth = new McpAuthStore(`${config.configFile}.mcp-credentials.json`, config.rememberSecrets);
     this.approval = new ApprovalPolicy(config.permissionMode, 120_000, (event) => {
       const level = event.outcome === "queued" || event.outcome === "allowed" ? "info" : "warn";
       this.#logger.log(level, `Tool approval: ${event.outcome}`, { ...event });
@@ -65,6 +77,14 @@ export class RuntimeSupervisor implements RuntimeControl {
       rememberSecrets: this.#config.rememberSecrets,
       permissionMode: this.#config.permissionMode,
       pluginIds: ["workspace", "shell"],
+      extensions: parseExtensions(this.#config.extensions),
+      skills: this.#host ? loadedSkills(this.#host.loader).map(({ filePath: _path, ...skill }) => skill) : [],
+      extensionHostActive: Boolean(this.#host),
+      mcpStatus: Object.fromEntries(parseExtensions(this.#config.extensions).mcp.map(connection => {
+        const authentication = this.#mcpAuth.summary(connection);
+        const health = this.#mcpHealth.get(connection.id) ?? { status: "stopped", message: "", discoveredAt: 0 };
+        return [connection.id, { ...authentication, ...health, message: health.message || authentication.message }];
+      })),
       tools: this.#registry.listTools().map((tool) => ({
         name: tool.name,
         description: tool.description,
@@ -79,16 +99,38 @@ export class RuntimeSupervisor implements RuntimeControl {
       if (this.#failureCleanup) await this.#failureCleanup;
       if (this.#running) return;
       this.#exitReason = "";
+      const startup = new AbortController(); this.#startingAbort = startup;
       try {
         const workspace = await stat(this.#config.workspace).catch(() => undefined);
         if (!workspace?.isDirectory()) throw new Error(`Workspace is not a directory: ${this.#config.workspace}`);
         this.#assertSecuredExposure();
-        const service = this.#service ?? this.#createService(this.#config, this.#registry);
-        const provider = this.#provider ?? this.#createProvider(this.#config, service);
-        this.#service = service;
+        const preview = this.#service ?? this.#createService(this.#config, this.#registry);
+        const provider = this.#provider ?? this.#createProvider(this.#config, preview);
         this.#provider = provider;
         await provider.preflight?.();
+        startup.signal.throwIfAborted();
+        const context = { workspace: this.#config.workspace, logger: this.#logger };
+        const extensions = parseExtensions(this.#config.extensions);
+        const plugins = [createWorkspacePlugin(), ...(this.#config.plugins.shell ? [createShellPlugin()] : [])];
+        this.#host = await PiBodyHost.create(context, join(dirname(this.#config.configFile), "pi"), [
+          ...plugins.map((plugin) => ({ name: plugin.id, factory: createPiBodyExtension([plugin], context) })),
+          ...extensions.mcp.filter((connection) => connection.enabled).map((connection) => ({
+            name: `mcp:${connection.id}`, factory: createMcpExtension(connection, this.#mcpOptions(connection), names => {
+              this.#mcpCatalogs.set(connection.id, names);
+              this.#host?.refreshTools(`mcp:${connection.id}`, names);
+            }, controller => this.#mcpControllers.set(connection.id, controller)),
+          })),
+        ], extensions.skills.some((source) => source.enabled)
+          ? (loader) => ({ name: "skills", factory: createSkillsExtension(extensions.skills, loader) }) : undefined);
+        for (const [id, names] of this.#mcpCatalogs) this.#host.refreshTools(`mcp:${id}`, names);
+        await this.#registry.dispose();
+        this.#registry = this.#host.registry;
+        this.#registry.subscribe(() => this.approval.resetSession());
+        const service = this.#createService(this.#config, this.#registry);
+        this.#service = service;
+        startup.signal.throwIfAborted();
         await service.start();
+        startup.signal.throwIfAborted();
         let startingFailure: Error | undefined;
         let starting = true;
         this.#network = await provider.start({
@@ -99,6 +141,7 @@ export class RuntimeSupervisor implements RuntimeControl {
             else this.#handleNetworkFailure(error);
           },
         });
+        startup.signal.throwIfAborted();
         if (startingFailure) throw startingFailure;
         this.#running = true;
         starting = false;
@@ -113,6 +156,7 @@ export class RuntimeSupervisor implements RuntimeControl {
         await this.#provider?.stop().catch((stopError) => {
           this.#logger.log("warn", "Tunnel cleanup after failed start failed", { error: String(stopError) });
         });
+        await this.#unloadHost();
         await this.#service?.stop().catch(() => undefined);
         this.#provider = undefined;
         this.#service = undefined;
@@ -120,13 +164,24 @@ export class RuntimeSupervisor implements RuntimeControl {
         this.#running = false;
         this.#exitReason = error instanceof Error ? error.message : String(error);
         throw error;
-      }
+      } finally { if (this.#startingAbort === startup) this.#startingAbort = undefined; }
     });
   }
 
   async stop(): Promise<void> {
+    // Stop must interrupt a hanging MCP handshake before waiting for the serial
+    // lifecycle queue; desktop exit cannot leave an initializing npx tree alive.
+    this.#mcpAuth.cancelPending();
+    this.#startingAbort?.abort();
+    const earlyCleanup = Promise.all([
+      ...[...this.#mcpControllers.values()].map(controller => controller.close().catch(() => {})),
+      this.#testingMcp?.close().catch(() => {}),
+      ...(this.#startingAbort ? [this.#provider?.stop().catch(() => {})] : []),
+    ]);
     return this.#exclusive(async () => {
+      await earlyCleanup;
       if (this.#failureCleanup) await this.#failureCleanup;
+      this.#mcpAuth.cancelPending();
       if (!this.#running) {
         this.approval.resetSession();
         return;
@@ -134,6 +189,7 @@ export class RuntimeSupervisor implements RuntimeControl {
       // Release pending tool calls before closing the HTTP service; otherwise
       // server.close() can wait on an approval that the stopped UI cannot answer.
       this.approval.resetSession();
+      await this.#unloadHost();
       await this.#provider?.stop().catch((error) => this.#logger.log("warn", "Tunnel stop failed", { error: String(error) }));
       await this.#service?.stop();
       this.#provider = undefined;
@@ -201,16 +257,125 @@ export class RuntimeSupervisor implements RuntimeControl {
 
   async dispose(): Promise<void> {
     await this.stop();
+    this.#mcpAuth.close();
     this.approval.dispose();
     await this.#registry.dispose();
   }
 
-  #exclusive(action: () => Promise<void>): Promise<void> {
-    const transition = (this.#transition ?? Promise.resolve()).catch(() => undefined).then(action);
+  async configureExtensions(value: ExtensionConfiguration): Promise<void> {
+    return this.#exclusive(async () => {
+      this.#assertExtensionsEditable();
+      if (this.#failureCleanup) await this.#failureCleanup;
+      const extensions = parseExtensions(value);
+      for (const source of extensions.skills) if (source.enabled) await validateSkillSource(source.path, this.#config.workspace);
+      discoverSkillFiles(extensions.skills, this.#config.workspace, true);
+      await this.#saveExtensions(extensions);
+    });
+  }
+
+  async createSkill(id: string, description: string, instructions: string): Promise<void> {
+    return this.#exclusive(async () => {
+      this.#assertExtensionsEditable();
+      if (this.#failureCleanup) await this.#failureCleanup;
+      const previous = parseExtensions(this.#config.extensions);
+      if (previous.skills.some((source) => source.id === id)) throw new Error("Skill ID already exists");
+      const path = await createSkillFile(join(dirname(this.#config.configFile), "skills"), id, description, instructions);
+      try {
+        await validateSkillSource(path, this.#config.workspace);
+        await this.#saveExtensions(parseExtensions({ ...previous, skills: [...previous.skills, { id, path, enabled: true }] }));
+      } catch (error) { await removeCreatedSkill(path); throw error; }
+    });
+  }
+
+  async testMcpConnection(value: McpConnectionConfig): Promise<{ tools: readonly string[] }> {
+    return this.#exclusive(async () => {
+      this.#assertExtensionsEditable();
+      const config = parseExtensions({ mcp: [value] }).mcp[0]!;
+      if (config.auth === "oauth" && this.#mcpAuth.summary(config).oauth === "pending") throw new Error("Complete or cancel OAuth login before testing");
+      const connection = new McpConnection(config, this.#mcpOptions(config));
+      this.#testingMcp = connection;
+      try {
+        const tools = (await connection.connect(this.#config.workspace)).map(tool => tool.name);
+        this.#mcpHealth.set(config.id, { status: "tested", message: "Test passed; temporary connection closed", discoveredAt: Date.now() });
+        return { tools };
+      } catch (error) {
+        this.#mcpHealth.set(config.id, { status: "test_failed", message: "Connection test failed; check credentials, login and executable path", discoveredAt: 0 });
+        throw error;
+      } finally { await connection.close(); if (this.#testingMcp === connection) this.#testingMcp = undefined; }
+    });
+  }
+
+  #mcpOptions(config: McpConnectionConfig): McpOptions {
+    return { values: this.#mcpAuth.values(config), ...(this.#startingAbort ? { signal: this.#startingAbort.signal } : {}), ...(config.transport === "http" ? { fetch: this.#mcpAuth.fetchMcp } : {}),
+      ...(config.auth === "oauth" ? { authProvider: this.#mcpAuth.provider(config) } : {}),
+      onStatus: (status, message) => this.#mcpHealth.set(config.id, { status, message, discoveredAt: status === "connected" ? Date.now() : this.#mcpHealth.get(config.id)?.discoveredAt ?? 0 }) };
+  }
+  #connection(id: string): McpConnectionConfig {
+    const config = parseExtensions(this.#config.extensions).mcp.find(connection => connection.id === id);
+    if (!config) throw new Error("Unknown configured MCP ID"); return config;
+  }
+  async setMcpCredentials(id: string, updates: unknown): Promise<void> {
+    return this.#exclusive(async () => { this.#assertExtensionsEditable(); this.#mcpAuth.update(this.#connection(id), updates); });
+  }
+  async beginMcpLogin(id: string): Promise<{ url: string }> {
+    return this.#exclusive(async () => { this.#assertExtensionsEditable(); return this.#mcpAuth.begin(this.#connection(id)); });
+  }
+  async cancelMcpLogin(id: string): Promise<void> { this.#mcpAuth.cancel(id); }
+  async logoutMcp(id: string): Promise<void> {
+    return this.#exclusive(async () => { this.#assertExtensionsEditable(); this.#mcpAuth.logout(this.#connection(id)); });
+  }
+  async refreshMcpTools(id: string): Promise<void> {
+    return this.#exclusive(async () => {
+      if (!this.#running) throw new Error("Start Runtime before refreshing MCP tools");
+      const controller = this.#mcpControllers.get(id); if (!controller) throw new Error("MCP is not enabled");
+      await controller.refresh();
+    });
+  }
+  async skillDocuments(): Promise<readonly { id: string; description: string }[]> {
+    return discoverSkillFiles(parseExtensions(this.#config.extensions).skills, this.#config.workspace).map(skill => ({ id: skill.name, description: skill.description }));
+  }
+  async readSkill(id: string): Promise<Awaited<ReturnType<typeof readSkillDocument>>> {
+    return readSkillDocument(parseExtensions(this.#config.extensions).skills, this.#config.workspace, id);
+  }
+  async editSkill(id: string, document: string, revision: string): Promise<void> {
+    return this.#exclusive(async () => {
+      this.#assertExtensionsEditable();
+      await editSkillDocument(parseExtensions(this.#config.extensions).skills, this.#config.workspace, id, document, revision);
+    });
+  }
+
+  #assertExtensionsEditable(): void {
+    if (this.#running) throw new Error("Stop Runtime before changing extensions or testing connections");
+  }
+
+  async #saveExtensions(extensions: ExtensionConfiguration): Promise<void> {
+    const candidate = { ...this.#config, extensions };
+    // Save without constructing providers or connecting external servers.
+    saveConfig(candidate, candidate.rememberSecrets);
+    try { this.#mcpAuth.prune(extensions.mcp); }
+    catch (error) { saveConfig(this.#config, this.#config.rememberSecrets); throw error; }
+    this.#config = candidate;
+  }
+
+  async #unloadHost(): Promise<void> {
+    const host = this.#host;
+    this.#host = undefined;
+    host?.cancel();
+    // Close owned transports concurrently before Pi's sequential shutdown hooks.
+    await Promise.all([...this.#mcpControllers.values()].map(controller => controller.close().catch(() => {})));
+    this.#mcpControllers.clear(); this.#mcpCatalogs.clear(); this.#mcpHealth.clear();
+    if (!host) return;
+    await host.close().catch(() => this.#logger.log("warn", "Pi extension shutdown failed"));
+    this.#registry = this.#createRegistry(this.#config);
+  }
+
+  #exclusive<T>(action: () => Promise<T>): Promise<T> {
+    const result = (this.#transition ?? Promise.resolve()).catch(() => undefined).then(action);
+    const transition = result.then(() => undefined);
     this.#transition = transition;
     const clear = () => { if (this.#transition === transition) this.#transition = undefined; };
     void transition.then(clear, clear);
-    return transition;
+    return result;
   }
 
   async #commitConfiguration(config: DaemonConfig): Promise<void> {
@@ -222,6 +387,8 @@ export class RuntimeSupervisor implements RuntimeControl {
       provider = this.#createProvider(config, service);
       // Disk failure must leave the live snapshot and old tools unchanged, too.
       saveConfig(config, config.rememberSecrets);
+      try { this.#mcpAuth.setRemember(config.rememberSecrets); }
+      catch (error) { saveConfig(this.#config, this.#config.rememberSecrets); throw error; }
     } catch (error) {
       await registry.dispose();
       throw error;
@@ -249,6 +416,7 @@ export class RuntimeSupervisor implements RuntimeControl {
       await this.#provider?.stop().catch((stopError) => {
         this.#logger.log("warn", "Tunnel cleanup after unexpected exit failed", { error: String(stopError) });
       });
+      await this.#unloadHost();
       await this.#service?.stop().catch((stopError) => {
         this.#logger.log("warn", "MCP cleanup after unexpected tunnel exit failed", { error: String(stopError) });
       });
@@ -268,7 +436,6 @@ export class RuntimeSupervisor implements RuntimeControl {
     const authorization = new LocalOAuthServer({
       password: config.oauthPassword,
       staticBearerToken: config.authToken,
-      clientStorePath: `${config.configFile}.oauth-clients.json`,
     });
     return new McpHttpService({
       host: config.host,

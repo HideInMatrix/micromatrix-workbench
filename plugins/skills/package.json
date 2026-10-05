@@ -1,0 +1,16 @@
+{
+  "name": "@micromatrix/plugin-skills",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@micromatrix/pi-body": "0.1.0",
+    "@micromatrix/plugin-kit": "0.1.0"
+  }
+}

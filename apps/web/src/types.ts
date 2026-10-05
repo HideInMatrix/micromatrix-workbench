@@ -121,6 +121,31 @@ export interface BodyPluginDto {
   required: boolean
 }
 
+export interface PiMcpConnectionDto {
+  id: string
+  name: string
+  enabled: boolean
+  transport: 'stdio' | 'http'
+  auth?: 'none' | 'oauth'
+  clientMetadataUrl?: string
+  oauthRedirectUri?: string
+  command: string
+  args: string[]
+  url: string
+  envRefs: Record<string, string>
+  headers: Record<string, string>
+}
+
+export interface PiSkillSourceDto { id: string; path: string; enabled: boolean }
+export interface PiExtensionConfigurationDto { mcp: PiMcpConnectionDto[]; skills: PiSkillSourceDto[] }
+export interface PiExtensionsDto {
+  configuration: PiExtensionConfigurationDto
+  running: boolean
+  host_active: boolean
+  mcp_status?: Record<string, { keys: string[]; oauth: string; status: string; message: string; discoveredAt: number }>
+  loaded_skills: Array<{ id: string; name: string; description: string; disableModelInvocation: boolean }>
+}
+
 export interface SkillSummaryDto {
   id: string
   name: string

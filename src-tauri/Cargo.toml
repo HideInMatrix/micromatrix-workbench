@@ -1,6 +1,6 @@
 [package]
 name = "micromatrix-pi-mcp"
-version = "0.5.13"
+version = "0.5.14"
 description = "Desktop control surface for the MicroMatrix Pi MCP runtime"
 authors = ["MicroMatrix"]
 repository = ""
@@ -26,3 +26,5 @@ tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+
+open = "5.4.4"

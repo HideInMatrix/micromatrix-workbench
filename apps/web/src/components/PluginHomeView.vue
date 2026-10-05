@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { desktopApi } from '../api/desktop'
 import type { BodyPluginDto, CapabilityCatalogDto } from '../types'
+import PiExtensionManager from './services/PiExtensionManager.vue'
 
 const plugins = ref<BodyPluginDto[]>([])
 const catalog = ref<CapabilityCatalogDto | null>(null)
@@ -87,12 +88,14 @@ onMounted(refresh)
       <p class="mt-2 text-[10px] leading-4 text-muted-foreground">运行中的 Runtime 会锁定插件配置；先停止服务，再修改插件开关。</p>
     </section>
 
+    <PiExtensionManager @changed="refresh" />
+
     <section class="mt-8">
       <div class="flex items-center justify-between gap-4">
-        <h2 class="m-0 text-sm font-medium">当前 MCP 工具</h2>
+        <h2 class="m-0 text-sm font-medium">当前 Pi 能力</h2>
         <div class="relative w-[240px]">
           <Search class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground" :size="14" />
-          <input v-model="query" class="h-8 w-full rounded-xl border border-border bg-background pr-3 pl-8 text-xs outline-none focus:ring-2 focus:ring-ring/30" placeholder="搜索工具" />
+          <input v-model="query" class="h-8 w-full rounded-xl border border-border bg-background pr-3 pl-8 text-xs outline-none focus:ring-2 focus:ring-ring/30" placeholder="搜索工具或技能" />
         </div>
       </div>
       <div class="mt-3 divide-y divide-border rounded-xl border border-border bg-card">

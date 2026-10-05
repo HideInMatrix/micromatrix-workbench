@@ -1,6 +1,6 @@
 {
   "name": "micromatrix-pi-agent-mcp",
-  "version": "0.5.13",
+  "version": "0.5.14",
   "private": true,
   "type": "module",
   "packageManager": "npm@11",
@@ -30,7 +30,8 @@
     "test": "vitest run packages plugins apps/daemon && node --test apps/web/tests/*.test.ts scripts/tests/*.test.mjs",
     "typecheck": "tsc -b --pretty false",
     "check": "npm run typecheck && npm run build:web",
-    "prepare:version": "node scripts/release-version.mjs"
+    "prepare:version": "node scripts/release-version.mjs",
+    "pretest": "npm run typecheck"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.87.1",

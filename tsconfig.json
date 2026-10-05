@@ -11,6 +11,8 @@
     { "path": "packages/network" },
     { "path": "plugins/workspace" },
     { "path": "plugins/shell" },
+    { "path": "plugins/mcp" },
+    { "path": "plugins/skills" },
     { "path": "apps/daemon" },
     { "path": "apps/web" }
   ]

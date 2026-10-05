@@ -52,7 +52,7 @@
 
 | 交付项 | 已实现 | 未完成的验收 |
 | --- | --- | --- |
-| OAuth / DCR | metadata、DCR、授权码 PKCE、refresh、revoke、静态 Bearer；本机 OAuth → MCP → Pi 工具集成测试与 HTTP 异常回归通过 | 限流与状态容量、公网 issuer/proxy 信任策略、目标网页客户端实测 |
+| OAuth / CIMD | metadata、CIMD、授权码 PKCE、refresh、revoke、静态 Bearer；本机 OAuth → MCP → Pi 工具集成测试与 HTTP 异常回归通过 | 限流与状态容量、公网 issuer/proxy 信任策略、目标网页客户端实测 |
 | Tool approval / 危险策略 | safe/trusted/dangerous；单次与认证会话授权；停止清空审批；Workspace canonical 路径边界；基础生命周期并发回归 | 控制面访问防护、真实桌面审批交互验收；Shell 不是 OS 沙箱 |
 | Tunnel Providers | External、Cloudflare、ngrok、FRP、Tailscale 的实现；executable/config preflight；部分进程退出监测 | 各 Provider 真实连接与可达性验收；readiness 判定、Tailscale 状态监测与配置归属清理 |
 | Web / Tauri UI | Vue 3 + Vite 8、Runtime 状态、插件开关、网络与密钥配置、审批、Sonner；Tauri 2 壳；内嵌网页同源与手动启停实测 | 完整 Vue SFC 类型检查、浏览器/桌面自动化、异常退出提示 |
@@ -94,7 +94,7 @@ Vite / Tauri → loopback control plane → RuntimeSupervisor
 
 向隔离子进程的 `/token` 发送约 70 KB 的表单，无需认证。`readBody` 抛错，HTTP 顶层没有 catch，Node 子进程退出码 **1**，错误为 `OAuth request body is too large`。不是普通的 4xx 拒绝，而是整个服务退出。
 
-验收：所有请求的异常均有兜底；超限/断连/畸形输入得到确定的错误响应或受控断开；之后健康检查与正常 MCP 调用仍成功。DCR、登录、token 接口同时补充限流与内存状态上限/过期回收。
+验收：所有请求的异常均有兜底；超限/断连/畸形输入得到确定的错误响应或受控断开；之后健康检查与正常 MCP 调用仍成功。CIMD 发现、登录、token 接口同时补充限流与内存状态上限/过期回收。
 
 ### 已修复 — 配置更新失败会破坏原运行状态（初始已复现）
 
@@ -154,7 +154,7 @@ MCP 官方明确要求 Streamable HTTP 服务校验 Origin，并建议本地回�
 
 - Cloudflare Quick Tunnel 以 URL 日志作为 readiness；FRP 接受 login success；ngrok 正则能匹配一般 HTTPS 链接。均需用实际连接状态/可达性校验避免“有地址但未连通”。Tailscale 没有后台故障监测。
 - SDK 当前声明最新支持协议为 `2025-11-25`，不能声称兼容所有最新 MCP 客户端。先声明并实测目标客户端/协议范围，不要求为了首版追新重写。[当前协议与旧版兼容说明](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http)
-- OAuth 的 stop/start 失效语义已修复并补测试；仍需完善 DCR/密码认证限流、状态容量上限与过期回收。
+- OAuth 的 stop/start 失效语义已修复并补测试；仍需完善 CIMD/密码认证限流、状态容量上限与过期回收。
 - `tsc` + 通用 `*.vue` shim 没有完整检查 Vue SFC；补充与 TS 7 兼容的 SFC 检查路径及真实 UI 回归。
 - `.github/workflows/ci.yml` 和 `desktop.yml`：push/PR 类型/构建检查，手动测试包，正常 tag 通过完整矩阵并上传成功后公开正式 Release / Latest；预发布 tag 保持 Pre-release。固定 Action SHA 与 Node/Rust 版本，自动采用 tag 版本并在 SEA 冒烟检查实际显示版本，收集校验和与 commit 元数据。tests 不随 Git 分发；本地回归结果不等于远端 CI 测试覆盖。远端四平台构建和草稿上传已通过，自动公开步骤、干净机器安装和生产签名仍未验收。
 - `THIRD_PARTY_NOTICES.md` 目前只列 Pi；需要核对 Node SEA、前端、Rust 和其他被分发依赖的许可，并保证所需通知随最终包交付。这不是已完成的法律合规结论。
@@ -189,10 +189,36 @@ NSIS 显式当前用户安装，updater 使用 `quiet`；原生读取实际安�
 
 本轮验证：76 个服务/插件 Vitest + 61 个 Node 回归 + 9 个真实 Vue 组件测试通过；类型/Vite build 与 Rust check 通过。Rust 安装格式策略 2 项通过；原生 updater 再次从真实 GitHub `v0.5.11` 下载、校验并替换临时 macOS arm64 `.app`，包内 sidecar、cloudflared 和图标保留。实际 App 启动与六小时定时路径已在组件测试中验证无点击下载安装重启，原生安装测试使用隔离应用，不覆盖用户安装。本轮修复随 `v0.5.12` 标签触发签名打包与正式发布；远端构建结果待本轮验收，不宣称已完成其他系统实机静默升级。所有 tests 继续忽略，不随 Git 分发。
 
-## OAuth 重启后客户端丢失（2026-10-03，v0.5.13）
+## OAuth 旧版迁移说明
 
-已复现：注册仅存在内存，Runtime stop/start 或软件重启后，客户端沿用之前的 client ID 访问 `/authorize` 得到 400 `Unknown client or redirect URI`。公网当前 0.5.12 的根端点和 OAuth discovery 均指向预期服务，此错误不是工具审批或密码输入失败。
+`v0.5.13` 曾以持久化动态注册修复重启后 `Unknown client or redirect URI`。当前未发布代码已按用户要求移除 DCR，包括旧注册文件读取/写入；该历史解决方案不再是当前架构。升级后随机 client ID 连接需改用 CIMD 重新授权，仅支持 DCR 的客户端不兼容。旧注册文件不自动删除，不影响新服务启动。
 
-修复将 DCR 注册元数据独立持久化；保留密码、精确回调地址与 PKCE 校验，授权码、token 和工具会话审批仍随重启失效。新增回归覆盖原 ID 重启后授权、旧 token/code 失效、密码/PKCE/回调拒绝、不可写注册返回 503、损坏/重复记录拒绝、文件权限及无密钥落盘。真实临时 HTTP MCP 流程覆盖同一 client ID 重新授权后列出工具，并要求重新审批写入；未修改用户运行中的服务。
+## Pi 扩展宿主、MCP 与 Skills 基础接入（2026-10-03，未发布）
 
-本地 82 个服务/插件 Vitest 与 61 个 Node 测试通过，类型检查、Vite 和服务打包通过。测试目录继续不跟踪；修复随 `v0.5.13` 标签触发签名打包与正式发布，远端构建及发布结果需单独核验，已安装的 0.5.12 尚不包含此修复。旧版本已丢失的注册无法恢复，需客户端重新添加连接完成一次注册；此后使用持久化版本可以沿用注册信息重新授权。真实 ChatGPT 客户端的升级后重启验收仍待完成。
+Daemon 的执行工具已改为官方 Pi 工厂实际注册的工具，不再仅创建 BodyPlugin 工具后绕过扩展加载。执行宿主只驱动扩展与资源生命周期，不运行第二个模型循环。新增 MCP 桥接扩展、Skills 资源扩展及插件页添加入口；配置持久化、显式连接测试、启停和移除均通过本地控制面，不暴露为可供公网模型改写的管理工具。
+
+真实临时 stdio 和 Streamable HTTP MCP 已完成握手、发现及经 Pi 注册后的调用；返回的 structuredContent 和原始 upstream isError 内容保留。读取声明不能绕过审批，未批准时外部工具执行标记文件没有产生。已验证同一 Runtime stop/start 重新加载、失败启动清理已连接子进程、配置保存不启动进程、Pi Skill 发现及按 ID 读取、名称冲突、schema 拒绝、hook 阻止和已审批参数不可被替换。UI 实际 Vue 组件回归覆盖添加/编辑 MCP、测试与保存分离、创建 Skill 及运行时锁定。
+
+本地结果：91 个服务/插件 Vitest、61 个 Node 测试、12 个 Vue 组件测试通过；类型检查、Vite/服务构建通过。macOS arm64 实际 Node SEA 与 cloudflared 冒烟通过，并在 SEA 中验证 Skill 保存不启动、显式启动加载官方 Pi 宿主/资源并暴露工具、停止清空资源。测试目录继续忽略；未替换用户安装或修改运行中的 Runtime，未提交、推送或发布本阶段代码。
+
+### 本阶段收口（2026-10-04，未发布）
+
+- 本地密钥表单：空白保留、显式清除、保存不清空，变量不再依赖 GUI 继承终端环境。独立 `0600` 凭证文件和 rememberSecrets；不新增公网明文读取接口，不宣称磁盘加密。
+- 外部 HTTP OAuth：标准 SDK discovery / CIMD / PKCE / refresh，系统浏览器显式授权、固定登记回环端口与 state/issuer 校验、取消/超时/注销；凭证绑定目标。缺少授权只提示登录，不自动打开浏览器。
+- 远端工具目录：通知和手动刷新经 Pi 注册同步增删/定义变更，发现失败撤销工具；重置审批并拒绝已审批后被替换的定义。公网 GET 通知流受原有认证保护，停止会关闭活动流。
+- Skill 文档编辑：Pi 验证、revision 冲突检查与原子替换。通过 Skill ID + 相对路径列出/读取支持文件，拒绝遍历、symlink 与超大/非 UTF-8 文件，不自动执行脚本。
+- owned stdio 清理：Unix group TERM/KILL、Windows PID tree taskkill，多个 MCP 并行关闭。新增真实 descendant 忽略 TERM、挂起初始化/连接测试中途停止、运行中工具取消的清理回归。Tauri 退出先验证 owned sidecar PID，再请求 stop_runtime，6 秒上限后退出；并修正服务 SIGTERM 清理顺序。
+- 控制面：补回环 Host/port 校验、JSON content type 与未授权 cross-site 拒绝（保留 WebView2/Tauri 受信 Origin），JSON Content-Length 和 no-store；仍未提供对本机恶意进程的身份隔离。
+
+验收：98 个服务/插件 Vitest、61 个 Node、15 个真实 Vue 组件测试及 Rust owned-service 清理测试通过；类型/Vite、服务 bundle 和 macOS arm64 SEA 通过。SEA 实际验证无系统 PATH 下的内置 cloudflared、官方 Pi 宿主与 Skill 编辑/支持文件发现、外部 stdio 真实握手/本地密钥注入/注册以及测试/停止后的进程退出。测试目录继续不跟踪；未替换用户安装，未提交或发布。本机尚不能证明 Windows/Linux/macOS Intel 安装包实机行为；各平台 CI 已接入同一 SEA 冒烟，需新标签打包后验收。旧 SSE、DCR-only/服务特有 OAuth、恶意进程 breakaway 和 OS 沙箱不是本阶段支持项。
+
+## CIMD-only 收口（2026-10-04，尚未发布）
+
+- 对外 OAuth 移除 `/register`、registration_endpoint、动态 ID、注册存储和旧注册文件依赖；public server card 标记 `clientRegistration: cimd`。CIMD/PKCE、issuer 响应、SSRF/有界缓存仍保留。
+- 外部 OAuth 也移除注册 fallback，要求操作者托管自己稳定 HTTPS 文档、填写准确固定回环 callback。标准 SDK 仅做 discovery/CIMD 身份/PKCE/refresh；发现不支持 CIMD/S256/none 直接拒绝。旧配置可以加载并编辑，但不能继续动态注册登录；旧 OAuth token 不复用，已有本地密钥不清空。未配置或被占用的固定回调会明确报错。
+- 旧动态客户端连接是破坏性迁移：网页客户端须使用 CIMD 重建连接；只有 DCR 能力的客户端/外部服务不支持。没有替用户部署客户端文档，不能声称公网外部 OAuth 即开即用。
+- 本机 fake-IP DNS（`198.18.0.9` 及保留范围 AAAA）仍使真实 ChatGPT 文档 GET 被安全校验拒绝；不关闭防护，需真实公网 DNS 再测。Windows/Linux/macOS Intel 安装包实机仍待验收。
+
+本轮验收：177 个服务/插件测试、61 个 Node 测试、15 个真实 Vue 组件测试通过，类型/Vite/服务 bundle 与 macOS arm64 SEA 冒烟通过。已覆盖服务端无注册入口、重启按 URL 重新授权、损坏旧注册文件不读不改、外部 SDK 不 POST 注册、CIMD discovery 不兼容拒绝、固定 callback/state/PKCE/refresh、旧 token 迁移与身份/回调隔离，以及新增 CIMD 表单保存不启动。issuer 校验已实现；公开 ChatGPT 联调仍未通过 fake-IP DNS 边界。未跳过原认证/审批测试；测试目录保持不跟踪，尚未提交或发布。
+
+依据：[MCP 2025-11-25 授权规范](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)、[CIMD IETF 草案 -02](https://www.ietf.org/archive/id/draft-ietf-oauth-client-id-metadata-document-02.html)、[OpenAI CIMD/认证方法协商说明](https://developers.openai.com/plugins/build/auth)。CIMD-only 是本项目的主动兼容性取舍，不能把 DCR 描述为已被标准废除。

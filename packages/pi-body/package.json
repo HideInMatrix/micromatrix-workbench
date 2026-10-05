@@ -5,6 +5,8 @@
   "type": "module",
   "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
   "dependencies": {
-    "@micromatrix/plugin-kit": "0.1.0"
+    "@micromatrix/plugin-kit": "0.1.0",
+    "@earendil-works/pi-ai": "0.87.1",
+    "@earendil-works/pi-coding-agent": "0.87.1"
   }
 }

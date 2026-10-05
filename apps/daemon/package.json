@@ -13,6 +13,9 @@
     "@micromatrix/plugin-kit": "0.1.0",
     "@micromatrix/plugin-shell": "0.1.0",
     "@micromatrix/plugin-workspace": "0.1.0",
-    "@micromatrix/web-assets": "0.1.0"
+    "@micromatrix/web-assets": "0.1.0",
+    "@micromatrix/plugin-mcp": "0.1.0",
+    "@micromatrix/plugin-skills": "0.1.0",
+    "@micromatrix/pi-body": "0.1.0"
   }
 }

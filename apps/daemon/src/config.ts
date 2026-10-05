@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 
 import type { ApprovalMode } from "@micromatrix/approval";
+import { parseExtensions, type ExtensionConfiguration } from "@micromatrix/plugin-kit";
 
 export type NetworkProviderKey = "external" | "cloudflare" | "frp" | "ngrok" | "tailscale";
 
@@ -17,6 +18,7 @@ export interface DaemonConfig {
   readonly rememberSecrets: boolean;
   readonly permissionMode: ApprovalMode;
   readonly plugins: { readonly shell: boolean };
+  readonly extensions?: ExtensionConfiguration;
   readonly controlHost: string;
   readonly controlPort: number;
   readonly network: {
@@ -35,6 +37,7 @@ interface SavedConfig {
   readonly rememberSecrets?: boolean;
   readonly permissionMode?: ApprovalMode;
   readonly plugins?: { readonly shell?: boolean };
+  readonly extensions?: ExtensionConfiguration;
   readonly network?: {
     readonly provider?: NetworkProviderKey;
     readonly publicUrl?: string;
@@ -101,6 +104,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DaemonConfig {
     rememberSecrets: boolean(first(env, "MICROMATRIX_REMEMBER_SECRETS"), disk.rememberSecrets ?? true),
     permissionMode,
     plugins: { shell: boolean(first(env, "MICROMATRIX_ENABLE_SHELL"), disk.plugins?.shell ?? false) },
+    extensions: parseExtensions(disk.extensions),
     controlHost: first(env, "MICROMATRIX_CONTROL_HOST") ?? "127.0.0.1",
     controlPort,
     network: {
@@ -124,6 +128,7 @@ export function saveConfig(config: DaemonConfig, rememberSecrets: boolean): void
     rememberSecrets,
     permissionMode: config.permissionMode,
     plugins: config.plugins,
+    extensions: parseExtensions(config.extensions),
     network: {
       provider: config.network.provider,
       ...(config.network.publicUrl ? { publicUrl: config.network.publicUrl } : {}),

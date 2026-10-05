@@ -19,8 +19,9 @@ function isLoopback(host: string): boolean {
 }
 
 function writeJson(response: ServerResponse, status: number, value: unknown): void {
-  response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
-  response.end(JSON.stringify(value));
+  const body = JSON.stringify(value) ?? "null";
+  response.writeHead(status, { "content-type": "application/json; charset=utf-8", "content-length": Buffer.byteLength(body) });
+  response.end(body);
 }
 
 async function readRequest(request: IncomingMessage): Promise<DesktopApiRequest> {
@@ -79,6 +80,14 @@ export class ControlPlaneHttpService {
   }
 
   async #handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    response.setHeader("cache-control", "no-store");
+    let host: URL;
+    try { host = new URL(`http://${request.headers.host ?? ""}`); }
+    catch { writeJson(response, 403, { error: "host_not_allowed" }); return; }
+    const port = new URL(this.localBaseUrl).port;
+    if (!["localhost", "127.0.0.1", "[::1]"].includes(host.hostname) || host.port !== port || host.username || host.password) {
+      writeJson(response, 403, { error: "host_not_allowed" }); return;
+    }
     const origin = request.headers.origin;
     if (origin && !this.#allowsOrigin(origin)) {
       writeJson(response, 403, { error: "origin_not_allowed" });
@@ -96,13 +105,19 @@ export class ControlPlaneHttpService {
     }
     const url = new URL(request.url ?? "/", this.localBaseUrl);
     if (url.pathname === "/healthz") {
-      writeJson(response, 200, { ok: true });
+      writeJson(response, 200, { ok: true, process_id: process.pid });
       return;
     }
     if ((request.method === "GET" || request.method === "HEAD") && this.#serveWeb(url.pathname, request, response)) return;
     if (url.pathname !== "/api/desktop" || request.method !== "POST") {
       writeJson(response, 404, { error: "not_found" });
       return;
+    }
+    // WebView2 reports the explicitly trusted Tauri origin as cross-site.
+    // Origin was validated above; Fetch Metadata must not break desktop clients.
+    if (request.headers["content-type"]?.split(";")[0]?.trim().toLowerCase() !== "application/json"
+      || (request.headers["sec-fetch-site"] === "cross-site" && !origin)) {
+      writeJson(response, 415, { error: "json_same_site_required" }); return;
     }
     try {
       writeJson(response, 200, await this.#router.dispatch(await readRequest(request)));
