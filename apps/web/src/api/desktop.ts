@@ -15,6 +15,7 @@ import type {
   PiExtensionConfigurationDto,
   PiExtensionsDto,
   PiMcpConnectionDto,
+  ComputerUseStatusDto,
 } from '../types'
 
 interface DesktopApiRequest {
@@ -89,7 +90,13 @@ export const desktopApi = {
   ) => call<boolean>('respond_permission_request', requestId, decision),
   capabilityCatalog: () => call<CapabilityCatalogDto>('get_workbench_capability_catalog'),
   piExtensions: () => call<PiExtensionsDto>('get_pi_extensions'),
-  computerUseMcpTemplate: () => call<PiMcpConnectionDto>('get_computer_use_mcp_template'),
+  computerUseStatus: () => call<ComputerUseStatusDto>('get_computer_use_status'),
+  setComputerUseEnabled: (enabled: boolean) => call<ComputerUseStatusDto>('set_computer_use_enabled', enabled),
+  checkComputerUsePermissions: (request = false) => call<ComputerUseStatusDto>('check_computer_use_permissions', request),
+  async openComputerUseSettings(): Promise<void> {
+    if (!isTauri()) throw new Error('请在桌面客户端打开系统权限设置，或手动前往系统设置 → 隐私与安全性 → 辅助功能。')
+    await invoke('open_computer_use_settings')
+  },
   configurePiExtensions: (configuration: PiExtensionConfigurationDto) => call<boolean>('configure_pi_extensions', configuration),
   createPiSkill: (id: string, description: string, instructions: string) => call<boolean>('create_pi_skill', id, description, instructions),
   testPiMcp: (connection: PiMcpConnectionDto) => call<{ tools: string[] }>('test_pi_mcp', connection),

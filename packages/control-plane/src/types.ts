@@ -1,5 +1,29 @@
 import type { ExtensionConfiguration, McpConnectionConfig } from "@micromatrix/plugin-kit";
 
+export interface ComputerUsePermissionStatus {
+  readonly platform: "macos" | "windows";
+  readonly helperPath: string;
+  readonly accessibility?: boolean;
+  readonly interactiveDesktop?: boolean;
+  readonly elevated?: boolean;
+  readonly promptRequested: boolean;
+  readonly requiresScreenRecording: false;
+}
+export interface BuiltinComputerUseStatus {
+  readonly enabled: boolean;
+  readonly allowActions: boolean;
+  readonly supported: boolean;
+  readonly available: boolean;
+  readonly platform: string;
+  readonly helperPath: string;
+  readonly running: boolean;
+  readonly connected: boolean;
+  readonly permission: ComputerUsePermissionStatus | null;
+  readonly checkedAt: number;
+  readonly error: string;
+  readonly conflict: boolean;
+}
+
 export interface DesktopApiRequest {
   readonly method: string;
   readonly args: readonly unknown[];
@@ -59,6 +83,9 @@ export interface RuntimeTool {
 }
 
 export interface RuntimeControl {
+  computerUseStatus?(): BuiltinComputerUseStatus;
+  setComputerUseEnabled?(enabled: boolean): Promise<void>;
+  checkComputerUsePermissions?(request: boolean): Promise<BuiltinComputerUseStatus>;
   computerUseConnection?(): McpConnectionConfig;
   snapshot(): RuntimeSnapshot;
   start(): Promise<void>;

@@ -251,3 +251,13 @@ Daemon 的执行工具已改为官方 Pi 工厂实际注册的工具，不再仅
 - 暂停 Linux 客户端：移除桌面 matrix、安装包/更新条目、原生 build target 与 cloudflared 固定资产；Rust client/桌面工厂拒绝不支持系统。Linux runner 只保留 TS/Web 检查和 Release 附件整理。新 Release 为 4 个安装包、2 个 macOS 更新归档、latest.json 与 SHA256SUMS.txt，不删历史发布或用户文件。
 
 本轮验证：236 个服务/插件、61 个 Node、17 个 Vue 回归通过（合计 314）。初次完整回归出现一次既有 Cloudflare 退出测试 5 秒超时，重跑全部通过；没有更改该超时或跳过测试。统一代理两个 OS 的契约测试是 backend doubles，不冒充实机 GUI。Windows 源码使用 Microsoft Roslyn 4.11、C#5 模式及 .NET Framework 4.8 引用实际交叉编译为 x64 PE，包含明确的无提权 manifest；临时编译工具仅在 /tmp，不加入产品或 Git。**未在 Windows 上运行 UIA，尚需 Windows CI 原生构建及实机交互验收**。macOS arm64 实际 SEA、最终 .app 内代理/helper 执行与 deep/strict 签名检查通过；辅助功能仍未授权，真实 GUI 动作未验收。测试目录继续忽略。本阶段源码随 v0.5.16 标签发布；安装包与正式 Release 必须等待标签工作流全部构建成功，不能用源码标签或本地验收代替安装包验收。
+
+## Computer Use 内置管理与系统权限引导（2026-10-06，v0.5.17 发布变更）
+
+- 新安装默认已经有内置 Computer Use，关闭但可用；无需手动添加 MCP、填写路径/参数。开关只保存状态，不能启动 Runtime/Tunnel。旧官方预填项归一化为内置配置，保留 enabled/readonly；不会覆盖同名第三方连接。当前安装生成 owned 程序/工作区参数，不执行旧安装路径。
+- Runtime / 插件页都有设置卡，区分“已启用”“系统权限”“Pi 已连接”。macOS 启用后的无提示检查只查询固定 helper 信任；显式按钮才请求 TCC 并打开固定的 Accessibility 系统设置 URL。显示真实 helper 路径、手工添加方法、返回自动检查/重新检测与限时轮询；打开设置不代表授权成功，不代点系统开关。Windows 检查交互桌面，无自动提权、无 macOS 假流程。没有新增屏幕录制/完全磁盘权限。
+- 本地检查不是公网工具执行，更不跳过外部 MCP open_world 审批。Start 仍显式、无 TCC 自动提示。首次接入的 ChatGPT 工具缓存需由用户在客户端刷新，程序不代改 ChatGPT 账户权限。Blender 专用建模适配仍不在本轮范围。
+- 验证：243 个服务/插件 Vitest、61 个 Node、29 个 Vue 组件测试通过（合计 333），Rust 检查与 owned-service 清理测试通过。Type/Vite 构建、真实 macOS arm64 Node SEA、Pi 接入与审批、临时 JSON 回读、内置开关持久化/无隐式启动、原生权限检查全部通过。本机仍是 Accessibility=false，未修改系统授权；权限申请后的授予与真实 GUI 动作未作实机验收。Vue 权限授予/返回检测和 Windows UI 状态用契约替身覆盖，不冒充原生成功。
+- 隔离的嵌入式 Web 预览实际显示预装关闭开关；未替换 /Applications 客户端、修改用户 Runtime/秘密或开启用户 Tunnel。所有 tests 继续忽略；新增关键检查也纳入跟踪的 SEA 冒烟脚本。本轮使用 v0.5.17 源码标签；安装包和自动更新仍以远端工作流成功后的正式 Release 为准，v0.5.16 不含本轮改动。
+
+- 界面收口：Runtime 状态区压缩为页头徽标，统一页宽和间距；移除重复微文案，技术说明折叠展示，必要审批/权限/错误保留。补充 Runtime 设置与内置插件同时可见、帮助默认收起的 Vue 回归；在 900px 桌面最小窗口宽度验证实际嵌入式预览，未启用用户 Runtime 或修改安装。

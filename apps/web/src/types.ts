@@ -136,6 +136,21 @@ export interface PiMcpConnectionDto {
   headers: Record<string, string>
 }
 
+export interface ComputerUseStatusDto {
+  enabled: boolean
+  allowActions: boolean
+  supported: boolean
+  available: boolean
+  platform: string
+  helperPath: string
+  running: boolean
+  connected: boolean
+  permission: { platform: 'macos' | 'windows'; helperPath: string; accessibility?: boolean; interactiveDesktop?: boolean; elevated?: boolean; promptRequested: boolean; requiresScreenRecording: false } | null
+  checkedAt: number
+  error: string
+  conflict: boolean
+}
+
 export interface PiSkillSourceDto { id: string; path: string; enabled: boolean }
 export interface PiExtensionConfigurationDto { mcp: PiMcpConnectionDto[]; skills: PiSkillSourceDto[] }
 export interface PiExtensionsDto {

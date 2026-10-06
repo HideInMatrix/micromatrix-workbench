@@ -34,7 +34,7 @@ MCP transport、Tunnel Provider 和 UI 不得实现文件、Shell 等业务工�
 
 ### Computer Use 的能力边界
 
-ASIL 风格服务是同一可执行文件的独立 stdio MCP 模式，通过现有 Pi MCP 扩展注册，不构造 Runtime/Tunnel 或本地模型。UI 预填配置不启动进程；读操作也不自动请求系统授权。适配器拥有结构化状态、语义动作、revision 校验和动作后验证，禁止任意 eval/坐标点击回退。统一 DesktopProxy 组合惰性 NativeDesktopChannel，由 OS descriptor 选择 macOS Swift/Accessibility 或 Windows C#/UI Automation helper；状态、动作校验、审批、过期/revision、回读及生命周期共用，不按系统复制执行引擎。JSON 适配遵循 Workspace 边界。Linux 客户端构建和更新目标暂停，纯 TS CI 的 Linux runner 不属于产品客户端。状态是模型的不可信输入，工具审批与 OS 授权独立；动作默认禁用，打开后仍遵循外部 MCP 审批策略。具体合同及限制见 [Computer Use](computer-use.md)。
+ASIL 风格服务是同一可执行文件的独立 stdio MCP 模式，通过现有 Pi MCP 扩展注册，不构造 Runtime/Tunnel 或本地模型。Computer Use 作为受管理的内置插件，在独立 computerUse 配置保存启用/动作标志；不混入用户 MCP 目录，不占用外部连接名额。程序与 helper 路径从当前安装派生，旧官方预填项保留开关与只读语义迁移（不覆盖同名第三方连接）。开关保存不启动 Runtime/Tunnel；系统检查仅运行短生命周期固定 helper 查询信任状态，不读取应用内容。只有用户点击权限按钮才请求 TCC 提示和打开固定系统设置地址，返回复检；Windows 不自动提权。适配器拥有结构化状态、语义动作、revision 校验和动作后验证，禁止任意 eval/坐标点击回退。统一 DesktopProxy 组合惰性 NativeDesktopChannel，由 OS descriptor 选择 macOS Swift/Accessibility 或 Windows C#/UI Automation helper；状态、动作校验、审批、过期/revision、回读及生命周期共用，不按系统复制执行引擎。JSON 适配遵循 Workspace 边界。Linux 客户端构建和更新目标暂停，纯 TS CI 的 Linux runner 不属于产品客户端。状态是模型的不可信输入，工具审批与 OS 授权独立；内置插件默认关闭，显式启用后可请求控制动作，仍遵循外部 MCP 审批策略；旧只读配置不会静默升级为控制。具体合同及限制见 [Computer Use](computer-use.md)。
 
 ## Approval before execution
 

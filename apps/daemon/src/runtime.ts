@@ -1,11 +1,10 @@
 import { stat } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { isSea } from "node:sea";
-import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 
 import { ApprovalPolicy } from "@micromatrix/approval";
-import type { RuntimeConfigurationUpdate, RuntimeControl, RuntimeSnapshot, SecretUpdate } from "@micromatrix/control-plane";
+import type { RuntimeConfigurationUpdate, RuntimeControl, RuntimeSnapshot, SecretUpdate, BuiltinComputerUseStatus, ComputerUsePermissionStatus } from "@micromatrix/control-plane";
+import { DesktopProxy, desktopPlatform, nativeHelperPath } from "@micromatrix/computer-use";
 import { McpHttpService } from "@micromatrix/mcp-server";
 import {
   CloudflareNetworkProvider,
@@ -28,15 +27,64 @@ import { createWorkspacePlugin } from "@micromatrix/plugin-workspace";
 import { saveConfig, type DaemonConfig } from "./config.js";
 import { defaultCloudflaredExecutable } from "./tunnel-executable.js";
 import { APP_VERSION } from "./version.js";
+import { builtinComputerUseConfiguration, computerUseConnection } from "./builtin-computer-use.js";
 
 export class RuntimeSupervisor implements RuntimeControl {
   computerUseConnection(): McpConnectionConfig {
-    // Return configuration only: do not spawn, prompt or modify user config.
-    const source = fileURLToPath(import.meta.url);
-    const entry = source.endsWith(".cjs") ? source : join(dirname(source), source.endsWith(".ts") ? "main.ts" : "main.js");
-    const args = isSea() ? [] : [...(entry.endsWith(".ts") ? ["--import",createRequire(import.meta.url).resolve("tsx")] : []),entry];
-    return { id:"computer_use",name:"Computer Use · ASIL",enabled:true,transport:"stdio",command:process.execPath,
-      args:[...args,"--computer-use-mcp"],url:"",envRefs:{},headers:{} };
+    return computerUseConnection(this.#config.workspace);
+  }
+  #computerPermission: ComputerUsePermissionStatus | null = null;
+  #computerPermissionCheckedAt = 0;
+  #computerPermissionError = "";
+  computerUseStatus(): BuiltinComputerUseStatus {
+    const supported = process.platform === "darwin" || process.platform === "win32";
+    let helperPath = "";
+    try { if (supported) helperPath = nativeHelperPath(); } catch { /* Unsupported CPU. */ }
+    const conflict = parseExtensions(this.#config.extensions).mcp.some(connection => connection.id === "computer_use");
+    return { enabled: this.#config.computerUse?.enabled ?? false, allowActions: this.#config.computerUse?.allowActions ?? true,
+      supported: supported && Boolean(helperPath), available: Boolean(helperPath && existsSync(helperPath)),
+      platform: supported ? desktopPlatform().name : process.platform, helperPath,
+      running: this.#running, connected: this.#running && this.#mcpHealth.get("computer_use")?.status === "connected",
+      permission: this.#computerPermission, checkedAt: this.#computerPermissionCheckedAt,
+      error: this.#computerPermissionError, conflict };
+  }
+  async setComputerUseEnabled(enabled: boolean): Promise<void> {
+    return this.#exclusive(async () => {
+      this.#assertExtensionsEditable();
+      if (this.#failureCleanup) await this.#failureCleanup;
+      const status = this.computerUseStatus();
+      if (enabled && (!status.supported || !status.available)) throw new Error("Computer Use native helper unavailable; install a complete macOS or Windows desktop build");
+      if (enabled && status.conflict) throw new Error("Rename the custom MCP ID computer_use before enabling the built-in plugin");
+      // A user's enable action opts into control, still guarded by existing approvals/TCC.
+      // Saving a builtin must not validate/start an unfinished Tunnel configuration.
+      await this.#saveExtensions(parseExtensions(this.#config.extensions), { enabled, allowActions: enabled || status.allowActions });
+      this.#computerPermission = null; this.#computerPermissionCheckedAt = 0; this.#computerPermissionError = "";
+    });
+  }
+  async checkComputerUsePermissions(request = false): Promise<BuiltinComputerUseStatus> {
+    return this.#exclusive(() => this.#checkComputerUsePermissions(request));
+  }
+  async #checkComputerUsePermissions(request: boolean): Promise<BuiltinComputerUseStatus> {
+    const status = this.computerUseStatus();
+    if (!status.enabled) throw new Error("Enable Computer Use before checking its system permission");
+    if (!status.supported || !status.available) throw new Error("Computer Use native helper unavailable");
+    if (request && (!status.allowActions || status.platform !== "macos")) throw new Error("Explicit Accessibility requests require enabled macOS control");
+    const desktop = new DesktopProxy();
+    try {
+      // Check only the fixed helper's trust/desktop status; never read app contents.
+      const result = await desktop.permissions(request) as Record<string, unknown>;
+      if (status.platform === "macos" ? typeof result.accessibility !== "boolean" : typeof result.interactive_desktop !== "boolean") throw new Error("Invalid native permission response");
+      this.#computerPermission = { platform: status.platform as "macos" | "windows", helperPath: status.helperPath,
+        ...(status.platform === "macos" ? { accessibility: result.accessibility as boolean }
+          : { interactiveDesktop: result.interactive_desktop as boolean, elevated: result.elevated === true }),
+        promptRequested: request, requiresScreenRecording: false };
+      this.#computerPermissionCheckedAt = Date.now(); this.#computerPermissionError = "";
+      return this.computerUseStatus();
+    } catch (error) {
+      this.#computerPermission = null; this.#computerPermissionCheckedAt = Date.now();
+      this.#computerPermissionError = error instanceof Error ? error.message : String(error);
+      throw error;
+    } finally { await desktop.close(); }
   }
   #config: DaemonConfig;
   readonly #logger: PluginLogger;
@@ -58,7 +106,8 @@ export class RuntimeSupervisor implements RuntimeControl {
   readonly #mcpHealth = new Map<string, { status: string; message: string; discoveredAt: number }>();
 
   constructor(config: DaemonConfig, logger: PluginLogger) {
-    this.#config = config;
+    const builtin = builtinComputerUseConfiguration(config.computerUse, parseExtensions(config.extensions));
+    this.#config = { ...config, computerUse: builtin.configuration, extensions: builtin.extensions };
     this.#logger = logger;
     this.#mcpAuth = new McpAuthStore(`${config.configFile}.mcp-credentials.json`, config.rememberSecrets);
     this.approval = new ApprovalPolicy(config.permissionMode, 120_000, (event) => {
@@ -122,10 +171,15 @@ export class RuntimeSupervisor implements RuntimeControl {
         startup.signal.throwIfAborted();
         const context = { workspace: this.#config.workspace, logger: this.#logger };
         const extensions = parseExtensions(this.#config.extensions);
+        const builtin = this.computerUseStatus();
+        if (builtin.enabled && builtin.conflict) throw new Error("Custom MCP ID computer_use conflicts with the built-in plugin");
+        if (builtin.enabled) await this.#checkComputerUsePermissions(false); // Never prompt on Start.
+        startup.signal.throwIfAborted();
+        const connections = [...extensions.mcp, ...(builtin.enabled ? [computerUseConnection(this.#config.workspace, true, builtin.allowActions)] : [])];
         const plugins = [createWorkspacePlugin(), ...(this.#config.plugins.shell ? [createShellPlugin()] : [])];
         this.#host = await PiBodyHost.create(context, join(dirname(this.#config.configFile), "pi"), [
           ...plugins.map((plugin) => ({ name: plugin.id, factory: createPiBodyExtension([plugin], context) })),
-          ...extensions.mcp.filter((connection) => connection.enabled).map((connection) => ({
+          ...connections.filter((connection) => connection.enabled).map((connection) => ({
             name: `mcp:${connection.id}`, factory: createMcpExtension(connection, this.#mcpOptions(connection), names => {
               this.#mcpCatalogs.set(connection.id, names);
               this.#host?.refreshTools(`mcp:${connection.id}`, names);
@@ -278,9 +332,12 @@ export class RuntimeSupervisor implements RuntimeControl {
       this.#assertExtensionsEditable();
       if (this.#failureCleanup) await this.#failureCleanup;
       const extensions = parseExtensions(value);
+      const builtin = builtinComputerUseConfiguration(undefined, extensions);
+      if (builtin.extensions.mcp.some(connection => connection.id === "computer_use")) throw new Error("computer_use is reserved for the built-in plugin; use a different custom MCP ID");
       for (const source of extensions.skills) if (source.enabled) await validateSkillSource(source.path, this.#config.workspace);
       discoverSkillFiles(extensions.skills, this.#config.workspace, true);
-      await this.#saveExtensions(extensions);
+      // Compatibility for older desktop presets; migrate, do not duplicate a child.
+      await this.#saveExtensions(builtin.extensions, builtin.extensions.mcp.length !== extensions.mcp.length ? builtin.configuration : this.#config.computerUse);
     });
   }
 
@@ -359,8 +416,8 @@ export class RuntimeSupervisor implements RuntimeControl {
     if (this.#running) throw new Error("Stop Runtime before changing extensions or testing connections");
   }
 
-  async #saveExtensions(extensions: ExtensionConfiguration): Promise<void> {
-    const candidate = { ...this.#config, extensions };
+  async #saveExtensions(extensions: ExtensionConfiguration, computerUse = this.#config.computerUse ?? { enabled: false, allowActions: true }): Promise<void> {
+    const candidate = { ...this.#config, extensions, computerUse };
     // Save without constructing providers or connecting external servers.
     saveConfig(candidate, candidate.rememberSecrets);
     try { this.#mcpAuth.prune(extensions.mcp); }

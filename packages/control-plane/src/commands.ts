@@ -183,6 +183,18 @@ export class DesktopCommandRouter {
       case "get_computer_use_mcp_template":
         if (!this.#options.runtime.computerUseConnection) throw new Error("Computer Use MCP template unavailable");
         return this.#options.runtime.computerUseConnection();
+      case "get_computer_use_status":
+        if (!this.#options.runtime.computerUseStatus) throw new Error("Built-in Computer Use unavailable");
+        return this.#options.runtime.computerUseStatus();
+      case "set_computer_use_enabled":
+        if (!this.#options.runtime.setComputerUseEnabled) throw new Error("Built-in Computer Use unavailable");
+        if (typeof request.args[0] !== "boolean") throw new Error("Computer Use enabled must be a boolean");
+        await this.#options.runtime.setComputerUseEnabled(request.args[0]);
+        return this.#options.runtime.computerUseStatus?.();
+      case "check_computer_use_permissions":
+        if (!this.#options.runtime.checkComputerUsePermissions) throw new Error("Computer Use permission check unavailable");
+        if (request.args[0] !== undefined && typeof request.args[0] !== "boolean") throw new Error("Permission request must be a boolean");
+        return this.#options.runtime.checkComputerUsePermissions(request.args[0] === true);
       case "configure_pi_extensions":
         if (!this.#options.runtime.configureExtensions) throw new Error("Pi extension management unavailable");
         await this.#options.runtime.configureExtensions(parseExtensions(request.args[0]));

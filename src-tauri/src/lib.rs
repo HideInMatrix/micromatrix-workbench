@@ -60,6 +60,15 @@ fn open_authorization_url(url: String) -> Result<(), String> {
   open::that_detached(parsed.as_str()).map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+fn open_computer_use_settings() -> Result<(), String> {
+  // Fixed destination only; never accept an arbitrary settings URL/command.
+  #[cfg(target_os = "macos")]
+  { open::that_detached("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility").map_err(|error| error.to_string()) }
+  #[cfg(not(target_os = "macos"))]
+  { Err("Windows UI Automation requires an unlocked interactive desktop; no Accessibility grant or auto-elevation is available".into()) }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   let mut context = tauri::generate_context!();
@@ -69,7 +78,7 @@ pub fn run() {
     .plugin(tauri_plugin_shell::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
     .plugin(tauri_plugin_process::init())
-    .invoke_handler(tauri::generate_handler![desktop_service_error, show_permission_prompt, runtime_saved_secrets, open_authorization_url])
+    .invoke_handler(tauri::generate_handler![desktop_service_error, show_permission_prompt, runtime_saved_secrets, open_authorization_url, open_computer_use_settings])
     .setup(|app| {
       let service = Arc::new(Mutex::new(ServiceState::default()));
       app.manage(ServiceChild(service.clone()));

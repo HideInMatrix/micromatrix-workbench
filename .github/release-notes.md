@@ -1,4 +1,4 @@
-# micromatrix agent v0.5.16
+# micromatrix agent v0.5.17
 
 Normal version tags publish automatically as stable releases and GitHub Latest;
 tags with a prerelease suffix remain prereleases. Review the known limitations
@@ -14,9 +14,16 @@ label does not imply production signing or that all security work is complete.
 - The build matrix targets macOS arm64/x64 and Windows x64 (Linux desktop support is suspended). Successful
   compilation is not a guarantee that installation or all Tunnel providers have
   been validated on those platforms.
-- Computer Use uses one semantic proxy with macOS Accessibility and Windows UI
-  Automation native backends; actions are disabled by default and require the
-  existing tool approvals. Native Windows interaction awaits real-machine acceptance.
+- Computer Use is preinstalled as a Pi MCP plugin; enable its switch instead of
+  adding a separate MCP service. It is disabled on fresh installs and still loads
+  only after Runtime Start. Enabling permits control actions subject to Runtime
+  approval policy; legacy read-only configurations remain read-only until opted in.
+- macOS provides explicit Accessibility permission onboarding, a fixed System
+  Settings link and native rechecks. Windows checks the interactive desktop; no
+  automatic elevation or permission bypass. Native Windows interaction awaits
+  real-machine acceptance.
+- Runtime and plugin layouts are simplified: duplicate microcopy is removed,
+  technical help is collapsed, and configuration/start controls remain visible.
 - Pending work includes desktop graceful shutdown with an active Tunnel,
   control-plane/proxy trust hardening, OAuth rate limits and comprehensive license
   auditing. These limits still apply to formally published releases.

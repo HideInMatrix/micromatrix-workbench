@@ -69,24 +69,7 @@ const emit = defineEmits<{
 
 <template>
   <section class="overflow-hidden rounded-lg border border-border bg-popover p-4 shadow-sm">
-    <div class="mb-4 flex items-center justify-between gap-3.5">
-      <div>
-        <h2 class="m-0 text-[13px] leading-5 font-medium">Runtime 设置</h2>
-        <p class="mt-px mb-0 text-[11px] leading-4 text-muted-foreground">
-          配置 Pi Runtime、OAuth、审批策略、插件与公网隧道；当前 Runtime 由启动/停止按钮控制。
-        </p>
-      </div>
-      <span
-        :class="[
-          'inline-flex min-h-[22px] items-center whitespace-nowrap rounded-full px-2 text-[10px] font-medium',
-          selectedRunning
-            ? 'bg-success/10 text-success'
-            : 'bg-secondary text-muted-foreground',
-        ]"
-      >
-        {{ selectedRunning ? '运行中' : '已停止' }}
-      </span>
-    </div>
+    <h2 class="mb-4 text-sm font-medium">Runtime 设置</h2>
 
     <FormGrid>
       <FormField label="Runtime 名称" span="2">
@@ -154,7 +137,7 @@ const emit = defineEmits<{
               @click="toggleNetworkSecretClear(field.key)"
             ><RotateCcw v-if="draft.network.secret_actions[field.key] === 'clear'" :size="15" /><Trash2 v-else :size="15" /></InputGroupButton>
           </InputGroup>
-          <span class="text-[10px] text-muted-foreground">
+          <span class="text-xs text-muted-foreground">
             {{ draft.network.secret_actions[field.key] === 'clear' ? '保存后清除' : draft.network.secret_actions[field.key] === 'set' ? '保存后替换' : secretConfigured(field.key) ? '已配置 · 留空保留' : '未配置' }}
           </span>
         </div>
@@ -175,7 +158,10 @@ const emit = defineEmits<{
           type="text"
           autocomplete="off"
         />
-        <span v-if="field.description" class="text-[10px] font-normal text-muted-foreground">{{ field.description }}</span>
+        <details v-if="field.description" class="text-xs font-normal text-muted-foreground">
+          <summary class="cursor-pointer">配置说明</summary>
+          <p class="mt-1 leading-5">{{ field.description }}</p>
+        </details>
       </FormField>
 
       <FormField label="OAuth 密码">
@@ -202,7 +188,7 @@ const emit = defineEmits<{
               @click="toggleOAuthPasswordClear"
             ><RotateCcw v-if="draft.oauth_password_action === 'clear'" :size="15" /><Trash2 v-else :size="15" /></InputGroupButton>
           </InputGroup>
-          <span class="text-[10px] text-muted-foreground">
+          <span class="text-xs text-muted-foreground">
             {{ draft.oauth_password_action === 'clear' ? '保存后清除' : draft.oauth_password_action === 'set' ? '保存后替换' : draft.oauth_password_configured ? '已配置 · 留空保留' : '未配置' }}
           </span>
         </div>

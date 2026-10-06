@@ -41,7 +41,6 @@ onMounted(() => void refresh().catch(reason => toast.error(reason instanceof Err
       <div v-for="plugin in plugins" :key="plugin.id" class="flex items-center justify-between gap-3 border-b border-border px-3 py-2.5 last:border-b-0">
         <div class="grid gap-0.5">
           <span class="font-medium">{{ plugin.name }}</span>
-          <code class="text-[10px] text-muted-foreground">{{ plugin.id }}</code>
         </div>
         <Switch
           :model-value="plugin.enabled"

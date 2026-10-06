@@ -2,35 +2,20 @@
 import RuntimeEditor from './services/RuntimeEditor.vue'
 import { useRuntimeManager } from '../composables/useRuntimeManager'
 import { Button } from '@/components/ui/button'
+import ComputerUseSettings from './services/ComputerUseSettings.vue'
 
 const manager = useRuntimeManager()
 </script>
 
 <template>
-  <section class="grid gap-5">
+  <section class="grid w-full max-w-[840px] gap-5">
     <header class="flex min-h-8 items-center justify-between gap-4">
-      <div>
-        <h1 class="m-0 text-xl leading-7 font-medium tracking-[-0.02em]">Runtime</h1>
-        <p class="mt-[3px] mb-0 text-xs leading-[18px] text-muted-foreground">
-          应用启动只加载配置；点击启动后才运行 Pi Runtime 与公网隧道。
-        </p>
-      </div>
+      <h1 class="m-0 text-xl leading-7 font-medium tracking-[-0.02em]">Runtime</h1>
+      <span role="status" :class="['rounded-full px-2.5 py-1 text-xs font-medium', manager.running.value ? 'bg-success/10 text-success' : 'bg-secondary text-muted-foreground']">
+        {{ manager.ready.value ? (manager.running.value ? '运行中' : '已停止') : '加载中' }}
+      </span>
     </header>
-
-    <div class="grid grid-cols-1 gap-2">
-      <div class="min-h-28 rounded-lg bg-card p-4">
-        <span class="block text-xs leading-5 text-muted-foreground">运行状态</span>
-        <strong class="mt-2.5 block min-h-8 text-2xl leading-8 font-medium tracking-[-0.03em]">
-          {{ manager.ready.value ? (manager.running.value ? '运行中' : '已停止') : '—' }}
-        </strong>
-        <small
-          :class="[
-            'mt-1 block text-[11px] leading-4',
-            manager.runtime.value?.exit_reason ? 'text-destructive' : 'text-muted-foreground',
-          ]"
-        >{{ manager.runtime.value?.exit_reason || 'Pi Agent MCP 本地执行服务' }}</small>
-      </div>
-    </div>
+    <p v-if="manager.runtime.value?.exit_reason" role="alert" class="whitespace-pre-wrap text-xs text-destructive">{{ manager.runtime.value.exit_reason }}</p>
 
     <div v-if="!manager.ready.value" class="flex min-h-72 flex-col items-center justify-center gap-3 rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
       <template v-if="manager.initializationError.value">
@@ -42,7 +27,7 @@ const manager = useRuntimeManager()
     </div>
 
     <RuntimeEditor
-      v-else
+      v-if="manager.ready.value"
       v-model:draft="manager.draft.value"
       v-model:tunnel-token-visible="manager.tunnelTokenVisible.value"
       :locked="manager.locked.value"
@@ -59,5 +44,6 @@ const manager = useRuntimeManager()
       @save="manager.saveRuntime"
       @toggle-running="manager.toggleRunning"
     />
+    <ComputerUseSettings v-if="manager.ready.value" :locked="manager.locked.value" />
   </section>
 </template>
