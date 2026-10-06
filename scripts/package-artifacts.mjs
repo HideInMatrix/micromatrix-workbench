@@ -58,7 +58,13 @@ export function packageArtifacts(root = process.cwd(), env = process.env) {
   // saved OAuth credentials, user workspaces or other repository state.
   copyFileSync(service, path.join(serviceDirectory, `micromatrix-service${extension}`))
   copyFileSync(cloudflared, path.join(serviceDirectory, `cloudflared${extension}`))
-  if (process.platform === 'darwin' || process.platform === 'win32') {
+  if (process.platform === 'darwin') {
+    const application = path.join(root, 'src-tauri/binaries/micromatrix Computer Use.app')
+    if (!existsSync(path.join(application, 'Contents/MacOS/micromatrix-computer'))) throw new Error('Missing bundled Computer Use application')
+    // Preserve the signed bundle in internal Actions archives too. The macOS
+    // service now launches this application, not the intermediate bare helper.
+    execFileSync('/usr/bin/ditto', [application, path.join(serviceDirectory, 'micromatrix Computer Use.app')], { stdio: 'inherit' })
+  } else if (process.platform === 'win32') {
     const computer = path.join(root, 'src-tauri/binaries', `micromatrix-computer-${target}${extension}`)
     if (!existsSync(computer)) throw new Error('Missing bundled Computer Use native helper')
     copyFileSync(computer, path.join(serviceDirectory, `micromatrix-computer${extension}`))

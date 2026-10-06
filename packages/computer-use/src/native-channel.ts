@@ -1,10 +1,11 @@
+import { MacApplicationChannel } from "./mac-application-channel.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import { fail, ComputerUseError } from "./protocol.js";
 
 /** Lazy, bounded fixed-helper IPC. Never execute model-provided commands. */
-export class NativeDesktopChannel {
+class StdioDesktopChannel {
   #child: ChildProcessWithoutNullStreams | undefined;
   #buffer = "";
   #pending: { id: number; resolve: (value: unknown) => void; reject: (error: Error) => void } | undefined;
@@ -65,4 +66,15 @@ export class NativeDesktopChannel {
       child.once("exit",()=>{clearTimeout(timer);resolve();});
     });
   }
+}
+
+/** macOS must launch a real app via LaunchServices, not a bare child inheriting the parent TCC identity. */
+export class NativeDesktopChannel {
+  readonly #backend: StdioDesktopChannel | MacApplicationChannel;
+  constructor(readonly helper: string) {
+    this.#backend = process.platform === "darwin" && helper.endsWith(".app")
+      ? new MacApplicationChannel(helper) : new StdioDesktopChannel(helper);
+  }
+  request(operation: string, params: Record<string, unknown> = {}, signal?: AbortSignal) { return this.#backend.request(operation, params, signal); }
+  close() { return this.#backend.close(); }
 }

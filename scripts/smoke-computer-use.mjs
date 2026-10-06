@@ -35,6 +35,9 @@ export async function smokeComputerUse(executable) {
     assert.equal(desktop.available, true)
     const permissions = await call('computer_permissions', { request: false })
     if (process.platform === 'darwin') {
+      assert.equal(permissions.bundle_id, 'org.micromatrix.computer-use')
+      assert.match(permissions.helper_path, /micromatrix Computer Use\.app$/)
+      assert.ok(['certificate', 'ad-hoc'].includes(permissions.signing_mode))
       assert.equal(permissions.prompt_requested, false)
       assert.equal(permissions.requires_screen_recording, false)
       const targets = await call('computer_targets')
@@ -44,7 +47,7 @@ export async function smokeComputerUse(executable) {
         assert.equal(denied.isError, true)
         assert.match(JSON.stringify(denied.content), /ACCESSIBILITY_PERMISSION_REQUIRED/)
       }
-      console.log(`PASS: packaged macOS native helper, Accessibility=${permissions.accessibility}; no permission prompt or desktop action`)
+      console.log(`PASS: packaged macOS Computer Use.app, Accessibility=${permissions.accessibility}; no permission prompt or desktop action`)
     } else {
       assert.equal(permissions.platform, 'windows')
       assert.equal(permissions.supported, true)

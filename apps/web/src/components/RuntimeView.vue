@@ -2,7 +2,6 @@
 import RuntimeEditor from './services/RuntimeEditor.vue'
 import { useRuntimeManager } from '../composables/useRuntimeManager'
 import { Button } from '@/components/ui/button'
-import ComputerUseSettings from './services/ComputerUseSettings.vue'
 
 const manager = useRuntimeManager()
 </script>
@@ -44,6 +43,5 @@ const manager = useRuntimeManager()
       @save="manager.saveRuntime"
       @toggle-running="manager.toggleRunning"
     />
-    <ComputerUseSettings v-if="manager.ready.value" :locked="manager.locked.value" />
   </section>
 </template>

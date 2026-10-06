@@ -69,6 +69,25 @@ fn open_computer_use_settings() -> Result<(), String> {
   { Err("Windows UI Automation requires an unlocked interactive desktop; no Accessibility grant or auto-elevation is available".into()) }
 }
 
+#[tauri::command]
+fn reveal_computer_use_app() -> Result<(), String> {
+  #[cfg(target_os = "macos")]
+  {
+    let application = if cfg!(debug_assertions) {
+      std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries/micromatrix Computer Use.app")
+    } else {
+      std::env::current_exe().map_err(|error| error.to_string())?.parent()
+        .and_then(|directory| directory.parent()).ok_or("Invalid desktop application path")?
+        .join("Helpers/micromatrix Computer Use.app")
+    };
+    if !application.join("Contents/MacOS/micromatrix-computer").is_file() { return Err("Computer Use application bundle is missing".into()); }
+    std::process::Command::new("/usr/bin/open").arg("-R").arg(application).spawn().map_err(|error| error.to_string())?;
+    Ok(())
+  }
+  #[cfg(not(target_os = "macos"))]
+  { Err("Windows does not require an Accessibility application grant".into()) }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   let mut context = tauri::generate_context!();
@@ -78,7 +97,7 @@ pub fn run() {
     .plugin(tauri_plugin_shell::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
     .plugin(tauri_plugin_process::init())
-    .invoke_handler(tauri::generate_handler![desktop_service_error, show_permission_prompt, runtime_saved_secrets, open_authorization_url, open_computer_use_settings])
+    .invoke_handler(tauri::generate_handler![desktop_service_error, show_permission_prompt, runtime_saved_secrets, open_authorization_url, open_computer_use_settings, reveal_computer_use_app])
     .setup(|app| {
       let service = Arc::new(Mutex::new(ServiceState::default()));
       app.manage(ServiceChild(service.clone()));

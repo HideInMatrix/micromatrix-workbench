@@ -6,7 +6,6 @@ import { CheckField, FormField, FormGrid } from '@/components/ui/form'
 import { InputGroup, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
 import type { NetworkProviderDto, RuntimeDraft } from '../../types'
 import PermissionModeField from './PermissionModeField.vue'
-import BodyPluginEditor from './BodyPluginEditor.vue'
 
 const draft = defineModel<RuntimeDraft>('draft', { required: true })
 const tunnelTokenVisible = defineModel<boolean>('tunnelTokenVisible', { required: true })
@@ -197,9 +196,6 @@ const emit = defineEmits<{
       <PermissionModeField v-model="draft.permission_mode" :disabled="locked" />
 
       <CheckField span="2"><input v-model="draft.remember_secrets" type="checkbox" /><span>在本机保存网络令牌与 OAuth 密码</span></CheckField>
-      <div class="col-span-2 min-w-0">
-        <BodyPluginEditor :locked="locked" />
-      </div>
     </FormGrid>
 
     <div v-if="runtimeUrl" class="mt-4 flex items-center gap-2 rounded-md border border-border bg-secondary/50 px-3 py-[9px]">

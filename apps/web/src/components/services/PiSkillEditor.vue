@@ -27,7 +27,7 @@ async function save() {
 onMounted(() => { void refresh() })
 </script>
 <template>
-  <section class="mt-4 rounded-xl border border-border bg-card p-4">
+  <section class="mt-3 rounded-xl border border-border bg-card p-4">
     <div class="flex items-center justify-between"><h3 class="m-0 text-xs font-medium">Skill 文档</h3><Button size="sm" variant="ghost" :disabled="busy" @click="refresh">刷新文档</Button></div>
     <div v-for="skill in skills" :key="skill.id" class="mt-2 flex items-center justify-between gap-3"><span class="min-w-0 truncate text-xs" :title="skill.description">{{ skill.id }}</span><Button size="sm" variant="outline" :disabled="busy" @click="edit(skill.id)">打开文档</Button></div>
     <div v-if="editor" class="mt-3 space-y-3">

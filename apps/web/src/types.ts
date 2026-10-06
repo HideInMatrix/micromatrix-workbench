@@ -145,7 +145,7 @@ export interface ComputerUseStatusDto {
   helperPath: string
   running: boolean
   connected: boolean
-  permission: { platform: 'macos' | 'windows'; helperPath: string; accessibility?: boolean; interactiveDesktop?: boolean; elevated?: boolean; promptRequested: boolean; requiresScreenRecording: false } | null
+  permission: { platform: 'macos' | 'windows'; helperPath: string; bundleId?: string; signingMode?: 'certificate' | 'ad-hoc'; accessibility?: boolean; interactiveDesktop?: boolean; elevated?: boolean; promptRequested: boolean; requiresScreenRecording: false } | null
   checkedAt: number
   error: string
   conflict: boolean

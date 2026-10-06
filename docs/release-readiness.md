@@ -1,4 +1,11 @@
-# 发布就绪审阅 — 更新于 2026-10-03
+# 发布就绪审阅 — 更新于 2026-10-06
+
+## 2026-10-06 Computer Use 授权身份修复（v0.5.18）
+
+- macOS 由裸子进程改为固定 Bundle ID 的 `micromatrix Computer Use.app`，随主包置于 `Contents/Helpers`，保留原图标；检测、申请权限与实际 ABI 操作通过同一 LaunchServices 应用身份和私有 Unix socket。主应用的旧辅助功能开关不作为权限证明，不读取或改写 TCC 数据库。
+- Runtime 移除重复工具开关与 Computer Use 卡片，插件页集中管理内置工具、Computer Use、MCP 和 Skills；详细目录及授权说明默认折叠，密钥与手动启停语义不变。
+- 本地真实回归通过：245 个服务测试、29 个 Vue 组件测试、61 个 Node 测试，共 335 个；类型/Web 构建、Rust offline check、SEA 与最终 macOS arm64 `.app` 冒烟通过。最终包中的嵌套应用完整、深层签名有效；经 LaunchServices 实际返回 `org.micromatrix.computer-use`，未请求权限、未操作 Blender，通道关闭后所属进程退出。
+- **真实 Accessibility 仍为 false**。用户须为新 Computer Use 应用授权，授权后的 GUI 操作尚未验收；Windows 后端未改启动方式，本轮无 Windows 实机验收。当前包为 ad-hoc，不能保证跨更新保留 TCC 授权；长期 Developer ID 证书与公证仍待配置。Blender 自绘界面/建模内部状态尚无专用适配器。
 
 ## 结论与范围
 

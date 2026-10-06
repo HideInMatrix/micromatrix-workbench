@@ -134,16 +134,13 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 <template>
   <section class="mt-6">
     <div class="flex items-center justify-between gap-3">
-      <h2 class="m-0 text-sm font-medium">MCP 与 Skills</h2>
+      <h2 class="m-0 text-sm font-medium">MCP 服务</h2>
       <div class="flex gap-2">
         <Button size="sm" variant="outline" :disabled="busy || !state || state.running" @click="editConnection()">添加 MCP</Button>
-        <Button size="sm" variant="outline" :disabled="busy || !state || state.running" @click="form = 'skill'">添加 Skill</Button>
       </div>
     </div>
-    <p v-if="state?.running" class="mt-2 text-xs text-muted-foreground">运行中，停止 Runtime 后可编辑。</p>
-    <div v-if="form" class="mt-3 rounded-xl border border-border bg-card p-4">
+    <div v-if="form === 'mcp'" class="mt-3 rounded-xl border border-border bg-card p-4">
       <fieldset :disabled="busy || !state || state.running" class="space-y-3 disabled:opacity-60">
-        <template v-if="form === 'mcp'">
           <h3 class="m-0 text-sm font-medium">{{ editingId ? '编辑' : '添加' }} MCP 服务</h3>
           <div class="grid grid-cols-2 gap-3">
             <label class="text-xs">ID<input v-model="mcp.id" :class="fieldClass" placeholder="docs_mcp" :disabled="Boolean(editingId)" /></label>
@@ -176,21 +173,6 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
             </div>
           </div>
           <div class="flex justify-end gap-2"><Button size="sm" variant="outline" @click="form = ''">取消</Button><Button size="sm" variant="outline" @click="testMcp">测试连接</Button><Button size="sm" @click="saveMcp">保存</Button></div>
-        </template>
-        <template v-else>
-          <h3 class="m-0 text-sm font-medium">添加标准 Pi Skill</h3>
-          <label class="block text-xs">来源 ID<input v-model="skillId" :class="fieldClass" placeholder="review" /></label>
-          <label class="block text-xs">方式<select v-model="skillMode" :class="fieldClass"><option value="import">导入本地 Skill 目录 / SKILL.md</option><option value="create">创建 SKILL.md</option></select></label>
-          <div v-if="skillMode === 'import'">
-            <label class="block text-xs">绝对路径<div class="flex items-end gap-2"><input v-model="skillPath" :class="fieldClass" placeholder="/path/to/skills" /><Button size="sm" variant="outline" @click="chooseSkillPath">选择目录</Button></div></label>
-            <p class="mt-2 text-xs text-muted-foreground">仅引用原目录，不复制或删除文件。</p>
-          </div>
-          <template v-else>
-            <label class="block text-xs">描述<input v-model="skillDescription" :class="fieldClass" /></label>
-            <label class="block text-xs">方法说明<textarea v-model="skillInstructions" :class="[fieldClass, 'h-40 py-2']" /></label>
-          </template>
-          <div class="flex justify-end gap-2"><Button size="sm" variant="outline" @click="form = ''">取消</Button><Button size="sm" @click="saveSkill">添加</Button></div>
-        </template>
       </fieldset>
     </div>
     <div v-if="state" class="mt-3 divide-y divide-border rounded-xl border border-border bg-card">
@@ -207,13 +189,36 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
         <Button size="sm" variant="ghost" :disabled="busy || state.running" @click="remove('mcp', connection.id)">移除</Button>
         <Switch :model-value="connection.enabled" :disabled="busy || state.running" :aria-label="`启停 MCP ${connection.name}`" @update:model-value="value => changeEnabled('mcp', connection.id, value)" />
       </div>
+      <div v-if="!state.configuration.mcp.length" class="px-4 py-5 text-center text-xs text-muted-foreground">暂无外部 MCP 服务</div>
+    </div>
+    <div class="mt-6 flex items-center justify-between gap-3">
+      <h2 class="m-0 text-sm font-medium">Skills</h2>
+      <Button size="sm" variant="outline" :disabled="busy || !state || state.running" @click="form = 'skill'">添加 Skill</Button>
+    </div>
+    <div v-if="form === 'skill'" class="mt-3 rounded-xl border border-border bg-card p-4">
+      <fieldset :disabled="busy || !state || state.running" class="space-y-3 disabled:opacity-60">
+          <h3 class="m-0 text-sm font-medium">添加标准 Pi Skill</h3>
+          <label class="block text-xs">来源 ID<input v-model="skillId" :class="fieldClass" placeholder="review" /></label>
+          <label class="block text-xs">方式<select v-model="skillMode" :class="fieldClass"><option value="import">导入本地 Skill 目录 / SKILL.md</option><option value="create">创建 SKILL.md</option></select></label>
+          <div v-if="skillMode === 'import'">
+            <label class="block text-xs">绝对路径<div class="flex items-end gap-2"><input v-model="skillPath" :class="fieldClass" placeholder="/path/to/skills" /><Button size="sm" variant="outline" @click="chooseSkillPath">选择目录</Button></div></label>
+            <p class="mt-2 text-xs text-muted-foreground">仅引用原目录，不复制或删除文件。</p>
+          </div>
+          <template v-else>
+            <label class="block text-xs">描述<input v-model="skillDescription" :class="fieldClass" /></label>
+            <label class="block text-xs">方法说明<textarea v-model="skillInstructions" :class="[fieldClass, 'h-40 py-2']" /></label>
+          </template>
+          <div class="flex justify-end gap-2"><Button size="sm" variant="outline" @click="form = ''">取消</Button><Button size="sm" @click="saveSkill">添加</Button></div>
+      </fieldset>
+    </div>
+    <div v-if="state" class="mt-3 divide-y divide-border rounded-xl border border-border bg-card">
       <div v-for="source in state.configuration.skills" :key="`skill:${source.id}`" class="flex flex-wrap items-center gap-2 px-4 py-3">
         <div class="min-w-0 basis-40 flex-1"><div class="text-sm font-medium">{{ source.id }}</div><div class="mt-1 truncate text-xs text-muted-foreground">Skill 来源 · {{ source.path }}</div></div>
         <Button size="sm" variant="ghost" :disabled="busy || state.running" @click="remove('skills', source.id)">移除引用</Button>
         <Switch :model-value="source.enabled" :disabled="busy || state.running" :aria-label="`启停 Skill 来源 ${source.id}`" @update:model-value="value => changeEnabled('skills', source.id, value)" />
       </div>
-      <div v-if="!state.configuration.mcp.length && !state.configuration.skills.length" class="px-4 py-6 text-center text-xs text-muted-foreground">暂无外部 MCP 或 Skills</div>
+      <div v-if="!state.configuration.skills.length" class="px-4 py-5 text-center text-xs text-muted-foreground">暂无 Skills</div>
     </div>
-    <PiSkillEditor v-if="state" :key="JSON.stringify(state.configuration.skills)" :running="state.running" @changed="emit('changed')" />
+    <PiSkillEditor v-if="state && state.configuration.skills.length" :key="JSON.stringify(state.configuration.skills)" :running="state.running" @changed="emit('changed')" />
   </section>
 </template>

@@ -4,7 +4,7 @@
 
 《ASIL: Replacing Screenshot-and-Click with Structured State and Semantic Actions》的核心是：暴露软件状态，而不是从截图猜测；动作表达软件操作，而不是坐标点击；执行后用独立状态约束检查结果。优先使用文件格式、软件原生接口、脚本或已有成熟 MCP，无法取得内部状态时才用较浅的接口。论文不等于“任何封闭软件都能完整控制”。[作者项目页](https://sharryxr.github.io/ASIL/)、[参考实现](https://github.com/sharryXR/ASIL)。
 
-本项目独立实现 TS7 MCP 服务，原生 API 经系统代理访问：macOS 是固定 Swift helper，Windows 是固定 C# UIA helper；它们只有 ABI 操作，没有模型、审批或第二套业务引擎。不引入 Python 运行时，没有复制上游 Python 执行引擎；结构受论文启发，但不是上游协议兼容实现，不能套用论文成功率或声称实现了全部 15 个应用。
+本项目独立实现 TS7 MCP 服务，原生 API 经系统代理访问：macOS 是经 LaunchServices 启动的独立 Swift 应用，Windows 是固定 C# UIA helper；它们只有 ABI 操作，没有模型、审批或第二套业务引擎。不引入 Python 运行时，没有复制上游 Python 执行引擎；结构受论文启发，但不是上游协议兼容实现，不能套用论文成功率或声称实现了全部 15 个应用。
 
 ```text
 网页 AI（推理 / 选工具）
@@ -15,7 +15,15 @@
     → NativeDesktopChannel → macOS AX 或 Windows UIA（按 OS 自动选择）
 ```
 
-`packages/computer-use` 拥有适配器、共享协议、状态校验、生命周期和有限追踪。应用 UI 只管理已有 MCP 配置，不维护第二套执行目录。
+`packages/computer-use` 拥有适配器、共享协议、状态校验、生命周期和有限追踪。应用 UI 只管理 Pi 插件配置，不维护第二套执行目录。
+
+## macOS 授权身份
+
+执行程序为随主应用打包的 `Contents/Helpers/micromatrix Computer Use.app`，固定 Bundle ID `org.micromatrix.computer-use`，保留原图标，并有独立权限窗口。TS 通过 LaunchServices 启动它，以私有 Unix socket 传递受限 ABI；不再将裸 helper 作为主程序子进程直接启动。每个连接使用临时 0700 目录、0600 握手文件与一次性随机 token；辅助应用核对当前用户的 IPC 对端。检测与实际控制使用同一应用身份，关闭连接时清理所属进程及通道，不终止目标应用。
+
+只给 `micromatrix agent.app` 或 Blender 开启权限不等于授权新的 Computer Use 应用。在插件页点击“打开权限设置”，为 **micromatrix Computer Use** 开启“辅助功能 / 设备控制和数据访问”；“定位应用”在 Finder 选中嵌入的 `.app`。返回后重新检测；旧连接仍报权限错误时手动停止并启动 Runtime。不会代点授权、修改 TCC 数据库、申请屏幕录制或完全磁盘访问。
+
+ad-hoc 签名的当前构建按实际 code identity 授权，更新可能令旧条目失效。此时由用户移除旧 Computer Use 条目并添加当前应用，不能用“主程序开关已开”伪造授权通过。稳定跨更新身份需要长期证书签名；`APPLE_SIGNING_IDENTITY` 会用于辅助应用，仍必须在发布机器配置正确的 Developer ID 证书。Tauri updater 的 minisign 密钥不是 Apple 代码签名证书。签名策略依据 [Apple Code Signing In Depth](https://developer.apple.com/library/archive/technotes/tn2206/_index.html)。
 
 ## 已实现范围
 
@@ -31,9 +39,9 @@
 
 ## 接入当前程序
 
-1. 安装包含本轮改动的新构建。已发布的 v0.5.16 仍是手动预填入口，不包含本轮内置管理与授权 UI。
-2. Runtime / 插件页已有 **Computer Use · 内置 Pi MCP 插件**，无需添加、填写程序路径或参数，默认关闭。显式打开开关只保存启用标志，**不启动 Runtime/Tunnel，也不弹 OS 授权**。
-3. 页面检查实际原生 helper 状态。macOS 未授权时显示原因、准确 helper 路径和三步引导；用户明确点击“申请权限并打开系统设置”才发起 TCC 提示、打开固定权限页，用户亲自打开对应权限。返回应用/点击重新检测以及有限期复检只做无提示检查，不能将“已打开系统设置”当作授权成功。
+1. 安装包含独立 Computer Use 应用的新构建。已发布的 v0.5.17 仍使用裸 helper，不包含本轮授权身份修复。
+2. 插件页已有 **Computer Use · 内置 Pi MCP 插件**，无需添加、填写程序路径或参数，默认关闭。显式打开开关只保存启用标志，**不启动 Runtime/Tunnel，也不弹 OS 授权**。
+3. 插件页检查实际应用权限，未授权时显示一条指引及“打开权限设置 / 重新检测 / 定位应用”。只有明确点击权限按钮才发起 TCC 提示；路径、签名与重授权说明收在“连接与授权详情”。返回应用后的复检只做无提示检查，不把打开设置当成授权成功。
 4. 权限就绪后仍由用户点击 Runtime 启动；启动也会无提示检查信任状态。Windows 检查 unlocked interactive desktop，明确高权限/UAC 边界，无自动提权、无伪造 macOS 设置入口。JSON 操作不要求 Accessibility 授权，GUI 观察/动作仍被 OS 阻止。
 5. 网页 AI 连接现有公网 MCP，首次启用后在 ChatGPT Home/MCP 管理页 **刷新工具**，再发起请求；工具名以实际 tools/list 为准。OS 权限与现有 open_world 逐次审批独立，不能自动跳过。
 
@@ -47,7 +55,7 @@
 
 先调用 `computer_permissions({"request":false})`，仅检查，不弹系统权限。若 accessibility=false：
 
-- 用户在 **系统设置 → 隐私与安全性 → 辅助功能** 授权返回的 helper 路径，或系统标识的负责应用 micromatrix agent。
+- 用户在 **系统设置 → 隐私与安全性 → 辅助功能** 授权返回路径对应的 **micromatrix Computer Use.app**；不是主应用或目标 Blender。
 - 可明确批准 `computer_permissions({"request":true})` 请求系统提示；仅启用动作后允许，不会自动授予权限。
 - 授权后必要时停止并重启 Runtime，重新观察。当前不请求屏幕录制权限。
 

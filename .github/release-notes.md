@@ -1,4 +1,4 @@
-# micromatrix agent v0.5.17
+# micromatrix agent v0.5.18
 
 Normal version tags publish automatically as stable releases and GitHub Latest;
 tags with a prerelease suffix remain prereleases. Review the known limitations
@@ -18,12 +18,23 @@ label does not imply production signing or that all security work is complete.
   adding a separate MCP service. It is disabled on fresh installs and still loads
   only after Runtime Start. Enabling permits control actions subject to Runtime
   approval policy; legacy read-only configurations remain read-only until opted in.
-- macOS provides explicit Accessibility permission onboarding, a fixed System
-  Settings link and native rechecks. Windows checks the interactive desktop; no
-  automatic elevation or permission bypass. Native Windows interaction awaits
-  real-machine acceptance.
-- Runtime and plugin layouts are simplified: duplicate microcopy is removed,
-  technical help is collapsed, and configuration/start controls remain visible.
+- macOS now bundles a separate micromatrix Computer Use.app with the original
+  icon and fixed bundle identity. Permission checks and desktop operations use
+  this same application through LaunchServices and private local IPC, instead
+  of spawning a bare helper under the main application.
+- Grant Accessibility to micromatrix Computer Use.app, not just micromatrix
+  agent or Blender. Plugins offers Open Permission Settings, Recheck and Locate
+  Application. Existing main-app grants do not prove that this new app is
+  authorized. Ad-hoc updates may require granting the current build again;
+  persistent signing identity requires an Apple Developer ID certificate.
+- Runtime now contains connection configuration and Start/Stop only. Tools,
+  Computer Use, external MCP services and Skills are managed on the Plugins
+  page; connection help and the tool catalog are collapsed by default.
+- macOS arm64 packaging, signatures, native application identity and denial
+  paths were verified without requesting OS permission or controlling Blender.
+  Grant-enabled desktop interaction and Blender-specific modeling adapters
+  remain unvalidated/unimplemented. Windows checks the interactive desktop;
+  its existing helper remains unchanged and awaits real-machine acceptance.
 - Pending work includes desktop graceful shutdown with an active Tunnel,
   control-plane/proxy trust hardening, OAuth rate limits and comprehensive license
   auditing. These limits still apply to formally published releases.

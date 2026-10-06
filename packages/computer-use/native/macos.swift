@@ -2,6 +2,8 @@ import Foundation
 import AppKit
 import ApplicationServices
 import CryptoKit
+import Darwin
+import Security
 
 // Reviewed native operations only. No interpreter, shell, coordinates, event
 // injection, screenshots, permission prompt on startup, or secure-field access.
@@ -48,7 +50,7 @@ func appFor(_ target: String) throws -> NSRunningApplication {
     return app
 }
 func capture(_ target: String) throws -> [String: Any] {
-    guard AXIsProcessTrusted() else { try refuse("ACCESSIBILITY_PERMISSION_REQUIRED", "Grant Accessibility to the bundled micromatrix-computer helper (or its responsible micromatrix agent app) in System Settings; computer_permissions(request=true) can explicitly request it") }
+    guard AXIsProcessTrusted() else { try refuse("ACCESSIBILITY_PERMISSION_REQUIRED", "Grant Accessibility to micromatrix Computer Use.app in System Settings; permissions belong to this application, not micromatrix agent or Blender") }
     let app = try appFor(target), root = AXUIElementCreateApplication(app.processIdentifier)
     AXUIElementSetMessagingTimeout(root,0.25)
     let appId = "app:\(app.processIdentifier)"
@@ -138,7 +140,8 @@ func dispatch(_ input: [String: Any]) throws -> Any {
         let prompt = input["prompt"] as? Bool ?? false
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: prompt] as CFDictionary
         return ["platform":"macos","accessibility":AXIsProcessTrustedWithOptions(options),"prompt_requested":prompt,
-                "helper_path":CommandLine.arguments[0],"requires_screen_recording":false,"note":"Enable Accessibility in System Settings; permission changes may require restarting Runtime"] as [String:Any]
+                "helper_path":Bundle.main.bundleURL.path,"bundle_id":Bundle.main.bundleIdentifier ?? "", "pid":getpid(),
+                "signing_mode":signingMode(), "requires_screen_recording":false,"note":"Authorize micromatrix Computer Use.app, then recheck; ad-hoc updates may require granting the new build again"] as [String:Any]
     case "targets":
         return NSWorkspace.shared.runningApplications.filter{$0.activationPolicy == .regular && !$0.isTerminated}.prefix(100).map{
             ["target":"pid:\($0.processIdentifier)","name":$0.localizedName ?? "Application","bundle_id":$0.bundleIdentifier ?? "","active":$0.isActive] as [String:Any]
@@ -150,16 +153,100 @@ func dispatch(_ input: [String: Any]) throws -> Any {
     default: try refuse("INVALID_ARGUMENT","Unknown native operation")
     }
 }
-while let line = readLine() {
-    var id: Any = NSNull()
-    let reply: [String:Any]
-    do {
-        guard line.utf8.count <= 65536, let bytes = line.data(using:.utf8), let input = try JSONSerialization.jsonObject(with:bytes) as? [String:Any] else { try refuse("INVALID_ARGUMENT","Invalid native input") }
-        id = input["id"] ?? NSNull()
-        reply = ["id":id,"result":try dispatch(input)]
-    } catch let error as Failure { reply = ["id":id,"error":["code":error.code,"message":error.message]] }
-      catch { reply = ["id":id,"error":["code":"NATIVE_ERROR","message":"Native operation failed"]] }
-    if let bytes = try? JSONSerialization.data(withJSONObject:reply,options:[.sortedKeys]) {
-        FileHandle.standardOutput.write(bytes); FileHandle.standardOutput.write(Data([10]))
+func signingMode() -> String {
+    var code: SecCode?
+    var info: CFDictionary?
+    var staticCode: SecStaticCode?
+    if SecCodeCopySelf([], &code) == errSecSuccess, let code = code,
+       SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode = staticCode,
+       SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+       let dictionary = info as? [String: Any], dictionary[kSecCodeInfoCertificates as String] != nil { return "certificate" }
+    return "ad-hoc"
+}
+func serve(_ input: FileHandle, _ output: FileHandle) {
+    var buffer = Data()
+    func send(_ object: [String:Any]) {
+        if let bytes = try? JSONSerialization.data(withJSONObject:object,options:[.sortedKeys]) {
+            output.write(bytes); output.write(Data([10]))
+        }
+    }
+    while true {
+        let bytes = input.availableData
+        if bytes.isEmpty { return }
+        buffer.append(bytes)
+        if buffer.count > 65536 { return }
+        while let newline = buffer.firstIndex(of:10) {
+            let line = buffer.prefix(upTo:newline); buffer.removeSubrange(...newline)
+            var id: Any = NSNull()
+            var reply = [String:Any]()
+            DispatchQueue.main.sync {
+                do {
+                    guard let request = try JSONSerialization.jsonObject(with:Data(line)) as? [String:Any] else { try refuse("INVALID_ARGUMENT","Invalid native input") }
+                    id = request["id"] ?? NSNull()
+                    reply = ["id":id,"result":try dispatch(request)]
+                } catch let error as Failure { reply = ["id":id,"error":["code":error.code,"message":error.message]] }
+                  catch { reply = ["id":id,"error":["code":"NATIVE_ERROR","message":"Native operation failed"]] }
+            }
+            send(reply)
+        }
     }
 }
+
+final class ComputerApplication: NSObject, NSApplicationDelegate {
+    var window: NSWindow?
+    var label: NSTextField?
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        guard Bundle.main.bundleIdentifier == "org.micromatrix.computer-use" else { NSApp.terminate(nil); return }
+        if let index = CommandLine.arguments.firstIndex(of:"--channel"), index + 1 < CommandLine.arguments.count {
+            // Only a private, owner-readable channel file; no public port or reusable secret.
+            let file = CommandLine.arguments[index+1]
+            var metadata = stat()
+            guard lstat(file, &metadata) == 0, metadata.st_uid == getuid(), metadata.st_mode & 0o077 == 0,
+                  metadata.st_mode & S_IFMT == S_IFREG,
+                  let data = try? Data(contentsOf:URL(fileURLWithPath:file)), data.count < 4096,
+                  let config = (try? JSONSerialization.jsonObject(with:data)) as? [String:Any],
+                  let path = config["socket"] as? String, let token = config["token"] as? String,
+                  token.count == 64, path == URL(fileURLWithPath:file).deletingLastPathComponent().appendingPathComponent("ipc.sock").path else { NSApp.terminate(nil); return }
+            let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+            var address = sockaddr_un(); address.sun_family = sa_family_t(AF_UNIX); address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+            let raw = Array(path.utf8) + [0]
+            guard descriptor >= 0, raw.count <= MemoryLayout.size(ofValue:address.sun_path) else { NSApp.terminate(nil); return }
+            withUnsafeMutableBytes(of:&address.sun_path) { destination in raw.withUnsafeBytes { source in destination.copyBytes(from:source) } }
+            let connected = withUnsafePointer(to:&address) { pointer in pointer.withMemoryRebound(to:sockaddr.self,capacity:1) { connect(descriptor,$0,socklen_t(MemoryLayout<sockaddr_un>.size)) } }
+            var uid: uid_t = 0; var gid: gid_t = 0
+            guard connected == 0, getpeereid(descriptor,&uid,&gid) == 0, uid == getuid() else { close(descriptor); NSApp.terminate(nil); return }
+            signal(SIGPIPE,SIG_IGN)
+            let stream = FileHandle(fileDescriptor:descriptor,closeOnDealloc:true)
+            let hello: [String:Any] = ["bundle_id":Bundle.main.bundleIdentifier!,"pid":getpid(),"token":token]
+            if let bytes = try? JSONSerialization.data(withJSONObject:hello) { stream.write(bytes); stream.write(Data([10])) }
+            DispatchQueue.global(qos:.userInitiated).async {
+                serve(stream,stream)
+                DispatchQueue.main.async { NSApp.terminate(nil) }
+            }
+        } else { showWindow() }
+    }
+    func showWindow() {
+        let view = NSView(frame:NSRect(x:0,y:0,width:420,height:180))
+        let title = NSTextField(labelWithString:"Computer Use")
+        title.font = .systemFont(ofSize:20,weight:.semibold); title.frame = NSRect(x:24,y:128,width:372,height:28); view.addSubview(title)
+        let status = NSTextField(labelWithString:AXIsProcessTrusted() ? "辅助功能已授权" : "需要为 micromatrix Computer Use 授予辅助功能权限")
+        status.frame = NSRect(x:24,y:83,width:372,height:30); status.lineBreakMode = .byWordWrapping; view.addSubview(status); label = status
+        let grant = NSButton(title:"打开权限设置",target:self,action:#selector(openSettings)); grant.frame = NSRect(x:24,y:24,width:150,height:32); view.addSubview(grant)
+        let check = NSButton(title:"重新检测",target:self,action:#selector(checkPermission)); check.frame = NSRect(x:184,y:24,width:110,height:32); view.addSubview(check)
+        let panel = NSWindow(contentRect:view.frame,styleMask:[.titled,.closable],backing:.buffered,defer:false)
+        panel.title = "micromatrix Computer Use"; panel.contentView = view; panel.center(); panel.makeKeyAndOrderFront(nil)
+        window = panel; NSApp.activate(ignoringOtherApps:true)
+    }
+    @objc func checkPermission() { label?.stringValue = AXIsProcessTrusted() ? "辅助功能已授权" : "尚未授权，请开启 micromatrix Computer Use 的权限" }
+    @objc func openSettings() {
+        _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String:true] as CFDictionary)
+        NSWorkspace.shared.open(URL(string:"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+        checkPermission()
+    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender:NSApplication) -> Bool { return true }
+}
+let application = NSApplication.shared
+application.setActivationPolicy(.accessory)
+let delegate = ComputerApplication()
+application.delegate = delegate
+application.run()

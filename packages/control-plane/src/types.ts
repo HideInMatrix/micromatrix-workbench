@@ -3,6 +3,8 @@ import type { ExtensionConfiguration, McpConnectionConfig } from "@micromatrix/p
 export interface ComputerUsePermissionStatus {
   readonly platform: "macos" | "windows";
   readonly helperPath: string;
+  readonly bundleId?: string;
+  readonly signingMode?: "certificate" | "ad-hoc";
   readonly accessibility?: boolean;
   readonly interactiveDesktop?: boolean;
   readonly elevated?: boolean;

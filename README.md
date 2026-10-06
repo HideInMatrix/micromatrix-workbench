@@ -22,7 +22,7 @@ Web AI → OAuth MCP → approval policy → Pi BodyPlugin → local workspace
 
 ## Computer Use MCP
 
-**Computer Use** 已内置在插件页与 Runtime 页，无需添加 MCP 或填写路径；默认关闭，开关启用后由独立 stdio MCP 通过现有 Pi 扩展注册：先读结构化状态，再执行语义动作并回读验证。统一 DesktopProxy 自动选择 macOS Accessibility 或 Windows UI Automation，Workspace JSON 保持共用逻辑。Linux 客户端暂时停止支持。启用只保存开关，不启动 Runtime/Tunnel；macOS 有权限检测、显式申请/打开系统设置和返回复检引导，Windows 检查交互桌面而不提权，不是完整复刻论文的 15 个应用。[接入、工具合同、权限与验收边界](docs/computer-use.md)。
+**Computer Use** 已内置在插件页，无需添加 MCP 或填写路径；默认关闭，开关启用后由独立 stdio MCP 通过现有 Pi 扩展注册：先读结构化状态，再执行语义动作并回读验证。统一 DesktopProxy 自动选择 macOS 独立 **micromatrix Computer Use.app** 的 Accessibility 或 Windows UI Automation，Workspace JSON 保持共用逻辑。Linux 客户端暂时停止支持。启用只保存开关，不启动 Runtime/Tunnel；macOS 检测与执行使用同一应用身份，只有点击权限按钮才请求授权，Windows 检查交互桌面而不提权，不是完整复刻论文的 15 个应用。[接入、工具合同、权限与验收边界](docs/computer-use.md)。
 
 ## 开发运行
 

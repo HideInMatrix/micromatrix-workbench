@@ -97,6 +97,10 @@ export const desktopApi = {
     if (!isTauri()) throw new Error('请在桌面客户端打开系统权限设置，或手动前往系统设置 → 隐私与安全性 → 辅助功能。')
     await invoke('open_computer_use_settings')
   },
+  async revealComputerUseApp(): Promise<void> {
+    if (!isTauri()) throw new Error('请使用桌面客户端定位 Computer Use 应用，或复制应用路径。')
+    await invoke('reveal_computer_use_app')
+  },
   configurePiExtensions: (configuration: PiExtensionConfigurationDto) => call<boolean>('configure_pi_extensions', configuration),
   createPiSkill: (id: string, description: string, instructions: string) => call<boolean>('create_pi_skill', id, description, instructions),
   testPiMcp: (connection: PiMcpConnectionDto) => call<{ tools: string[] }>('test_pi_mcp', connection),

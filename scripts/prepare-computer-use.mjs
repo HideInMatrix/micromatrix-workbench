@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, existsSync, statSync } from 'node:fs'
+import { mkdirSync, existsSync, statSync, copyFileSync, writeFileSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { nativeBuildTarget } from './build-platform.mjs'
@@ -29,6 +29,36 @@ export function prepareComputerUse(root = process.cwd()) {
       execFileSync('/usr/bin/xcrun', ['swiftc', '-O', '-target', target, source, '-o', output], { stdio: 'inherit', timeout: 120_000 })
       execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', output], { stdio: 'inherit' })
     }
+  }
+  if (!windows) {
+    const application = path.join(root, 'src-tauri/binaries/micromatrix Computer Use.app')
+    const contents = path.join(application, 'Contents')
+    mkdirSync(path.join(contents, 'MacOS'), { recursive: true })
+    mkdirSync(path.join(contents, 'Resources'), { recursive: true })
+    copyFileSync(output, path.join(contents, 'MacOS/micromatrix-computer'))
+    copyFileSync(path.join(root, 'src-tauri/icons/icon.icns'), path.join(contents, 'Resources/icon.icns'))
+    const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version
+    writeFileSync(path.join(contents, 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>org.micromatrix.computer-use</string>
+<key>CFBundleExecutable</key><string>micromatrix-computer</string>
+<key>CFBundleName</key><string>micromatrix Computer Use</string>
+<key>CFBundleDisplayName</key><string>micromatrix Computer Use</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleVersion</key><string>${version}</string>
+<key>CFBundleShortVersionString</key><string>${version}</string>
+<key>CFBundleIconFile</key><string>icon.icns</string>
+<key>LSMinimumSystemVersion</key><string>11.0</string>
+<key>LSUIElement</key><true/>
+<key>NSAccessibilityUsageDescription</key><string>读取和操作经你批准的应用控件。</string>
+</dict></plist>
+`)
+    // Keep the real certificate requirement when configured. Never substitute
+    // an identifier-only DR to conceal stale ad-hoc TCC grants.
+    const identity = process.env.APPLE_SIGNING_IDENTITY || '-'
+    execFileSync('/usr/bin/codesign', ['--force', '--sign', identity, ...(identity === '-' ? [] : ['--options', 'runtime', '--timestamp']), application], { stdio: 'inherit' })
+    execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', application], { stdio: 'inherit' })
+    console.log(`Prepared Computer Use application: ${path.relative(root, application)}`)
   }
   console.log(`Prepared Computer Use native helper: ${path.relative(root,output)}`)
   return output

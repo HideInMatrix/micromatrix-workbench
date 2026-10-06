@@ -64,7 +64,7 @@ async function returnedToApp() {
   await action(() => check(false))
 }
 async function copyHelperPath() {
-  await action(async () => { await navigator.clipboard.writeText(status.value!.helperPath); toast.success('原生 helper 路径已复制。') })
+  await action(async () => { await navigator.clipboard.writeText(status.value!.helperPath); toast.success('应用路径已复制。') })
 }
 onMounted(() => {
   alive = true
@@ -90,63 +90,45 @@ onUnmounted(() => { alive = false; watchUntil = 0; if (timer) clearInterval(time
     <div class="flex items-center justify-between gap-4">
       <div class="flex min-w-0 flex-wrap items-center gap-2">
         <h2 class="m-0 text-sm font-medium">Computer Use</h2>
-        <span class="rounded-md bg-secondary px-2 py-0.5 text-xs text-muted-foreground">内置</span>
+        <span v-if="status?.enabled" role="status" class="rounded-md bg-secondary px-2 py-0.5 text-xs text-muted-foreground">{{ permissionLabel }}</span>
         <span v-if="status?.enabled && !status.allowActions" class="text-xs text-muted-foreground">旧配置只读</span>
       </div>
       <Switch :model-value="status?.enabled ?? false" :disabled="locked || !status || (!status.enabled && (!status.supported || !status.available || status.conflict))"
-        aria-label="启用内置 Computer Use" @update:model-value="toggle" />
+        :title="status?.running ? '停止 Runtime 后可修改' : '启用电脑控制工具'" aria-label="启用内置 Computer Use" @update:model-value="toggle" />
     </div>
-    <p v-if="!status" class="mt-3 text-xs text-muted-foreground">{{ loadingError || '正在读取插件配置…' }}</p>
-    <p v-else-if="!status.supported || !status.available || status.conflict" role="alert" class="mt-3 text-xs text-destructive">{{ status.conflict ? '自定义 MCP 占用了 computer_use ID，请先改名。不会覆盖原服务。' : '当前系统不支持或原生 helper 缺失，请安装完整的 macOS / Windows 桌面包。' }}</p>
-    <template v-else>
-      <p v-if="status.running" class="mt-3 text-xs text-muted-foreground">停止 Runtime 后可修改开关。</p>
-      <div v-if="status.enabled" class="mt-4 space-y-4 border-t border-border pt-4">
-        <div class="grid grid-cols-2 gap-3">
-          <div class="rounded-lg bg-secondary/50 px-3 py-2.5">
-            <div class="text-xs text-muted-foreground">系统权限</div>
-            <div role="status" class="mt-1 text-sm font-medium">{{ permissionLabel }}</div>
-          </div>
-          <div class="rounded-lg bg-secondary/50 px-3 py-2.5">
-            <div class="text-xs text-muted-foreground">Pi 连接</div>
-            <div class="mt-1 text-sm font-medium">{{ status.connected ? '已连接' : status.running ? '未连接' : '等待启动' }}</div>
-          </div>
+    <p v-if="!status" class="mt-3 text-xs text-muted-foreground">{{ loadingError || '正在读取配置…' }}</p>
+    <p v-else-if="!status.supported || !status.available || status.conflict" role="alert" class="mt-3 text-xs text-destructive">{{ status.conflict ? 'computer_use ID 已被占用，请先为外部 MCP 改名。' : '原生 helper 缺失或系统不支持，请安装完整的桌面包。' }}</p>
+    <div v-else-if="status.enabled" class="mt-3 space-y-3">
+      <template v-if="status.platform === 'macos'">
+        <p v-if="!granted" class="text-xs leading-5">请为 <strong class="font-medium">micromatrix Computer Use</strong> 开启辅助功能权限。</p>
+        <div class="flex flex-wrap gap-2">
+          <Button v-if="!granted" size="sm" :disabled="busy || !status.allowActions || updateInstallationLocked" @click="requestPermission">打开权限设置</Button>
+          <Button size="sm" variant="outline" :disabled="busy || updateInstallationLocked" @click="action(() => check(false))">重新检测</Button>
+          <Button v-if="!granted" size="sm" variant="ghost" :disabled="busy || updateInstallationLocked" @click="action(() => desktopApi.revealComputerUseApp())">定位应用</Button>
         </div>
-        <template v-if="status.platform === 'macos'">
-          <ol v-if="!granted" class="list-decimal space-y-1.5 pl-5 text-xs leading-5">
-            <li>打开系统设置 → 隐私与安全性 → 辅助功能。</li>
-            <li>开启 micromatrix agent 或 micromatrix-computer 的权限。</li>
-            <li>返回应用检测权限，再点击 Runtime 启动。</li>
-          </ol>
-          <div class="flex flex-wrap gap-2">
-            <Button v-if="!granted" size="sm" :disabled="busy || !status.allowActions || updateInstallationLocked" @click="requestPermission">申请权限并打开系统设置</Button>
-            <Button size="sm" variant="outline" :disabled="busy || updateInstallationLocked" @click="action(() => check(false))">重新检测权限</Button>
-          </div>
-        </template>
-        <template v-else>
-          <p v-if="!granted" class="text-xs leading-5">请登录并解锁 Windows 桌面，再检查连接。</p>
-          <p v-if="status.permission?.elevated" class="text-xs text-destructive">当前 helper 已在高权限运行；推荐以普通权限运行客户端。</p>
-          <Button size="sm" variant="outline" :disabled="busy || updateInstallationLocked" @click="action(() => check(false))">检查交互桌面</Button>
-        </template>
-        <Button v-if="!status.allowActions" size="sm" variant="outline" :disabled="locked" @click="toggle(true)">启用控制动作（保留本机审批）</Button>
-        <p v-if="loadingError || status.error" role="alert" class="whitespace-pre-wrap text-xs text-destructive">{{ loadingError || status.error }}</p>
-        <details class="border-t border-border pt-3 text-xs leading-5">
-          <summary class="cursor-pointer text-muted-foreground">授权与连接帮助</summary>
-          <div class="mt-3 space-y-3">
-            <template v-if="status.platform === 'macos'">
-              <p>权限页未列出应用时，用“+”及 ⌘⇧G 添加下方 helper。新版系统可能显示“设备控制与数据访问”。只授权本应用或 helper，不要授权终端或其他程序。</p>
-              <div class="rounded-lg bg-secondary/50 p-3">
-                <div class="mb-1 text-muted-foreground">授权 helper</div>
-                <code class="block break-all">{{ status.helperPath }}</code>
-                <Button class="mt-2" size="sm" variant="outline" :disabled="busy" @click="copyHelperPath">复制 helper 路径</Button>
-              </div>
-              <p>返回应用会重新检测；若未生效，停止并重启 Runtime。系统权限可随时撤销，需由你亲自开启。</p>
-            </template>
-            <p v-else>Windows 使用 UI Automation，无 macOS 式授权开关；不绕过 UAC、锁屏或高权限应用限制。</p>
-            <p>启用允许网页 AI 请求读取和控制授权应用，仍按 Runtime 权限模式审批。不会申请屏幕录制、完全磁盘访问或自动提权。</p>
-            <p>首次启用后，在网页 MCP 管理页刷新工具。Blender 等自绘界面仍需专用适配器。</p>
-          </div>
-        </details>
-      </div>
-    </template>
+      </template>
+      <template v-else>
+        <p v-if="!granted" class="text-xs leading-5">请登录并解锁 Windows 桌面。</p>
+        <p v-if="status.permission?.elevated" class="text-xs text-destructive">请以普通权限运行客户端。</p>
+        <Button size="sm" variant="outline" :disabled="busy || updateInstallationLocked" @click="action(() => check(false))">检查交互桌面</Button>
+      </template>
+      <Button v-if="!status.allowActions" size="sm" variant="outline" :disabled="locked" @click="toggle(true)">启用控制动作（保留本机审批）</Button>
+      <p v-if="loadingError || status.error" role="alert" class="whitespace-pre-wrap text-xs text-destructive">{{ loadingError || status.error }}</p>
+      <details class="text-xs leading-5">
+        <summary class="cursor-pointer text-muted-foreground">连接与授权详情</summary>
+        <div class="mt-3 space-y-3 rounded-lg bg-secondary/50 p-3">
+          <div>Pi 连接：{{ status.connected ? '已连接' : status.running ? '未连接' : '等待启动' }}</div>
+          <template v-if="status.platform === 'macos'">
+            <p>只授权 micromatrix Computer Use.app，不是主程序、终端或 Blender。权限页未列出时，用“+”添加此应用；“定位应用”会在 Finder 中选中它。</p>
+            <code class="block break-all">{{ status.helperPath }}</code>
+            <Button size="sm" variant="outline" :disabled="busy" @click="copyHelperPath">复制应用路径</Button>
+            <p v-if="status.permission?.signingMode === 'ad-hoc'">此构建为 ad-hoc 签名，更新后旧授权可能失效。若开关已开启但检测失败，移除旧 Computer Use 条目，再添加当前应用授权。</p>
+            <p>新授予权限后先重新检测；运行中的连接仍报权限错误时，手动停止再启动 Runtime。新版系统可能称为“设备控制和数据访问”。</p>
+          </template>
+          <p v-else>Windows 使用 UI Automation，不绕过 UAC、锁屏或高权限应用限制。</p>
+          <p>控制动作仍按 Runtime 权限模式审批。首次启用后刷新网页 MCP 工具；Blender 自绘界面的完整建模能力需专用适配器。</p>
+        </div>
+      </details>
+    </div>
   </section>
 </template>

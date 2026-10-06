@@ -75,7 +75,9 @@ export class RuntimeSupervisor implements RuntimeControl {
       const result = await desktop.permissions(request) as Record<string, unknown>;
       if (status.platform === "macos" ? typeof result.accessibility !== "boolean" : typeof result.interactive_desktop !== "boolean") throw new Error("Invalid native permission response");
       this.#computerPermission = { platform: status.platform as "macos" | "windows", helperPath: status.helperPath,
-        ...(status.platform === "macos" ? { accessibility: result.accessibility as boolean }
+        ...(status.platform === "macos" ? { accessibility: result.accessibility as boolean,
+          ...(typeof result.bundle_id === "string" ? { bundleId: result.bundle_id } : {}),
+          signingMode: result.signing_mode === "certificate" ? "certificate" as const : "ad-hoc" as const }
           : { interactiveDesktop: result.interactive_desktop as boolean, elevated: result.elevated === true }),
         promptRequested: request, requiresScreenRecording: false };
       this.#computerPermissionCheckedAt = Date.now(); this.#computerPermissionError = "";
