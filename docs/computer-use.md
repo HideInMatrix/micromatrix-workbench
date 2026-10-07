@@ -23,7 +23,13 @@
 
 只给 `micromatrix agent.app` 或 Blender 开启权限不等于授权新的 Computer Use 应用。在插件页点击“打开权限设置”，为 **micromatrix Computer Use** 开启“辅助功能 / 设备控制和数据访问”；“定位应用”在 Finder 选中嵌入的 `.app`。返回后重新检测；旧连接仍报权限错误时手动停止并启动 Runtime。不会代点授权、修改 TCC 数据库、申请屏幕录制或完全磁盘访问。
 
-ad-hoc 签名的当前构建按实际 code identity 授权，更新可能令旧条目失效。此时由用户移除旧 Computer Use 条目并添加当前应用，不能用“主程序开关已开”伪造授权通过。稳定跨更新身份需要长期证书签名；`APPLE_SIGNING_IDENTITY` 会用于辅助应用，仍必须在发布机器配置正确的 Developer ID 证书。Tauri updater 的 minisign 密钥不是 Apple 代码签名证书。签名策略依据 [Apple Code Signing In Depth](https://developer.apple.com/library/archive/technotes/tn2206/_index.html)。
+正常启动、权限检查、停止及重新启动只运行现有应用，不重新编译、复制或签名。新 PID/临时 IPC 路径不等于新授权身份。本地回归检查启停前后的指定签名要求不变。
+
+开发版使用 `org.micromatrix.computer-use.dev`，系统名称为 **micromatrix Computer Use Dev**；正式版保持 `org.micromatrix.computer-use`。服务编译时固定期望身份，运行环境和模型参数不能切换它；握手不匹配会拒绝连接。开发应用即使由同一证书签名，也不与正式版共用授权记录。
+
+已发布的 v0.5.18 是 ad-hoc：其身份绑定具体构建 hash，不能保证更新后复用旧授权。本机真实日志曾把本地开发 hash `254672…` 当作正式版身份，安装版 `7f06a9…` 因签名不匹配被拒绝。这不是应让用户每次启动删条目的正常流程。修复后的正式发布使用固定长期自签名代码签名证书，不要求 Apple Developer ID 或 Team ID。签名要求是固定 identifier 加 certificate leaf 指纹；CI 验证证书用途、有效期与私钥身份，打包后核对主应用和 helper 的实际证书、稳定 DR，不接受 ad-hoc/cdhash 绑定。证书只在首次明确运行生成脚本时创建，应用启动及发布流程从不重新生成。配置和备份见 README。
+
+首次从旧 ad-hoc 迁移可能需重新授权一次。两次不同构建的签名身份稳定不等于已证明所有 macOS 的 TCC 更新复用：实际授权 → 安装更新 → MCP observe 的验收仍待用户完成。自签名没有 Apple 公证，不替客户端安装可信根、不修改 TCC、不关闭 Gatekeeper。Tauri updater 的 minisign 密钥不是代码签名证书。[Apple 签名身份与信任策略](https://developer.apple.com/library/archive/technotes/tn2206/)。
 
 ## 已实现范围
 

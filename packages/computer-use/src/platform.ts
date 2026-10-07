@@ -3,6 +3,12 @@ import { fileURLToPath } from "node:url";
 import { isSea } from "node:sea";
 import { fail } from "./protocol.js";
 
+declare const __MICROMATRIX_RELEASE_BUILD__: boolean;
+// Direct TS development defaults to the isolated Dev identity. Bundled builds
+// replace this constant; no mutable runtime env or model input selects an ID.
+export const computerUseBundleId = typeof __MICROMATRIX_RELEASE_BUILD__ !== "undefined" && __MICROMATRIX_RELEASE_BUILD__
+  ? "org.micromatrix.computer-use" : "org.micromatrix.computer-use.dev";
+
 export interface DesktopPlatform {
   readonly os: "darwin" | "win32";
   readonly name: "macos" | "windows";

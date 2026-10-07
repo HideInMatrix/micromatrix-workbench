@@ -146,6 +146,31 @@ Shell 插件向 MCP 暴露的工具名是 `bash`。`safe` 和 `trusted` 模式�
 
 ## GitHub Actions 打包
 
+### macOS 长期自签名身份（v0.5.19）
+
+没有 Apple Developer ID 时，正式构建使用同一张长期自签名 **code-signing** 证书；不按版本重新生成证书，不依赖 Apple Team ID。主应用与 helper 的签名要求都绑定证书指纹及固定 Bundle ID，不能降级为 ad-hoc 或只有 identifier 的宽松要求。
+
+本地默认构建仍使用独立的 `micromatrix Computer Use Dev` / `org.micromatrix.computer-use.dev`，不会占用正式版授权身份。启动、停止与检查权限只运行程序，不复制或重新签名。
+
+一次性创建证书（已有则拒绝覆盖）：
+
+```bash
+node scripts/create-macos-certificate.mjs
+```
+
+生成物在 Git 忽略的 `.local/macos-signing/`：`certificate.p12`（加密私钥和证书）、`password.txt`、`certificate.pem` 和公开配置 `variables.json`。目录权限 0700、文件 0600，生成后删除中间私钥。有效期十年；离线备份 p12 并分开保管密码，不提交这些文件，不把私钥或密码粘贴到聊天。**证书过期、丢失或更换需要计划迁移，不能悄悄换证书继续发布。**
+
+```bash
+# 两个不同版本的真实签名校验，不安装或运行测试应用、不申请权限
+node scripts/import-macos-certificate.mjs probe
+# 本地正式身份打包；只使用自有临时 keychain，结束恢复搜索列表并删除
+node scripts/import-macos-certificate.mjs build --bundles app --config src-tauri/tauri.prebuilt.conf.json
+```
+
+GitHub Actions **Variables**：将 `variables.json` 中的 `APPLE_SIGNING_IDENTITY` 和 `APPLE_SIGNING_CERTIFICATE_SHA1` 原样设置（两者都是同一证书的 40 位指纹）。**Secrets**：`APPLE_CERTIFICATE` 为 p12 的 base64，`APPLE_CERTIFICATE_PASSWORD` 为密码。CI 不生成证书；先验证指纹、自签名、有效期及仅 codeSigning 用途，再导入临时 keychain。Tauri 打包后再次校验主应用和嵌入 helper，错误证书、ad-hoc 或绑定当前 cdhash 的包拒绝发布。临时 keychain 不改变 login/default keychain、系统信任或 TCC。
+
+这与 `TAURI_SIGNING_PRIVATE_KEY` 的更新包签名是两回事。**自签名不是 Apple 公证，也不能保证通过 Gatekeeper**；不为客户端自动安装根证书或关闭安全机制。旧 v0.5.18 是 ad-hoc，第一次迁移可能需重新授权一次；已验证不同构建保持相同签名要求，但授权后跨版本更新的 TCC 行为仍须实机验收，不能把签名校验通过当成权限已生效。[Apple 签名身份与信任策略](https://developer.apple.com/library/archive/technotes/tn2206/)。
+
 当前仅发布 macOS arm64/x64 与 Windows x64。Linux 客户端构建、安装包和 updater 目标已暂停；Linux runner 仍用于纯 TS/Web 校验与 Release 附件整理，不代表发布 Linux 客户端。不删除旧 GitHub Release，已安装 Linux 版本不会获得本次新版本的 Linux 更新包。
 
 - 分支 push / PR：`CI` 自动准备应用版本、运行类型检查和 Web 构建。
@@ -205,7 +230,7 @@ Release 提供 **4 个安装包 + 2 个 macOS `.app.tar.gz` 更新包 + `latest.
 
 `build:sidecar` 同时生成 Node/Pi 许可证、第三方通知和已知限制；Tauri 通过 `bundle.resources` 将其放进安装后应用的 `notices/` 资源目录，不再作为公开附件重复分发。生成目录不追踪 Git。这只覆盖目前列出的通知，完整依赖许可证审计仍未完成。[Tauri 资源配置](https://v2.tauri.app/reference/config/#resources)。
 
-macOS 使用 ad-hoc 签名、没有公证；Windows 未进行 Authenticode 签名。编译通过不是平台安装验收，当前仍是测试包。流水线依据 [Tauri 打包指南](https://v2.tauri.app/distribute/pipelines/github/)、[GitHub 手动触发要求](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)和 [Node SEA 构建流程](https://nodejs.org/download/release/latest-v22.x/docs/api/single-executable-applications.html)。
+旧 v0.5.18 macOS 包使用 ad-hoc 签名、没有公证；本轮正式流程使用固定长期自签名证书，仍没有 Apple 公证。Windows 未进行 Authenticode 签名。编译通过不是平台安装验收。流水线依据 [Tauri 打包指南](https://v2.tauri.app/distribute/pipelines/github/)、[GitHub 手动触发要求](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)和 [Node SEA 构建流程](https://nodejs.org/download/release/latest-v22.x/docs/api/single-executable-applications.html)。
 
 macOS 保持 Hardened Runtime，补充 V8 所需 JIT/可执行内存 entitlements。不能只测打包前的 SEA：Tauri 会重新签名 sidecar，因此原生 macOS job 在打包后另跑 `scripts/smoke-sidecar.mjs --bundled`，验证最终包内进程能启动、显示版本正确、Runtime 闲置且 MCP 端口未监听。[Apple JIT 与 Hardened Runtime](https://developer.apple.com/documentation/Apple-Silicon/porting-just-in-time-compilers-to-apple-silicon)。
 

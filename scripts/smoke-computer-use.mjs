@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { nativeBuildTarget } from './build-platform.mjs'
+import { buildChannel } from './build-channel.mjs'
 
 // The same packaged service is also a model-free stdio MCP. Exercise it in a
 // disposable directory: never alter the installed app or request OS permission.
@@ -35,7 +36,8 @@ export async function smokeComputerUse(executable) {
     assert.equal(desktop.available, true)
     const permissions = await call('computer_permissions', { request: false })
     if (process.platform === 'darwin') {
-      assert.equal(permissions.bundle_id, 'org.micromatrix.computer-use')
+      assert.equal(permissions.bundle_id, `org.micromatrix.computer-use${buildChannel() === 'release' ? '' : '.dev'}`)
+      if (buildChannel() === 'release') assert.equal(permissions.signing_mode, 'certificate', 'macOS releases must not use ad-hoc signing')
       assert.match(permissions.helper_path, /micromatrix Computer Use\.app$/)
       assert.ok(['certificate', 'ad-hoc'].includes(permissions.signing_mode))
       assert.equal(permissions.prompt_requested, false)

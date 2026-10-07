@@ -50,7 +50,7 @@ func appFor(_ target: String) throws -> NSRunningApplication {
     return app
 }
 func capture(_ target: String) throws -> [String: Any] {
-    guard AXIsProcessTrusted() else { try refuse("ACCESSIBILITY_PERMISSION_REQUIRED", "Grant Accessibility to micromatrix Computer Use.app in System Settings; permissions belong to this application, not micromatrix agent or Blender") }
+    guard AXIsProcessTrusted() else { try refuse("ACCESSIBILITY_PERMISSION_REQUIRED", "Grant Accessibility to \(applicationName()) in System Settings; permissions belong to this application, not micromatrix agent or Blender") }
     let app = try appFor(target), root = AXUIElementCreateApplication(app.processIdentifier)
     AXUIElementSetMessagingTimeout(root,0.25)
     let appId = "app:\(app.processIdentifier)"
@@ -141,7 +141,7 @@ func dispatch(_ input: [String: Any]) throws -> Any {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: prompt] as CFDictionary
         return ["platform":"macos","accessibility":AXIsProcessTrustedWithOptions(options),"prompt_requested":prompt,
                 "helper_path":Bundle.main.bundleURL.path,"bundle_id":Bundle.main.bundleIdentifier ?? "", "pid":getpid(),
-                "signing_mode":signingMode(), "requires_screen_recording":false,"note":"Authorize micromatrix Computer Use.app, then recheck; ad-hoc updates may require granting the new build again"] as [String:Any]
+                "signing_mode":signingMode(), "requires_screen_recording":false,"note":"Authorize \(applicationName()); checks and restarts do not change its signing identity"] as [String:Any]
     case "targets":
         return NSWorkspace.shared.runningApplications.filter{$0.activationPolicy == .regular && !$0.isTerminated}.prefix(100).map{
             ["target":"pid:\($0.processIdentifier)","name":$0.localizedName ?? "Application","bundle_id":$0.bundleIdentifier ?? "","active":$0.isActive] as [String:Any]
@@ -152,6 +152,9 @@ func dispatch(_ input: [String: Any]) throws -> Any {
     case "act": return try execute(input)
     default: try refuse("INVALID_ARGUMENT","Unknown native operation")
     }
+}
+func applicationName() -> String {
+    return Bundle.main.bundleIdentifier == "org.micromatrix.computer-use.dev" ? "micromatrix Computer Use Dev.app" : "micromatrix Computer Use.app"
 }
 func signingMode() -> String {
     var code: SecCode?
@@ -196,7 +199,7 @@ final class ComputerApplication: NSObject, NSApplicationDelegate {
     var window: NSWindow?
     var label: NSTextField?
     func applicationDidFinishLaunching(_ notification: Notification) {
-        guard Bundle.main.bundleIdentifier == "org.micromatrix.computer-use" else { NSApp.terminate(nil); return }
+        guard ["org.micromatrix.computer-use", "org.micromatrix.computer-use.dev"].contains(Bundle.main.bundleIdentifier ?? "") else { NSApp.terminate(nil); return }
         if let index = CommandLine.arguments.firstIndex(of:"--channel"), index + 1 < CommandLine.arguments.count {
             // Only a private, owner-readable channel file; no public port or reusable secret.
             let file = CommandLine.arguments[index+1]
@@ -229,15 +232,15 @@ final class ComputerApplication: NSObject, NSApplicationDelegate {
         let view = NSView(frame:NSRect(x:0,y:0,width:420,height:180))
         let title = NSTextField(labelWithString:"Computer Use")
         title.font = .systemFont(ofSize:20,weight:.semibold); title.frame = NSRect(x:24,y:128,width:372,height:28); view.addSubview(title)
-        let status = NSTextField(labelWithString:AXIsProcessTrusted() ? "辅助功能已授权" : "需要为 micromatrix Computer Use 授予辅助功能权限")
+        let status = NSTextField(labelWithString:AXIsProcessTrusted() ? "辅助功能已授权" : "需要为 \(applicationName()) 授予辅助功能权限")
         status.frame = NSRect(x:24,y:83,width:372,height:30); status.lineBreakMode = .byWordWrapping; view.addSubview(status); label = status
         let grant = NSButton(title:"打开权限设置",target:self,action:#selector(openSettings)); grant.frame = NSRect(x:24,y:24,width:150,height:32); view.addSubview(grant)
         let check = NSButton(title:"重新检测",target:self,action:#selector(checkPermission)); check.frame = NSRect(x:184,y:24,width:110,height:32); view.addSubview(check)
         let panel = NSWindow(contentRect:view.frame,styleMask:[.titled,.closable],backing:.buffered,defer:false)
-        panel.title = "micromatrix Computer Use"; panel.contentView = view; panel.center(); panel.makeKeyAndOrderFront(nil)
+        panel.title = applicationName(); panel.contentView = view; panel.center(); panel.makeKeyAndOrderFront(nil)
         window = panel; NSApp.activate(ignoringOtherApps:true)
     }
-    @objc func checkPermission() { label?.stringValue = AXIsProcessTrusted() ? "辅助功能已授权" : "尚未授权，请开启 micromatrix Computer Use 的权限" }
+    @objc func checkPermission() { label?.stringValue = AXIsProcessTrusted() ? "辅助功能已授权" : "尚未授权，请开启 \(applicationName()) 的权限" }
     @objc func openSettings() {
         _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String:true] as CFDictionary)
         NSWorkspace.shared.open(URL(string:"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)

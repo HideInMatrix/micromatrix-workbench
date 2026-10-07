@@ -3,10 +3,13 @@ import { mkdirSync, existsSync, statSync, copyFileSync, writeFileSync, readFileS
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { nativeBuildTarget } from './build-platform.mjs'
+import { buildChannel, macSigningIdentity, macReleaseRequirement } from './build-channel.mjs'
 
 export function prepareComputerUse(root = process.cwd()) {
   const triple = nativeBuildTarget()
   const windows = process.platform === 'win32'
+  const release = buildChannel() === 'release'
+  const identity = windows ? null : macSigningIdentity()
   const source = path.join(root, `packages/computer-use/native/${windows ? 'windows.cs' : 'macos.swift'}`)
   const manifest = path.join(root, 'packages/computer-use/native/windows.manifest')
   const output = path.join(root, `src-tauri/binaries/micromatrix-computer-${triple}${windows ? '.exe' : ''}`)
@@ -40,10 +43,10 @@ export function prepareComputerUse(root = process.cwd()) {
     const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version
     writeFileSync(path.join(contents, 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
-<key>CFBundleIdentifier</key><string>org.micromatrix.computer-use</string>
+<key>CFBundleIdentifier</key><string>org.micromatrix.computer-use${release ? '' : '.dev'}</string>
 <key>CFBundleExecutable</key><string>micromatrix-computer</string>
-<key>CFBundleName</key><string>micromatrix Computer Use</string>
-<key>CFBundleDisplayName</key><string>micromatrix Computer Use</string>
+<key>CFBundleName</key><string>micromatrix Computer Use${release ? '' : ' Dev'}</string>
+<key>CFBundleDisplayName</key><string>micromatrix Computer Use${release ? '' : ' Dev'}</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>${version}</string>
 <key>CFBundleShortVersionString</key><string>${version}</string>
@@ -53,11 +56,13 @@ export function prepareComputerUse(root = process.cwd()) {
 <key>NSAccessibilityUsageDescription</key><string>读取和操作经你批准的应用控件。</string>
 </dict></plist>
 `)
-    // Keep the real certificate requirement when configured. Never substitute
-    // an identifier-only DR to conceal stale ad-hoc TCC grants.
-    const identity = process.env.APPLE_SIGNING_IDENTITY || '-'
-    execFileSync('/usr/bin/codesign', ['--force', '--sign', identity, ...(identity === '-' ? [] : ['--options', 'runtime', '--timestamp']), application], { stdio: 'inherit' })
+    // A cryptographic certificate pin + identifier, never identifier alone.
+    // Self-signed builds do not require Apple's online timestamp service.
+    execFileSync('/usr/bin/codesign', ['--force', '--sign', identity,
+      ...(identity === '-' ? [] : ['--options', 'runtime', '--timestamp=none']),
+      ...(release ? ['--requirements', `=designated => ${macReleaseRequirement().slice(1)}`] : []), application], { stdio: 'inherit' })
     execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', application], { stdio: 'inherit' })
+    if (release) execFileSync('/usr/bin/codesign', ['--verify', '--strict', '--test-requirement', macReleaseRequirement(), application], { stdio: 'inherit' })
     console.log(`Prepared Computer Use application: ${path.relative(root, application)}`)
   }
   console.log(`Prepared Computer Use native helper: ${path.relative(root,output)}`)

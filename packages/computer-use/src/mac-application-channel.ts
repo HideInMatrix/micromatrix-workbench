@@ -6,8 +6,9 @@ import { join } from "node:path";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import { ComputerUseError, fail } from "./protocol.js";
+import { computerUseBundleId } from "./platform.js";
 
-const identity = "org.micromatrix.computer-use";
+const identity = computerUseBundleId;
 const disconnected = () => new ComputerUseError("NATIVE_DISCONNECTED", "Computer Use application stopped; action outcome may be unknown. Observe again before retrying");
 
 /** Private, per-channel Unix socket. No public listener, reusable token, shell or inherited stdio/TCC identity. */

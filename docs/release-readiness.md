@@ -1,11 +1,23 @@
-# 发布就绪审阅 — 更新于 2026-10-06
+# 发布就绪审阅 — 更新于 2026-10-07
+
+## macOS 授权持久性修复（v0.5.19 发布验收）
+
+真实 tccd 日志确认旧签名要求 `254672…` 精确匹配本地开发构建，但 v0.5.18 安装版为 `7f06a9…`，校验 -67050；安装版的新检测进程和 Home MCP 都返回 false，排除仅旧会话缓存的问题。启动代码没有编译/签名程序，“每次启动重新添加”不是预期设计。
+
+开发身份改为 `.dev` 并显示 Dev，编译后的服务只接受自己的固定身份。正式 tag 改用长期自签名 code-signing 证书，不要求 Apple 账号；同一证书贯穿主应用/helper/后续版本。生成脚本显式运行一次，证书与密码在 Git 忽略目录且不覆盖已有身份；CI 预检指纹、自签名、有效期与 EKU，使用自有临时 keychain 并在 Tauri 打包后验证实际签名，失败不回退 ad-hoc。
+
+本机已生成十年期证书并完成临时 keychain 导入/清理；两个不同版本的真实签名 DR 相同而 CDHash 不同，错误证书与 ad-hoc 嵌套代码被拒绝。实际 macOS arm64 Tauri 主包/helper/SEA 已使用同一证书打包，清理 keychain 后再次通过签名检查及最终包的 MCP/手动启停/无提示权限检查冒烟。系统信任、TCC 与已安装 v0.5.18 未修改。本轮 245 个服务、29 个 Vue、65 个 Node 测试共 339 项通过，typecheck/Web、默认 Dev SEA 冒烟与 Actionlint 通过。
+
+GitHub 仓库级 `APPLE_SIGNING_IDENTITY` / `APPLE_SIGNING_CERTIFICATE_SHA1` Variables 与 `APPLE_CERTIFICATE` / `APPLE_CERTIFICATE_PASSWORD` Secrets 已于 2026-10-07 配置；变量值回读匹配，Secret 设置成功且元数据存在（GitHub 不允许回读其值）。没有修改 updater 密钥，配置阶段未触发 workflow；发布通过 v0.5.19 tag 触发。
+
+**新流程的 GitHub 原生 runner 打包、实际授权后的跨版本 TCC 复用、Gatekeeper 首次安装及 Windows 实机操作尚未验收，不得标为完成。** 自签名不是 Apple 公证，不向用户系统安装可信根。测试及构建通过不能替代权限授权验收；v0.5.19 的完整 GitHub 矩阵与 Release 上传结果待流水线确认。
 
 ## 2026-10-06 Computer Use 授权身份修复（v0.5.18）
 
 - macOS 由裸子进程改为固定 Bundle ID 的 `micromatrix Computer Use.app`，随主包置于 `Contents/Helpers`，保留原图标；检测、申请权限与实际 ABI 操作通过同一 LaunchServices 应用身份和私有 Unix socket。主应用的旧辅助功能开关不作为权限证明，不读取或改写 TCC 数据库。
 - Runtime 移除重复工具开关与 Computer Use 卡片，插件页集中管理内置工具、Computer Use、MCP 和 Skills；详细目录及授权说明默认折叠，密钥与手动启停语义不变。
 - 本地真实回归通过：245 个服务测试、29 个 Vue 组件测试、61 个 Node 测试，共 335 个；类型/Web 构建、Rust offline check、SEA 与最终 macOS arm64 `.app` 冒烟通过。最终包中的嵌套应用完整、深层签名有效；经 LaunchServices 实际返回 `org.micromatrix.computer-use`，未请求权限、未操作 Blender，通道关闭后所属进程退出。
-- **真实 Accessibility 仍为 false**。用户须为新 Computer Use 应用授权，授权后的 GUI 操作尚未验收；Windows 后端未改启动方式，本轮无 Windows 实机验收。当前包为 ad-hoc，不能保证跨更新保留 TCC 授权；长期 Developer ID 证书与公证仍待配置。Blender 自绘界面/建模内部状态尚无专用适配器。
+- **真实 Accessibility 仍为 false**。用户须为新 Computer Use 应用授权，授权后的 GUI 操作尚未验收；Windows 后端未改启动方式，本轮无 Windows 实机验收。当前包为 ad-hoc，不能保证跨更新保留 TCC 授权；长期证书在 v0.5.19 接入；Apple 公证仍未配置。Blender 自绘界面/建模内部状态尚无专用适配器。
 
 ## 结论与范围
 

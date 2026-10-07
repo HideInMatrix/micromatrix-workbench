@@ -1,4 +1,4 @@
-# micromatrix agent v0.5.18
+# micromatrix agent v0.5.19
 
 Normal version tags publish automatically as stable releases and GitHub Latest;
 tags with a prerelease suffix remain prereleases. Review the known limitations
@@ -8,7 +8,7 @@ label does not imply production signing or that all security work is complete.
 - Runtime and tunnels start only after the user clicks Start.
 - cloudflared 2026.9.3 is bundled; the desktop uses its private copy without an
   executable-path form field. Other tunnel providers still require their clients.
-- macOS packages use ad-hoc signing, without Apple notarization. Windows packages
+- New macOS packages use a pinned long-lived self-signed code-signing certificate, without Apple notarization; v0.5.18 and earlier used ad-hoc signing. Windows packages
   are not Authenticode-signed. Updater packages use the dedicated Tauri signing
   key; this does not provide Apple notarization or Authenticode signing.
 - The build matrix targets macOS arm64/x64 and Windows x64 (Linux desktop support is suspended). Successful
@@ -25,8 +25,10 @@ label does not imply production signing or that all security work is complete.
 - Grant Accessibility to micromatrix Computer Use.app, not just micromatrix
   agent or Blender. Plugins offers Open Permission Settings, Recheck and Locate
   Application. Existing main-app grants do not prove that this new app is
-  authorized. Ad-hoc updates may require granting the current build again;
-  persistent signing identity requires an Apple Developer ID certificate.
+  authorized. Migration from an old ad-hoc build may require one new grant. New builds keep
+  the same certificate-bound identity, with an isolated Dev bundle ID; granted
+  TCC behavior across upgrades still requires real-machine acceptance. Self-signing
+  does not make the app Apple-trusted or notarized.
 - Runtime now contains connection configuration and Start/Stop only. Tools,
   Computer Use, external MCP services and Skills are managed on the Plugins
   page; connection help and the tool catalog are collapsed by default.

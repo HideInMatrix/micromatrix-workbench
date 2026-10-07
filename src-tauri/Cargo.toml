@@ -1,6 +1,6 @@
 [package]
 name = "micromatrix-pi-mcp"
-version = "0.5.18"
+version = "0.5.19"
 description = "Desktop control surface for the MicroMatrix Pi MCP runtime"
 authors = ["MicroMatrix"]
 repository = ""

@@ -4,6 +4,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { nativeBuildTarget } from './build-platform.mjs'
 import { releaseVersion } from './release-version.mjs'
+import { verifyMacosSigning } from './verify-macos-signing.mjs'
 
 // Package the already signed .app; no Rust/Vite rebuild, Finder automation,
 // writable-image resize or explicit mount/unmount is needed to create a DMG.
@@ -44,6 +45,7 @@ export async function packageMacosDmg(root = process.cwd(), {
     return result.stdout.trim()
   }
   try {
+    if (!run) verifyMacosSigning(application, env)
     execute('/usr/bin/codesign', ['--verify', '--deep', '--strict', application])
     const appVersion = execute('/usr/bin/plutil', ['-extract', 'CFBundleShortVersionString', 'raw', '-o', '-', path.join(application, 'Contents/Info.plist')])
     if (appVersion !== version) throw new Error(`Signed .app version ${appVersion} does not match ${version}`)

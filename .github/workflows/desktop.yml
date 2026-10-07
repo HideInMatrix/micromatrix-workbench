@@ -35,6 +35,14 @@ jobs:
             echo "Missing TAURI_SIGNING_PRIVATE_KEY repository Secret; signed updates cannot be released" >&2
             exit 1
           fi
+      - name: Require pinned long-lived macOS signing certificate
+        if: github.ref_type == 'tag'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+          APPLE_SIGNING_CERTIFICATE_SHA1: ${{ vars.APPLE_SIGNING_CERTIFICATE_SHA1 }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+        run: |
+          node --input-type=module -e 'import { macSigningIdentity } from "./scripts/build-channel.mjs"; macSigningIdentity(); if (!process.env.APPLE_CERTIFICATE) throw new Error("Missing APPLE_CERTIFICATE; refusing another ad-hoc macOS release")'
       - run: npm ci
       - run: npm run check
       - name: Share the single frontend build with native jobs
@@ -71,8 +79,10 @@ jobs:
     env:
       CI: 'true'
       MICROMATRIX_BUILD_TARGET: ${{ matrix.target }}
-      # Ad-hoc only; these are test packages, not notarized distribution builds.
-      APPLE_SIGNING_IDENTITY: '-'
+      # Manual branch builds use an isolated Dev identity. Tag builds must use
+      # the same pinned self-signed certificate; never fall back to ad-hoc.
+      APPLE_SIGNING_IDENTITY: ${{ github.ref_type == 'tag' && vars.APPLE_SIGNING_IDENTITY || '-' }}
+      APPLE_SIGNING_CERTIFICATE_SHA1: ${{ vars.APPLE_SIGNING_CERTIFICATE_SHA1 }}
       NO_STRIP: 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7, Node 24
@@ -95,6 +105,12 @@ jobs:
         with:
           name: shared-web
           path: apps/web/dist
+      - name: Import pinned certificate into an owned temporary keychain
+        if: runner.os == 'macOS' && github.ref_type == 'tag'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: node scripts/import-macos-certificate.mjs import
       - name: Build and smoke-test native Node SEA
         run: npm run build:sidecar -- --prebuilt-web && npm run smoke:sidecar
       - name: Restore Rust dependencies and compiled crates
@@ -114,7 +130,7 @@ jobs:
         run: npm run tauri -- build --ci --verbose --config src-tauri/tauri.prebuilt.conf.json --bundles ${{ matrix.bundles }} -- --locked --timings
       - name: Smoke-test the final signed macOS sidecar
         if: runner.os == 'macOS'
-        run: node scripts/smoke-sidecar.mjs --bundled
+        run: node scripts/verify-macos-signing.mjs && node scripts/smoke-sidecar.mjs --bundled
       - name: Create and verify headless macOS DMG
         if: runner.os == 'macOS'
         run: node scripts/package-macos-dmg.mjs
@@ -143,6 +159,9 @@ jobs:
           path: src-tauri/target/cargo-timings/
           if-no-files-found: ignore
           retention-days: 14
+      - name: Remove owned Apple signing keychain
+        if: always() && runner.os == 'macOS' && github.ref_type == 'tag'
+        run: node scripts/import-macos-certificate.mjs cleanup
 
   release:
     # Never publish a release from a manual branch build or a partial matrix.

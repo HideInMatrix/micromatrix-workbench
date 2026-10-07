@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { chmod, mkdir, readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { build } from 'esbuild'
+import { buildChannel } from './build-channel.mjs'
 
 const root = process.cwd()
 const webDist = path.join(root, 'apps/web/dist')
@@ -66,7 +67,7 @@ await build({
   format: 'cjs',
   sourcemap: false,
   banner: { js: '#!/usr/bin/env node\nconst __micromatrix_import_meta_url = require("node:url").pathToFileURL(__filename).href;\n// SEA has no node_modules package tree. Never walk outside the bundled executable\n// looking for Pi metadata (which can prompt for Documents access before Start).\nif (require("node:sea").isSea() && !process.env.PI_PACKAGE_DIR) process.env.PI_PACKAGE_DIR = require("node:path").dirname(process.execPath);' },
-  define: { 'import.meta.url': '__micromatrix_import_meta_url' },
+  define: { 'import.meta.url': '__micromatrix_import_meta_url', '__MICROMATRIX_RELEASE_BUILD__': String(buildChannel() === 'release') },
   plugins: [{
     name: 'embedded-web-assets',
     setup(buildApi) {

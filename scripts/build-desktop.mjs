@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { prepareReleaseVersion } from './release-version.mjs'
+import { verifyMacosSigning } from './verify-macos-signing.mjs'
 
 const env = { ...process.env }
 const localKey = path.resolve('.local/updater/micromatrix.key')
@@ -14,3 +15,7 @@ prepareReleaseVersion()
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 execFileSync(npm, ['run', 'build:sidecar'], { stdio: 'inherit', env, ...(process.platform === 'win32' ? { shell: true } : {}) })
 execFileSync(npm, ['run', 'tauri', '--', 'build', ...process.argv.slice(2)], { stdio: 'inherit', env, ...(process.platform === 'win32' ? { shell: true } : {}) })
+if (process.platform === 'darwin' && !process.argv.includes('--no-bundle')) {
+  const { productName } = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8'))
+  verifyMacosSigning(path.resolve('src-tauri/target/release/bundle/macos', `${productName}.app`), env)
+}

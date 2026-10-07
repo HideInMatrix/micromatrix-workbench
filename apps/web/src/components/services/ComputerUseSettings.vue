@@ -10,6 +10,8 @@ import type { ComputerUseStatusDto } from '../../types'
 const props = defineProps<{ locked?: boolean }>()
 const emit = defineEmits<{ changed: [] }>()
 const status = ref<ComputerUseStatusDto | null>(null)
+const applicationName = computed(() => status.value?.permission?.bundleId === 'org.micromatrix.computer-use.dev'
+  ? 'micromatrix Computer Use Dev' : 'micromatrix Computer Use')
 const busy = ref(false)
 const loadingError = ref('')
 let alive = false
@@ -100,7 +102,7 @@ onUnmounted(() => { alive = false; watchUntil = 0; if (timer) clearInterval(time
     <p v-else-if="!status.supported || !status.available || status.conflict" role="alert" class="mt-3 text-xs text-destructive">{{ status.conflict ? 'computer_use ID 已被占用，请先为外部 MCP 改名。' : '原生 helper 缺失或系统不支持，请安装完整的桌面包。' }}</p>
     <div v-else-if="status.enabled" class="mt-3 space-y-3">
       <template v-if="status.platform === 'macos'">
-        <p v-if="!granted" class="text-xs leading-5">请为 <strong class="font-medium">micromatrix Computer Use</strong> 开启辅助功能权限。</p>
+        <p v-if="!granted" class="text-xs leading-5">请为 <strong class="font-medium">{{ applicationName }}</strong> 开启辅助功能权限。</p>
         <div class="flex flex-wrap gap-2">
           <Button v-if="!granted" size="sm" :disabled="busy || !status.allowActions || updateInstallationLocked" @click="requestPermission">打开权限设置</Button>
           <Button size="sm" variant="outline" :disabled="busy || updateInstallationLocked" @click="action(() => check(false))">重新检测</Button>
@@ -119,7 +121,8 @@ onUnmounted(() => { alive = false; watchUntil = 0; if (timer) clearInterval(time
         <div class="mt-3 space-y-3 rounded-lg bg-secondary/50 p-3">
           <div>Pi 连接：{{ status.connected ? '已连接' : status.running ? '未连接' : '等待启动' }}</div>
           <template v-if="status.platform === 'macos'">
-            <p>只授权 micromatrix Computer Use.app，不是主程序、终端或 Blender。权限页未列出时，用“+”添加此应用；“定位应用”会在 Finder 中选中它。</p>
+            <p>只授权 {{ applicationName }}，不是主程序、终端或 Blender。权限页未列出时，用“+”添加此应用；“定位应用”会在 Finder 中选中它。</p>
+            <div v-if="status.permission?.bundleId">应用身份：<code>{{ status.permission.bundleId }}</code></div>
             <code class="block break-all">{{ status.helperPath }}</code>
             <Button size="sm" variant="outline" :disabled="busy" @click="copyHelperPath">复制应用路径</Button>
             <p v-if="status.permission?.signingMode === 'ad-hoc'">此构建为 ad-hoc 签名，更新后旧授权可能失效。若开关已开启但检测失败，移除旧 Computer Use 条目，再添加当前应用授权。</p>
