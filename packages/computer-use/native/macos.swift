@@ -195,6 +195,43 @@ func serve(_ input: FileHandle, _ output: FileHandle) {
     }
 }
 
+// Drag the real embedded .app URL, never its executable, an alias or a copy.
+// This operates inside our own window and requires no Accessibility bootstrap.
+func applicationDragItem(_ application: URL) -> NSDraggingItem {
+    let item = NSDraggingItem(pasteboardWriter: application as NSURL)
+    item.setDraggingFrame(NSRect(x:12,y:8,width:44,height:44), contents:NSWorkspace.shared.icon(forFile:application.path))
+    return item
+}
+final class PermissionApplicationCard: NSView, NSDraggingSource {
+    override init(frame:NSRect) {
+        super.init(frame:frame)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        layer?.cornerRadius = 8
+        let image = NSImageView(frame:NSRect(x:12,y:8,width:44,height:44))
+        image.image = NSWorkspace.shared.icon(forFile:Bundle.main.bundleURL.path)
+        addSubview(image)
+        let name = NSTextField(labelWithString:applicationName())
+        name.font = .systemFont(ofSize:13,weight:.medium)
+        name.frame = NSRect(x:68,y:32,width:280,height:20); addSubview(name)
+        let hint = NSTextField(labelWithString:"拖到系统权限列表，然后开启开关")
+        hint.textColor = .secondaryLabelColor
+        hint.frame = NSRect(x:68,y:10,width:280,height:20); addSubview(hint)
+        setAccessibilityLabel("\(applicationName())，拖到系统权限列表以添加")
+        setAccessibilityRole(.group)
+    }
+    required init?(coder:NSCoder) { fatalError("Permission card uses a fixed native layout") }
+    override func hitTest(_ point:NSPoint) -> NSView? {
+        return bounds.contains(convert(point,from:superview)) ? self : nil
+    }
+    override func mouseDown(with event:NSEvent) {}
+    override func mouseDragged(with event:NSEvent) {
+        beginDraggingSession(with:[applicationDragItem(Bundle.main.bundleURL)], event:event, source:self)
+    }
+    func draggingSession(_ session:NSDraggingSession, sourceOperationMaskFor context:NSDraggingContext) -> NSDragOperation { .copy }
+    func ignoreModifierKeys(for session:NSDraggingSession) -> Bool { true }
+}
+
 final class ComputerApplication: NSObject, NSApplicationDelegate {
     var window: NSWindow?
     var label: NSTextField?
@@ -226,25 +263,42 @@ final class ComputerApplication: NSObject, NSApplicationDelegate {
                 serve(stream,stream)
                 DispatchQueue.main.async { NSApp.terminate(nil) }
             }
-        } else { showWindow() }
+        } else {
+            showWindow()
+            // Explicit desktop action only. Keep this application/window alive
+            // while macOS handles its asynchronous permission prompt.
+            if CommandLine.arguments.contains("--permission-settings") { openSettings() }
+        }
     }
     func showWindow() {
-        let view = NSView(frame:NSRect(x:0,y:0,width:420,height:180))
+        let view = NSView(frame:NSRect(x:0,y:0,width:420,height:252))
         let title = NSTextField(labelWithString:"Computer Use")
-        title.font = .systemFont(ofSize:20,weight:.semibold); title.frame = NSRect(x:24,y:128,width:372,height:28); view.addSubview(title)
-        let status = NSTextField(labelWithString:AXIsProcessTrusted() ? "辅助功能已授权" : "需要为 \(applicationName()) 授予辅助功能权限")
-        status.frame = NSRect(x:24,y:83,width:372,height:30); status.lineBreakMode = .byWordWrapping; view.addSubview(status); label = status
-        let grant = NSButton(title:"打开权限设置",target:self,action:#selector(openSettings)); grant.frame = NSRect(x:24,y:24,width:150,height:32); view.addSubview(grant)
-        let check = NSButton(title:"重新检测",target:self,action:#selector(checkPermission)); check.frame = NSRect(x:184,y:24,width:110,height:32); view.addSubview(check)
+        title.font = .systemFont(ofSize:20,weight:.semibold); title.frame = NSRect(x:24,y:200,width:372,height:28); view.addSubview(title)
+        let status = NSTextField(labelWithString:AXIsProcessTrusted() ? "辅助功能已授权" : "系统未列出应用时，将下方卡片拖入权限列表")
+        status.frame = NSRect(x:24,y:150,width:372,height:40); status.lineBreakMode = .byWordWrapping; view.addSubview(status); label = status
+        view.addSubview(PermissionApplicationCard(frame:NSRect(x:24,y:80,width:372,height:60)))
+        let grant = NSButton(title:"打开系统设置",target:self,action:#selector(openSettings)); grant.frame = NSRect(x:24,y:24,width:140,height:32); view.addSubview(grant)
+        let check = NSButton(title:"检查权限",target:self,action:#selector(checkPermission)); check.frame = NSRect(x:174,y:24,width:105,height:32); view.addSubview(check)
+        let reveal = NSButton(title:"复制添加目录",target:self,action:#selector(revealApplication)); reveal.frame = NSRect(x:289,y:24,width:105,height:32); view.addSubview(reveal)
         let panel = NSWindow(contentRect:view.frame,styleMask:[.titled,.closable],backing:.buffered,defer:false)
-        panel.title = applicationName(); panel.contentView = view; panel.center(); panel.makeKeyAndOrderFront(nil)
+        panel.title = applicationName(); panel.contentView = view; panel.level = .floating; panel.center(); panel.makeKeyAndOrderFront(nil)
         window = panel; NSApp.activate(ignoringOtherApps:true)
     }
-    @objc func checkPermission() { label?.stringValue = AXIsProcessTrusted() ? "辅助功能已授权" : "尚未授权，请开启 \(applicationName()) 的权限" }
+    @objc func checkPermission() { label?.stringValue = AXIsProcessTrusted() ? "辅助功能已授权" : "尚未授权：拖入应用卡片，再开启系统权限开关" }
     @objc func openSettings() {
         _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String:true] as CFDictionary)
         NSWorkspace.shared.open(URL(string:"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
         checkPermission()
+    }
+    @objc func revealApplication() {
+        // Selecting a nested app in Finder does not position System Settings'
+        // separate Open panel. Give Go to Folder the parent, not the package.
+        let application = Bundle.main.bundleURL
+        NSPasteboard.general.clearContents()
+        if NSPasteboard.general.setString(application.deletingLastPathComponent().path, forType:.string) {
+            label?.stringValue = "目录已复制：添加窗口按 ⌘⇧G 粘贴，再选择 Computer Use 应用"
+        } else { label?.stringValue = "无法复制目录，请在 Finder 查看应用所在位置" }
+        NSWorkspace.shared.activateFileViewerSelecting([application])
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender:NSApplication) -> Bool { return true }
 }

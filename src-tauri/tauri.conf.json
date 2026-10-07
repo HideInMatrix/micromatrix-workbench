@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "micromatrix agent",
-  "version": "0.5.19",
+  "version": "0.5.20",
   "identifier": "org.micromatrix.pi-mcp",
   "build": {
     "frontendDist": "../apps/web/dist",

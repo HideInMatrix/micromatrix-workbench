@@ -15,6 +15,13 @@ const query = ref('')
 const busy = ref(false)
 const togglingId = ref('')
 const runtimeRunning = ref(false)
+const computerUse = ref<InstanceType<typeof ComputerUseSettings> | null>(null)
+const extensions = ref<InstanceType<typeof PiExtensionManager> | null>(null)
+
+async function refreshAll() {
+  // Refresh in place on user request; never remount cards or discard editors.
+  await Promise.all([refresh(), computerUse.value?.refresh(), extensions.value?.refresh()])
+}
 
 const capabilities = computed(() => {
   const normalized = query.value.trim().toLowerCase()
@@ -65,7 +72,7 @@ onMounted(refresh)
       <div>
         <h1 class="m-0 text-xl leading-7 font-medium tracking-[-0.02em]">插件</h1>
       </div>
-      <Button variant="ghost" size="icon" class="h-8 w-8" :disabled="busy" title="刷新" @click="refresh">
+      <Button variant="ghost" size="icon" class="h-8 w-8" :disabled="busy" title="刷新" @click="refreshAll">
         <RefreshCw :size="15" />
       </Button>
     </header>
@@ -93,8 +100,8 @@ onMounted(refresh)
       </div>
     </section>
 
-    <ComputerUseSettings class="mt-6" @changed="refresh" />
-    <PiExtensionManager @changed="refresh" />
+    <ComputerUseSettings ref="computerUse" :locked="runtimeRunning" class="mt-6" @changed="refresh" />
+    <PiExtensionManager ref="extensions" @changed="refresh" />
 
     <details class="mt-6 rounded-xl border border-border bg-card p-4">
       <summary class="cursor-pointer text-sm font-medium">工具目录 · {{ catalog?.capabilities.length ?? 0 }}</summary>

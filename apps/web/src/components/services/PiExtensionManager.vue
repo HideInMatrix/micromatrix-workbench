@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, computed } from 'vue'
+import { onMounted, ref, computed } from 'vue'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -38,16 +38,13 @@ async function oauth(id: string) {
     toast.success('请在浏览器完成授权；授权完成后点击 Runtime 启动。')
   })
 }
-let timer: ReturnType<typeof setInterval> | undefined
 const fieldClass = 'mt-1 h-9 w-full rounded-lg border border-border bg-background px-3 text-xs outline-none focus:ring-2 focus:ring-ring/30 disabled:opacity-50'
 
 function newConnection(): PiMcpConnectionDto {
   return { id: '', name: '', enabled: true, transport: 'stdio', command: '', args: [], url: '', envRefs: {}, headers: {}, auth: 'none' }
 }
 async function refresh() {
-  const previous = state.value
   state.value = await desktopApi.piExtensions()
-  if (previous && (previous.running !== state.value.running || JSON.stringify(previous.mcp_status) !== JSON.stringify(state.value.mcp_status))) emit('changed')
 }
 async function action(work: () => Promise<void>) {
   if (busy.value) return
@@ -126,9 +123,8 @@ async function remove(kind: 'mcp' | 'skills', id: string) {
 }
 onMounted(() => {
   void refresh().catch(error => toast.error(error instanceof Error ? error.message : String(error)))
-  timer = setInterval(() => { if (!busy.value) void refresh().catch(() => {}) }, 2500)
 })
-onUnmounted(() => { if (timer) clearInterval(timer) })
+defineExpose({ refresh: () => action(async () => {}) })
 </script>
 
 <template>
