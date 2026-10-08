@@ -79,9 +79,14 @@ try {
   const health=await service();await probePublicService(health.base,health.server.instanceId)
   await assert.rejects(probePublicService(health.base,'different-instance'),/different service/)
   const abort=new AbortController();abort.abort();await assert.rejects(waitForPublicService(health.base,'wrong',abort.signal,100))
-  let failures=0,active=0,maximum=0
-  const monitor=new NetworkHealthMonitor(async()=>{active++;maximum=Math.max(maximum,active);await new Promise(r=>setTimeout(r,3));active--;throw Error('fixture unreachable')},()=>failures++,5)
-  monitor.start();await new Promise(r=>setTimeout(r,45));await monitor.stop();assert.equal(failures,1);assert.equal(maximum,1)
+  let failures=0,active=0,maximum=0,probes=0,finished
+  const failed=new Promise(resolve=>{finished=resolve})
+  const monitor=new NetworkHealthMonitor(async()=>{probes++;active++;maximum=Math.max(maximum,active);await new Promise(r=>setTimeout(r,20));active--;throw Error('fixture unreachable')},()=>{failures++;finished()},5)
+  // Windows timers need not honor sub-16ms waits. Await the actual terminal
+  // event with a bounded deadline instead of assuming three probes fit in 45ms.
+  monitor.start()
+  try{await Promise.race([failed,new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('Three-failure shutdown did not occur')),5000);timer.unref()})])}finally{await monitor.stop()}
+  assert.equal(failures,1);assert.equal(probes,3);assert.equal(maximum,1)
   console.log('PASS: owned service nonce, cancellable readiness, serial health monitoring and three-failure shutdown')
 
   const unrelated={TCP:{'8443':{HTTPS:true}},Web:{'user.ts.net:8443':{Handlers:{'/':{Proxy:'http://127.0.0.1:9999'}}}},AllowFunnel:{'user.ts.net:8443':true}}

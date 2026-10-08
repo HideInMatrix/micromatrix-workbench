@@ -27,7 +27,7 @@
 
 v0.5.21 的远端 verify 在 UI 成功后误启动不支持 Linux 的原生 MCP，导致连接关闭，构建/发布未执行。v0.5.22 将 Ubuntu 浏览器回归与原生包回归正确分层；每个 macOS/Windows job 的实际 SEA/Playwright 回归保留。不移动旧 tag、不开启 Linux 桌面，也不豁免原生发布门槛。
 
-v0.5.22 的 verify 已通过，Windows 原生 helper 实际编译成功；随后通知哈希门槛因 Git autocrlf 转换而失败。v0.5.23 使用 `.gitattributes` 保留 third_party 原始字节，并以临时 Git 仓库真实 checkout 验证所有通知和 Rust std 哈希。先运行 master 原生矩阵，成功后再触发新 tag；不绕过或重写旧 tag。
+v0.5.22 的 verify 已通过，Windows 原生 helper 实际编译成功；随后通知哈希门槛因 Git autocrlf 转换而失败。v0.5.23 使用 `.gitattributes` 保留 third_party 原始字节，并以临时 Git 仓库真实 checkout 验证所有通知和 Rust std 哈希。先运行 master 原生矩阵，成功后再触发新 tag；不绕过或重写旧 tag。首轮 Windows 已通过完整通知和 SEA 检查，随后暴露健康监测 smoke 的固定 45ms 等待假设；改为有界等待实际结束事件，仍断言三次失败、一次通知及无探测重叠。
 
 ### 公网网络受阻
 
