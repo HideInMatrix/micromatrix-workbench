@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {randomUUID} from 'node:crypto'
 import {once} from 'node:events'
-import {spawn} from 'node:child_process'
+import {spawn,execFileSync} from 'node:child_process'
 import {createServer} from 'node:http'
 import {Client} from '@modelcontextprotocol/sdk/client/index.js'
 import {InMemoryTransport} from '@modelcontextprotocol/sdk/inMemory.js'
@@ -128,6 +128,17 @@ try{
   }
   console.log('PASS: real QuickJS/MCP batch mutation+readback, isolated globals, stop-on-error, readonly, CPU/output/call/time limits and cancellation; native macOS/Windows routing doubles only, no real desktop input')
 }finally{
-  runner.close();await client.close();await server.close();await runtime.close();await packagedClient?.close();await browser?.close();if(child&&child.exitCode===null){child.kill('SIGTERM');await Promise.race([once(child,'exit'),new Promise(resolve=>setTimeout(resolve,1500))]);if(child.exitCode===null)child.kill('SIGKILL')}
-  if(web){web.closeAllConnections();await new Promise(resolve=>web.close(resolve))}await rm(directory,{recursive:true,force:true})
+  runner.close();await client.close();await server.close();await runtime.close();await packagedClient?.close();await browser?.close()
+  if(child&&child.exitCode===null){
+    // Kill only our live leader's tree on Windows, before its descendants become
+    // orphans holding the temporary profile open. Never target by process name.
+    if(process.platform==='win32')execFileSync(path.join(process.env.SystemRoot??'C:\\Windows','System32','taskkill.exe'),['/PID',String(child.pid),'/T','/F'],{windowsHide:true,timeout:10000,stdio:'pipe'})
+    else child.kill('SIGTERM')
+    await Promise.race([once(child,'exit'),new Promise(resolve=>setTimeout(resolve,1500))])
+    if(child.exitCode===null){child.kill('SIGKILL');await Promise.race([once(child,'exit'),new Promise(resolve=>setTimeout(resolve,1500))])}
+  }
+  if(web){web.closeAllConnections();await new Promise(resolve=>web.close(resolve))}
+  // Owned Windows descendants may release file handles just after termination.
+  // Bounded retries still fail the run if cleanup does not complete.
+  await rm(directory,{recursive:true,force:true,maxRetries:10,retryDelay:100})
 }

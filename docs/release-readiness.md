@@ -31,6 +31,8 @@ v0.5.22 的 verify 已通过，Windows 原生 helper 实际编译成功；随后
 
 第三轮诊断确认 Windows runner 缓存目录中的 Chromium 报 `Sandbox cannot access executable ... Access is denied. (0x5)`，网络子进程反复崩溃。仅 Windows CI 的自有临时浏览器 fixture 采用无沙箱启动（与 Playwright 默认 launch 行为一致）；所有真实批量动作、图像、读回和边界断言保留。产品仍只连接用户显式提供的浏览器 endpoint，不改变用户浏览器沙箱、系统 ACL 或连接超时；本轮不宣称已验证 Windows 沙箱浏览器启动。
 
+第四轮 Windows 已实际通过 SEA/Playwright/QuickJS 的批量操作、截图、独立读回及 origin 边界检查；仅清理临时 profile 时出现 `EBUSY ... LocalStorage-wal`。测试脚本现在在自有 Chromium leader 存活时用精确 PID 的 `taskkill /T /F` 清理其子树，再对自有目录作有界删除重试；不按进程名清理用户 Chrome，也不吞掉最终清理失败。
+
 ### 公网网络受阻
 
 独立 Cloudflare Quick Tunnel 分别尝试 HTTP/2 与 QUIC，生成临时 URL 后均未注册连接，失败后只清理本次实例：
