@@ -38,10 +38,12 @@ jobs:
         run: npm run build:service -- --prebuilt-web
       - name: Install an isolated CI Chromium for real browser acceptance
         run: node node_modules/playwright-core/cli.js install --with-deps chromium
-      - name: Verify real Vue configuration and packaged browser execution
+      - name: Verify real Vue configuration and headless browser execution
         run: |
           node scripts/smoke-runtime-ui.mjs
-          node scripts/smoke-computer-batch.mjs --service-entry dist/micromatrix-service.cjs --browser-executable "$(node -e 'process.stdout.write(require("playwright-core").chromium.executablePath())')"
+          # Native MCP package acceptance runs on macOS/Windows; Linux
+          # desktop support is intentionally suspended, not silently enabled.
+          node scripts/smoke-computer-batch.mjs --browser-executable "$(node -e 'process.stdout.write(require("playwright-core").chromium.executablePath())')"
       - name: Verify OAuth issuer binding and hostile source-map offsets
         run: node scripts/smoke-dependency-security.mjs
       - name: Verify ported ASIL declarative examples through MCP

@@ -16,14 +16,15 @@ for(let i=2;i<process.argv.length;i++){
   assert.ok(['--service-entry','--service-executable','--browser-executable'].includes(flag),`Unknown smoke argument: ${flag}`)
   assert.ok(process.argv[++i]&&!process.argv[i].startsWith('--'),`${flag} requires a path`)
 }
+const serviceFlag=process.argv.indexOf('--service-entry'),executableFlag=process.argv.indexOf('--service-executable')
+assert.ok(serviceFlag<0||executableFlag<0,'Choose CJS entry or SEA executable, not both')
+assert.ok(serviceFlag<0&&executableFlag<0||['darwin','win32'].includes(process.platform),'Packaged native Computer Use requires macOS/Windows; use the direct browser batch on Linux, not an unsupported desktop MCP')
 // Real QuickJS/WASM + MCP + file I/O. Native proxy doubles are explicitly not GUI tests.
 const directory=await mkdtemp(path.join(tmpdir(),'mm-computer-batch-')),marker=randomUUID(),file=path.join(directory,'input.json')
 const runtime=new ComputerUseRuntime([new JsonDocumentAdapter(directory)],true),runner=new ComputerScriptRunner(runtime)
 const client=new Client({name:'computer-batch-regression',version:'1'}),server=createComputerUseServer(runtime,{permissions:async()=>({fixture:true})})
 const [ct,st]=InMemoryTransport.createLinkedPair()
 const invoke=async(c,code)=>c.callTool({name:'computer_run',arguments:{code,timeout_ms:3000}},undefined,{timeout:10_000})
-const serviceFlag=process.argv.indexOf('--service-entry'),executableFlag=process.argv.indexOf('--service-executable')
-assert.ok(serviceFlag<0||executableFlag<0,'Choose CJS entry or SEA executable, not both')
 const packagedTransport=(extra=[])=>new StdioClientTransport({command:executableFlag>=0?path.resolve(process.argv[executableFlag+1]):process.execPath,
   args:[...(executableFlag>=0?[]:[path.resolve(process.argv[serviceFlag+1])]),'--computer-use-mcp','--allow-actions','--workspace',directory,...extra],stderr:'pipe'})
 const mutation=`const s=await computer.observe({adapter:'json',target:'input.json'});await computer.act({observation_id:s.meta.observation_id,action_type:'modify_file',target:'json:/status',params:{value:'passed'},expect_observation:{target:'json:/status',value:'passed'}});`
