@@ -1,0 +1,4 @@
+# Vendored files include hash-bound upstream notices. Preserve their original
+# LF/CRLF bytes on every OS instead of changing them during Git checkout.
+# Upstream whitespace is intentional; changing it would invalidate the hashes.
+third_party/** -text -whitespace

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import {createHash} from 'node:crypto'
+import {execFileSync} from 'node:child_process'
 import {mkdtempSync,mkdirSync,readFileSync,writeFileSync,rmSync} from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -24,6 +25,16 @@ try{
  assert.equal(rustStandardLibraryNotice(directory,path.join(directory,'minimal-profile'),compiler.replace('1.98.1','1.99.0')),undefined)
  writeFileSync(path.join(notices,'RUST.html'),text+'tampered');assert.throws(()=>rustStandardLibraryNotice(directory,path.join(directory,'minimal-profile'),compiler),/notice changed/)
  console.log('PASS: all reviewed notice hashes; catalogue version/commit/integrity rejection; minimal-profile Rust fallback refuses wrong compiler or tampered notice')
+ const checkout=path.join(directory,'windows-checkout');mkdirSync(checkout)
+ writeFileSync(path.join(checkout,'.gitattributes'),readFileSync(path.join(root,'.gitattributes')))
+ const vendored=[...catalog.notices,catalog.rustStandardLibrary]
+ for(const notice of vendored){const file=path.join(checkout,'third_party/dependencies',notice.file);mkdirSync(path.dirname(file),{recursive:true});writeFileSync(file,readFileSync(path.join(root,'third_party/dependencies',notice.file)))}
+ const git=(...args)=>execFileSync('git',args,{cwd:checkout,stdio:'pipe'})
+ git('init','-q');git('config','core.autocrlf','true');git('add','.gitattributes','third_party')
+ for(const notice of vendored)rmSync(path.join(checkout,'third_party/dependencies',notice.file))
+ git('checkout-index','--all','--force')
+ for(const notice of vendored)assert.equal(hash(readFileSync(path.join(checkout,'third_party/dependencies',notice.file))),notice.sha256,`autocrlf checkout changed ${notice.file}`)
+ console.log('PASS: real Git checkout with core.autocrlf=true preserves every reviewed notice and Rust standard-library hash; no weakened integrity gate')
 }finally{rmSync(directory,{recursive:true,force:true})}
 const original=new Error('original upstream timeout'),fake=cloudflareConnectionError(['ip=198.18.0.42 token=must-not-appear'],original),blocked=cloudflareConnectionError(['precheck component="TCP Connectivity" status=fail'],original)
 assert.match(fake.message,/fake-IP/);assert.equal(fake.cause,original);assert.ok(!fake.message.includes('must-not-appear'));assert.match(blocked.message,/7844/);assert.equal(blocked.cause,original);assert.equal(cloudflareConnectionError(['normal output'],original),original)

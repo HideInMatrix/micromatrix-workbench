@@ -1,4 +1,4 @@
-# micromatrix agent v0.5.22
+# micromatrix agent v0.5.23
 
 Normal version tags publish automatically as stable releases and GitHub Latest;
 tags with a prerelease suffix remain prereleases. Review the known limitations
@@ -9,6 +9,9 @@ label does not imply production signing or that all security work is complete.
   unsupported native Linux MCP. v0.5.22 keeps real UI/browser checks on Ubuntu
   and requires packaged browser/MCP acceptance in every macOS/Windows job;
   Linux desktop support is not re-enabled and native gates are not skipped.
+  v0.5.22 was then blocked by Windows checkout converting reviewed notices to
+  CRLF. v0.5.23 preserves vendored bytes and verifies a real autocrlf checkout;
+  notice hashes remain mandatory. Neither blocked tag produced a Release.
 
 - Runtime and tunnels start only after the user clicks Start.
 - cloudflared 2026.9.3 is bundled; the desktop uses its private copy without an
