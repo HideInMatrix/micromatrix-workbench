@@ -71,7 +71,12 @@ try{
       res.writeHead(200,{'content-type':'text/html'}).end('<!doctype html><title>Fixture</title><label>Name<input id="name"></label><button onclick="document.querySelector(\'output\').textContent=document.querySelector(\'input\').value">Apply</button><output role="status">pending</output><input type="hidden" id="internal" value="HIDDEN_PRIVATE"><select id="mode" aria-label="Mode"><option value="a">A</option><option value="b">B</option></select><input type="button" value="Other"><input type="checkbox" aria-label="Checked">')})
     web.listen(0,'127.0.0.1');await once(web,'listening');const origin=`http://127.0.0.1:${web.address().port}`
     const profile=path.join(directory,'browser-profile');await mkdir(profile)
-    child=spawn(executable,['--headless=new','--no-first-run','--no-default-browser-check','--disable-extensions','--remote-debugging-address=127.0.0.1','--remote-debugging-port=0',`--user-data-dir=${profile}`,origin],{stdio:['ignore','ignore','pipe']})
+    // Windows hosted runners cache Chromium under a user directory which its
+    // sandbox children cannot execute. This exception is confined to our owned
+    // CI fixture, like Playwright's default launch mode; never a product option.
+    const fixtureArgs=process.platform==='win32'&&process.env.CI==='true'?['--no-sandbox']:[]
+    if(fixtureArgs.length)console.log('CI fixture only: owned Windows Chromium runs without sandbox; sandboxed user-browser launch is not verified')
+    child=spawn(executable,['--headless=new','--no-first-run','--no-default-browser-check','--disable-extensions',...fixtureArgs,'--remote-debugging-address=127.0.0.1','--remote-debugging-port=0',`--user-data-dir=${profile}`,origin],{stdio:['ignore','ignore','pipe']})
     let stderr='';child.stderr.on('data',chunk=>{stderr=(stderr+chunk.toString()).slice(-8192)})
     const deadline=Date.now()+10_000;let endpoint
     while(Date.now()<deadline){endpoint=stderr.match(/DevTools listening on (ws:\/\/127\.0\.0\.1:\d+\/devtools\/browser\/[a-z0-9-]+)/i)?.[1];if(endpoint)break;await new Promise(resolve=>setTimeout(resolve,50))}

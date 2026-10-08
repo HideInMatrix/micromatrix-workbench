@@ -29,6 +29,8 @@ v0.5.21 的远端 verify 在 UI 成功后误启动不支持 Linux 的原生 MCP�
 
 v0.5.22 的 verify 已通过，Windows 原生 helper 实际编译成功；随后通知哈希门槛因 Git autocrlf 转换而失败。v0.5.23 使用 `.gitattributes` 保留 third_party 原始字节，并以临时 Git 仓库真实 checkout 验证所有通知和 Rust std 哈希。先运行 master 原生矩阵，成功后再触发新 tag；不绕过或重写旧 tag。首轮 Windows 已通过完整通知和 SEA 检查，随后暴露健康监测 smoke 的固定 45ms 等待假设；改为有界等待实际结束事件，仍断言三次失败、一次通知及无探测重叠。第二轮 Windows 已通过这些检查和真实 PID-tree 清理，随后隔离 Chromium 在 socket 建立后初始化超时；验收脚本补充自有页面 title/URL 就绪判断及 stderr 诊断，保留产品连接截止时间、不重试模型动作。
 
+第三轮诊断确认 Windows runner 缓存目录中的 Chromium 报 `Sandbox cannot access executable ... Access is denied. (0x5)`，网络子进程反复崩溃。仅 Windows CI 的自有临时浏览器 fixture 采用无沙箱启动（与 Playwright 默认 launch 行为一致）；所有真实批量动作、图像、读回和边界断言保留。产品仍只连接用户显式提供的浏览器 endpoint，不改变用户浏览器沙箱、系统 ACL 或连接超时；本轮不宣称已验证 Windows 沙箱浏览器启动。
+
 ### 公网网络受阻
 
 独立 Cloudflare Quick Tunnel 分别尝试 HTTP/2 与 QUIC，生成临时 URL 后均未注册连接，失败后只清理本次实例：
@@ -44,7 +46,7 @@ v0.5.22 的 verify 已通过，Windows 原生 helper 实际编译成功；随后
 
 ### 平台与分发
 
-- Windows UIA/视觉输入、安装/静默升级及 PID-tree 清理的实机结果还没有；新增 Windows 原生 CI smoke 已接入，但未运行远端流水线。Mac Intel 本轮只检查依赖图，不冒充 Intel 执行结果。
+- Windows 的通知完整性、实际 SEA/原生 helper 编译、真实 PID-tree 清理已在远端运行通过；UIA/视觉输入、安装/静默升级的交互实机结果仍待验收。Mac arm64 与 Intel 的第一轮完整原生 CI 构建通过，当前修订仍须重跑完整矩阵，不冒充交互实机结果。
 - 正式 macOS 安装位置的更新切换、首次 Gatekeeper 行为仍需安装验收；当前证明的是同证书候选身份复用已有 TCC 授权及真实 AX 动作。
 - 正向 macOS Screen Recording/视觉输入未验收；不为验证悄悄申请权限。
 - 最终候选包的原生 GUI 重跑遇到锁屏（`CGSSessionScreenIsLocked=1`、前台 `com.apple.loginwindow`）。验收脚本现在先只读检查交互桌面，不在锁屏状态启动测试窗口/动作；待用户解锁后使用 `--require-desktop` 复跑。不把以前一次通过替代最后一次实机验收。
