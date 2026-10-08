@@ -76,8 +76,19 @@ try{
     const deadline=Date.now()+10_000;let endpoint
     while(Date.now()<deadline){endpoint=stderr.match(/DevTools listening on (ws:\/\/127\.0\.0\.1:\d+\/devtools\/browser\/[a-z0-9-]+)/i)?.[1];if(endpoint)break;await new Promise(resolve=>setTimeout(resolve,50))}
     assert.ok(endpoint,'Owned test browser must provide explicit loopback WebSocket')
+    // A listening socket precedes renderer readiness, notably on cold Windows
+    // runners. Wait for our own page to finish initialization before attaching;
+    // no model action is retried and the product connection deadline is unchanged.
+    const debuggerUrl=new URL(endpoint);debuggerUrl.protocol='http:';debuggerUrl.pathname='/json/list'
+    const pageDeadline=Date.now()+30000;let pageReady=false
+    while(Date.now()<pageDeadline){
+      assert.equal(child.exitCode,null,`Owned browser exited during readiness: ${stderr}`)
+      try{const pages=await fetch(debuggerUrl,{signal:AbortSignal.timeout(1000)}).then(r=>r.json());pageReady=pages.some(p=>p.type==='page'&&p.title==='Fixture'&&p.url===`${origin}/`)}catch{}
+      if(pageReady)break;await new Promise(resolve=>setTimeout(resolve,100))
+    }
+    assert.ok(pageReady,`Owned browser never loaded the isolated fixture: ${stderr}`)
     browser=new BrowserAdapter({endpoint,allowedOrigins:[`${origin}/`]})
-    let tabs=[];for(let i=0;i<50&&!tabs.length;i++){tabs=await browser.targets();if(!tabs.length)await new Promise(resolve=>setTimeout(resolve,50))}assert.equal(tabs.length,1)
+    let tabs=[];try{for(let i=0;i<50&&!tabs.length;i++){tabs=await browser.targets();if(!tabs.length)await new Promise(resolve=>setTimeout(resolve,50))}}catch(error){console.error(`Owned browser initialization diagnostic: ${stderr}`);throw error}assert.equal(tabs.length,1)
     const r=new ComputerUseRuntime([browser],true),js=new ComputerScriptRunner(r)
     try{const batch=await js.run({code:`const page=browser.page(${JSON.stringify(tabs[0].target)});await page.getByRole('textbox',{name:'Name'}).fill('batch-${marker}');await page.getByRole('button',{name:'Apply'}).click();return (await page.observe()).interactive_elements.find(n=>n.type==='status').label;`})
       assert.equal(batch.result,`batch-${marker}`)
