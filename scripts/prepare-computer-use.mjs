@@ -22,7 +22,7 @@ export function prepareComputerUse(root = process.cwd()) {
       // PowerShell scripts, downloaded interpreters or model-supplied source.
       const framework = path.join(process.env.SystemRoot || 'C:\\Windows', 'Microsoft.NET/Framework64/v4.0.30319')
       const compiler = path.join(framework, 'csc.exe')
-      const references = ['mscorlib.dll', 'System.dll', 'System.Core.dll', 'System.Web.Extensions.dll',
+      const references = ['mscorlib.dll', 'System.dll', 'System.Core.dll', 'System.Web.Extensions.dll', 'System.Drawing.dll',
         'WPF/WindowsBase.dll', 'WPF/UIAutomationClient.dll', 'WPF/UIAutomationTypes.dll'].map(file => path.join(framework, file))
       for (const file of [compiler, ...references]) if (!existsSync(file)) throw new Error(`Windows Computer Use build requires .NET Framework 4.8 compiler/WPF: ${file}`)
       execFileSync(compiler, ['/nologo', '/noconfig', '/nostdlib+', '/target:exe', '/platform:x64', '/optimize+', '/langversion:5',
@@ -54,6 +54,7 @@ export function prepareComputerUse(root = process.cwd()) {
 <key>LSMinimumSystemVersion</key><string>11.0</string>
 <key>LSUIElement</key><true/>
 <key>NSAccessibilityUsageDescription</key><string>读取和操作经你批准的应用控件。</string>
+<key>NSScreenCaptureUsageDescription</key><string>仅在明确请求视觉观察时截取目标应用窗口。</string>
 </dict></plist>
 `)
     // A cryptographic certificate pin + identifier, never identifier alone.

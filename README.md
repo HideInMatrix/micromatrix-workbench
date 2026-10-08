@@ -18,11 +18,15 @@ Web AI → OAuth MCP → approval policy → Pi BodyPlugin → local workspace
 
 认证配置保存变量引用，真实值可在界面填写本地密钥，也可来自服务环境：stdio `envRefs` 示例 `{"API_KEY":"MY_API_KEY"}`，HTTP headers 示例 `{"Authorization":"Bearer ${MY_TOKEN}"}`。本地填写值优先，空白保留已有值，清除按钮显式删除；保存后编辑表单不清空。不要把密钥写入 command / args。HTTP 可选择 OAuth：先保存连接，再点击“授权登录”，桌面通过系统浏览器打开授权，浏览器版需允许弹窗；标准 SDK 负责 discovery、CIMD 身份、PKCE 和 token refresh，本地固定端口回调校验 state 与服务声明的 issuer。只有显式登录打开浏览器，取消、超时、停止和退出会关闭回调监听。OAuth 仅支持声明 CIMD / S256 / none 的服务，不回退 DCR。必须填写自己的公网 HTTPS `clientMetadataUrl` 和文档中登记的固定 `oauthRedirectUri`（`http://127.0.0.1:空闲端口/路径`，端口 >= 1024）；缺少时可编辑旧配置，登录明确报错。未实现服务特有登录或预注册客户端表单。HTTP 使用 HTTPS，回环地址可使用 HTTP；旧 SSE 不支持。stdio 依赖相应外部程序已安装，安装包不会代装所有 Node/Python MCP 服务。
 
-配置保存在 Runtime 配置的 `extensions` 中；创建的 Skill 文件位于配置目录下的 `skills/<id>/SKILL.md`。Skills 的支持文件保持原样，只提供按 Skill ID + 相对路径的读取；执行支持脚本仍要调用受审批的工具，并受对应工具的路径边界约束。MCP 密钥和外部 OAuth token 单独保存在 `<configFile>.mcp-credentials.json`（Unix `0600`，最大 2 MB），绑定服务 ID 和目标 URL/程序参数；修改目标不会复用旧凭证。遵循 Runtime 的“在本机保存秘密”开关，关闭后删除落盘副本，但本次服务会话可继续使用内存凭证。这不是加密 keychain，也不通过 HTTP/MCP 导出明文。
+配置保存在 Runtime 配置的 `extensions` 中；创建的 Skill 文件位于配置目录下的 `skills/<id>/SKILL.md`。Skills 的支持文件保持原样，只提供按 Skill ID + 相对路径的读取；执行支持脚本仍要调用受审批的工具，并受对应工具的路径边界约束。MCP 密钥和外部 OAuth token 单独保存在 `<configFile>.mcp-credentials.json`（Unix `0600`，最大 2 MB），绑定服务 ID 和目标 URL/程序参数；修改目标不会复用旧凭证。遵循 Runtime 的“在本机保存秘密”开关，关闭后删除落盘副本，但本次服务会话可继续使用内存凭证。外部 OAuth 客户端信息与 token 同时保留 SDK 的授权服务器 `issuer` 绑定；切换授权服务器不会发送旧 refresh token。升级前未绑定 issuer 的旧 OAuth 登录会自动清除并要求重新登录一次，本地 Header 密钥等其他秘密不变。这不是加密 keychain，也不通过 HTTP/MCP 导出明文。
 
 ## Computer Use MCP
 
-**Computer Use** 已内置在插件页，无需添加 MCP 或填写路径；默认关闭，开关启用后由独立 stdio MCP 通过现有 Pi 扩展注册：先读结构化状态，再执行语义动作并回读验证。统一 DesktopProxy 自动选择 macOS 独立 **micromatrix Computer Use.app** 的 Accessibility 或 Windows UI Automation，Workspace JSON 保持共用逻辑。Linux 客户端暂时停止支持。启用只保存开关，不启动 Runtime/Tunnel；macOS 检测与执行使用同一应用身份，只有点击权限按钮才请求授权，Windows 检查交互桌面而不提权，不是完整复刻论文的 15 个应用。[接入、工具合同、权限与验收边界](docs/computer-use.md)。
+**Computer Use** 已内置在插件页，无需添加 MCP 或填写路径；默认关闭，开关启用后由独立 stdio MCP 通过现有 Pi 扩展注册：支持 `computer_run` 受限 JavaScript 批量执行：模型显式选择原生结构化状态、窗口截图/OCR 或可选 DOM/ARIA + Playwright，再执行并回读；批量统一经过审批、失败停止。统一 DesktopProxy 自动选择 macOS 独立 **micromatrix Computer Use.app** 的 Accessibility 或 Windows UI Automation，Workspace JSON 和批准的 ASIL 声明式包保持共用逻辑。窗口截图只在显式调用时捕获（macOS 14+），浏览器连接需要本地配置，不自动读取用户浏览器或下载浏览器。Linux 客户端暂时停止支持。启用只保存开关，不启动 Runtime/Tunnel；macOS 检测与执行使用同一应用身份，只有点击权限按钮才请求授权，Windows 检查交互桌面而不提权，不是完整复刻论文的 15 个应用。[接入、工具合同、权限与验收边界](docs/computer-use.md)。
+
+通过 `computer_capabilities` 发现已注册 Provider 的来源、作用域与动作参数，再选择目标观察。新增 `computer_inspect` 对已有观察做子树筛选、标签检索和分页，不重新捕获或使动作 token 失效；`meta.coverage` 明确报告捕获范围与截断，不将 Accessibility 控件树当成完整软件内部状态。原生窗口/焦点等属性可独立验证；Provider 扩展由受信任源码注册，不执行 Workspace 或模型提供的插件路径。
+
+已移植 ASIL 官方 `softwaregen` 的声明式模型、审计、确定性组装和文件/命令/REST 执行器，复用 Pi 插件与审批，不要求软件实现专有 RPC。通过 `npm run asil -- assemble ...` 生成候选包，审查并用哈希批准的注册表通过 `computerUse.asilRegistry` 接入；没有注册表时仍默认只有 Desktop 和 JSON。`npm run smoke:asil` 验证官方 JSON 样例及真实本机 MCP/命令/普通 REST 链路，不代表已支持全部软件或当前 Blender 的未保存场景。[源码依据、配置与验收边界](docs/computer-use.md#asil-主线与实施顺序)。
 
 ## 开发运行
 
@@ -235,3 +239,23 @@ Release 提供 **4 个安装包 + 2 个 macOS `.app.tar.gz` 更新包 + `latest.
 macOS 保持 Hardened Runtime，补充 V8 所需 JIT/可执行内存 entitlements。不能只测打包前的 SEA：Tauri 会重新签名 sidecar，因此原生 macOS job 在打包后另跑 `scripts/smoke-sidecar.mjs --bundled`，验证最终包内进程能启动、显示版本正确、Runtime 闲置且 MCP 端口未监听。[Apple JIT 与 Hardened Runtime](https://developer.apple.com/documentation/Apple-Silicon/porting-just-in-time-compilers-to-apple-silicon)。
 
 开发约束见 [`docs/architecture.md`](docs/architecture.md)，第三方许可证见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。依赖版本以 `package.json`、`package-lock.json` 和 `src-tauri/Cargo.lock` 为准。
+
+### 本轮运行安全与验收（未发布）
+
+- 对外 OAuth issuer/resource 来自明确配置及 Provider 的已确认地址，不信任 `X-Forwarded-*`；MCP 校验 Host/Origin。非回环监听需先配置 HTTPS 公网 origin 和认证。默认 OAuth 每分钟 240 次请求、20 次密码授权尝试，每类状态最多 2048 条，过期回收；额度不足不销毁仍可重试的有效 grant。
+- Tunnel 不因日志打印 URL 就宣布 ready：还须经过注册/路由确认及 `/healthz` 本实例 nonce 验证。每 15 秒串行探活，连续三次失败撤销公网地址并停止该 Runtime。Unix 清理 owned process group，Windows 使用 owned PID tree，不按进程名杀应用。Tailscale 拒绝占用端口，仅移除未被外部改动的自有路由，不执行全局 reset。
+- 插件页可保存浏览器 endpoint/origin allowlist，仍须用户显式启动 Runtime；禁止远端调试端点，不自动启动浏览器、不请求权限。
+- `npm run check` 包含 TS 7、Vue SFC 严格检查与 Vite 构建。`vue-tsc` 暂需旧 compiler API，单独使用 `typescript-sfc` 检查依赖；产品和服务编译器仍是 TS 7，不用该兼容依赖打包产品。
+- `npm run smoke:priority` 覆盖 OAuth/Host/Origin/容量、健康与配置保存，以及真实 Unix 进程组或 Windows live PID tree 清理；Tailscale CLI 使用明确标注的契约替身，不等同于账号联调。
+- 先 `npm run build:service`，再 `npm run smoke:runtime-ui -- --browser-executable ABSOLUTE_CHROME` 验证临时控制服务与真实网页；`npm run smoke:computer-batch -- --service-executable ABSOLUTE_SEA --browser-executable ABSOLUTE_CHROME` 验证实际打包的浏览器批处理。测试创建临时 profile，不操作个人网页。
+- 构建从实际 esbuild/Vite 模块和目标 Cargo 图生成依赖清单、许可证正文与 MPL 源码取得地址，放在安装包内部 notices，而非新增公开 Release 附件。`npm run notices -- --strict` 可检查通知完整度；有界图是保守清单而非法律合规保证，固定版本补充通知绑定 upstream commit/哈希；严格文件检查不冒充完整法律审计。
+
+真实 macOS 视觉输入、Windows GUI、各 Provider 公网账号及跨版本授权复用仍须实机验收，不以契约替身或编译通过冒充完成。
+
+### 发布验收复跑
+
+- `npm run smoke:live-network -- --run --provider=external`：真实解析 ChatGPT CIMD，完成隔离 loopback OAuth/MCP/refresh；不登录账号、不跟随 ChatGPT callback。
+- `npm run smoke:live-network -- --run --provider=cloudflare --protocol=http2`（或 `quic`）：临时账户无关 Quick Tunnel，全链路通过才 PASS；真实 DNS/出站网络失败如实返回错误，不动现有 Tunnel。
+- 原生 job 先单独安装 CI Chromium，再运行 `npm run smoke:platform`，验证每个平台真实 SEA/Playwright/QuickJS 和 owned process 清理。没有授权/交互桌面的原生 GUI 验收标记 UNVERIFIED，不算通过。
+- `node scripts/smoke-native-desktop.mjs --run --require-desktop --service-executable ABSOLUTE_SIGNED_SERVICE`：只对脚本创建的 GUI 填入随机 marker 并独立回读，不操作个人应用或申请系统授权。
+- macOS 正式签名身份与 `.dev` 测试身份分离。当前验收证据、失败和发布门槛以 [`docs/release-readiness.md`](docs/release-readiness.md) 为准。

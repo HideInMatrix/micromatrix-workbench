@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { z } from "zod";
 import { exactParams, fail, type Action, type Adapter, type Json, type State } from "./protocol.js";
 import { desktopPlatform, nativeHelperPath, type DesktopPlatform } from "./platform.js";
 import { NativeDesktopChannel } from "./native-channel.js";
@@ -22,7 +23,21 @@ export class DesktopProxy implements Adapter {
       operations: ["navigate", "invoke_function", "set_value"], native_operations: [...this.platform.operations],
       limitation: this.platform.limitation };
   }
-  permissions(request = false) { return this.#backend.request("permissions", { prompt: request }); }
+  describe() {
+    return { name: "Native Desktop", scope: "accessibility_tree", target_examples: ["pid:123"],
+      limitations: [this.platform.limitation, "Only controls exposed by the application's accessibility provider; not scene/document internals", "Capture is bounded to 400 elements, depth 9 and 3 seconds; IDs belong to one helper session"],
+      actions: [
+        { action_type: "navigate" as const, params_schema: z.toJSONSchema(z.object({}).strict()) as Record<string, Json> },
+        { action_type: "set_value" as const, params_schema: z.toJSONSchema(z.object({value: z.union([z.string().max(16_384), z.number(), z.boolean()])}).strict()) as Record<string, Json> },
+        { action_type: "invoke_function" as const, params_schema: z.toJSONSchema(z.object({operation: z.enum(this.platform.operations as [string, ...string[]])}).strict()) as Record<string, Json> },
+      ] };
+  }
+  permissions(request = false, scope: "accessibility" | "screen_recording" = "accessibility") { return this.#backend.request("permissions", { prompt: request, scope }); }
+  /** Fixed native visual ABI, shared helper identity/lifecycle; not arbitrary IPC. */
+  visualObserve(target: string) { return this.#backend.request("visual_observe", { target }); }
+  visualExecute(target: string, revision: string, params: Record<string, unknown>, signal?: AbortSignal) {
+    return this.#backend.request("visual_act", { target, revision, params }, signal);
+  }
   async targets() { return await this.#backend.request("targets") as Json[]; }
   async observe(target: string) { return await this.#backend.request("observe", { target }) as State; }
   validateAction(state: State, action: Action) {

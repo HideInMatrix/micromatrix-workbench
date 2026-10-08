@@ -1,0 +1,48 @@
+{
+  "software_id": "reference_workspace_file",
+  "display_name": "Reference Workspace (File-Backed)",
+  "version": "1.0",
+  "integration_pattern": "file_backed",
+  "description": "A reviewable JSON-file example with a direct semantic update command.",
+  "evidence": [
+    {
+      "id": "ev_file",
+      "kind": "file_format",
+      "locator": "examples/softwaregen/reference_state.json",
+      "excerpt": "The open JSON document contains an items array with stable id, label, and editable value fields.",
+      "sample": {
+        "items": [
+          {
+            "id": "item-a",
+            "label": "Alpha",
+            "value": "draft"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ev_command",
+      "kind": "command_help",
+      "locator": "reference_state_tool.py set-value ITEM_ID VALUE",
+      "excerpt": "The reviewed direct command updates exactly one identified item and prints the resulting JSON state."
+    }
+  ],
+  "runtime": {
+    "base_url": "",
+    "base_url_env": "",
+    "allowed_hosts": [],
+    "allowed_executables": [
+      "python"
+    ],
+    "filesystem_root": ".",
+    "headers": {},
+    "request_timeout_s": 10
+  },
+  "requirements": [
+    "Read the checked-in JSON state without escaping the approved root.",
+    "Expose stable item elements and one typed set_item_value operation."
+  ],
+  "known_limitations": [
+    "This example demonstrates a JSON open-file path; non-JSON open formats require a reviewed converter bridge."
+  ]
+}

@@ -1,4 +1,4 @@
-# micromatrix agent v0.5.19
+# micromatrix agent v0.5.21
 
 Normal version tags publish automatically as stable releases and GitHub Latest;
 tags with a prerelease suffix remain prereleases. Review the known limitations
@@ -34,12 +34,23 @@ label does not imply production signing or that all security work is complete.
   page; connection help and the tool catalog are collapsed by default.
 - macOS arm64 packaging, signatures, native application identity and denial
   paths were verified without requesting OS permission or controlling Blender.
-  Grant-enabled desktop interaction and Blender-specific modeling adapters
-  remain unvalidated/unimplemented. Windows checks the interactive desktop;
-  its existing helper remains unchanged and awaits real-machine acceptance.
-- Pending work includes desktop graceful shutdown with an active Tunnel,
-  control-plane/proxy trust hardening, OAuth rate limits and comprehensive license
-  auditing. These limits still apply to formally published releases.
+  A grant-enabled AppKit fixture has now verified real AX batch mutation and
+  independent readback with the new certificate-signed candidate; installed
+  0.5.19 and candidate 0.5.20 retain the same already-granted helper identity.
+  This is not Blender scene modeling or positive screen-capture acceptance. Windows checks the interactive desktop;
+  the UIA/window capture/input helper compiles, but grant-enabled capture/input awaits real-machine acceptance.
+- This source revision adds fixed public OAuth origins, Host/Origin validation,
+  login/request quotas, bounded expiring grants, instance-bound Tunnel readiness
+  and serial health checks. Tailscale cleanup is port/route-owned, not global reset.
+- Browser endpoint/origin configuration is available in Plugins. Saving never
+  connects or starts Runtime; browser debugging must be explicitly enabled in a
+  separate session. Packaged real Chromium batch/readback was verified locally.
+- Dependency notices are generated from actual JS inputs and the target Cargo
+  graph and retained inside installers; missing upstream notices are reported,
+  not silently represented as a completed legal audit. All three native jobs now check strict notice files and real packaged browser
+  batches; headless native GUI checks report UNVERIFIED, never a false PASS.
+  Real Windows GUI, macOS positive visual input and live provider accounts still
+  need acceptance.
   The app checks for stable updates automatically; About offers signed download,
   installation and restart. Runtime/Tunnel stop only after verified download.
   Old versions without the updater require one manual installation first.
@@ -48,3 +59,21 @@ label does not imply production signing or that all security work is complete.
   Standalone service archives and build metadata remain in Actions artifacts;
   they are not Release downloads. The desktop still includes its required service
   sidecar. Listed license notices and known limits are bundled inside the app.
+
+- Computer Use now offers approved JavaScript batches in embedded QuickJS/WASM,
+  native AX/UIA plus explicit foreground-window images (macOS 14+ / Windows),
+  and opt-in DOM/ARIA/image + Playwright on a user-configured loopback browser.
+  macOS OCR is local; Windows has no local OCR yet. A disconnected browser
+  session must be reconfigured; no browser download or automatic profile access.
+  Scripts cannot use Node, shell, arbitrary page.evaluate or implicit permissions.
+  Browser connection UI has been verified with the real bundled web application.
+  Full native visual capture/input and generic visual task success are not
+  established by compile or headless fixture tests.
+
+- Dependency security: MCP SDK 1.32.1 and source-map-js 1.2.2 fix two high-severity advisories. External MCP OAuth tokens and client information retain SDK issuer binding; legacy unbound credentials require one fresh login, without clearing other saved secrets. CI verifies real local CIMD/PKCE and blocks high/critical npm advisories.
+
+- Provider startup is cancellable; Tailscale in-flight CLI drains before owned
+  cleanup, and simultaneous Stops share one cleanup. Cloudflare fake-IP/blocked
+  7844 failures report targeted diagnostics without publishing an unready URL.
+  Local live HTTP2/QUIC acceptance was blocked by the network environment, not
+  represented as a successful public connectivity test.

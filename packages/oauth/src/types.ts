@@ -15,10 +15,13 @@ export interface McpAuthorization {
   readonly protectsRequests: boolean;
   handle(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean>;
   authorize(request: IncomingMessage, resourcePath: string): Promise<McpPrincipal | undefined>;
+  setPublicOrigin?(origin: string): void;
   challenge(request: IncomingMessage, resourcePath: string): string;
 }
 
 export interface LocalOAuthOptions {
+  readonly publicOrigin?: string;
+  readonly limits?: { readonly requestsPerMinute?: number; readonly loginAttemptsPerMinute?: number; readonly maxStateEntries?: number };
   readonly password: string | undefined;
   readonly staticBearerToken: string | undefined;
   readonly accessTokenTtlSeconds?: number;

@@ -1,4 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import type { LocalOAuthOptions, McpAuthorization, McpPrincipal } from "./types.js";
@@ -39,12 +40,13 @@ function sameSecret(actual: string, expected: string): boolean {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
-function publicOrigin(request: IncomingMessage): string {
-  const forwardedProto = request.headers["x-forwarded-proto"]?.toString().split(",")[0]?.trim();
-  const protocol = forwardedProto === "https" ? "https" : "http";
-  const forwardedHost = request.headers["x-forwarded-host"]?.toString().split(",")[0]?.trim();
-  const host = forwardedHost || request.headers.host || "127.0.0.1";
-  return `${protocol}://${host}`;
+function checkedOrigin(value: string): string {
+  const url = new URL(value);
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  const loopback = host === "localhost" || host === "::1" || isIP(host) === 4 && host.startsWith("127.");
+  if (url.username || url.password || url.search || url.hash || url.pathname !== "/"
+    || !(url.protocol === "https:" || url.protocol === "http:" && loopback)) throw new Error("OAuth public origin requires HTTPS or loopback HTTP with no path");
+  return url.origin;
 }
 
 function normalizeResource(value: string): string | undefined {
@@ -105,6 +107,12 @@ export class LocalOAuthServer implements McpAuthorization {
   readonly #accessTokens = new Map<string, TokenRecord>();
   readonly #refreshTokens = new Map<string, TokenRecord>();
   readonly #staticSessionId: string;
+  #origin: string | undefined;
+  #window = { until: 0, requests: 0, logins: 0 };
+  #nextPrune = 0;
+  readonly #requestLimit: number;
+  readonly #loginLimit: number;
+  readonly #stateLimit: number;
 
   constructor(options: LocalOAuthOptions) {
     this.#options = {
@@ -112,9 +120,49 @@ export class LocalOAuthServer implements McpAuthorization {
       accessTokenTtlSeconds: options.accessTokenTtlSeconds ?? 3_600,
       refreshTokenTtlSeconds: options.refreshTokenTtlSeconds ?? 30 * 24 * 3_600,
     };
+    this.#origin = options.publicOrigin ? checkedOrigin(options.publicOrigin) : undefined;
+    this.#requestLimit = options.limits?.requestsPerMinute ?? 240;
+    this.#loginLimit = options.limits?.loginAttemptsPerMinute ?? 20;
+    this.#stateLimit = options.limits?.maxStateEntries ?? 2048;
+    for (const limit of [this.#requestLimit, this.#loginLimit, this.#stateLimit]) if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10000) throw new Error("Invalid OAuth resource limit");
+    for (const ttl of [this.#options.accessTokenTtlSeconds, this.#options.refreshTokenTtlSeconds]) if (!Number.isSafeInteger(ttl) || ttl < 1 || ttl > 365 * 24 * 3600) throw new Error("Invalid OAuth token TTL");
     this.#staticSessionId = options.staticBearerToken
       ? `static:${createHash("sha256").update(options.staticBearerToken).digest("hex").slice(0, 24)}`
       : "static:disabled";
+  }
+
+  /** Set by the owned listener/provider, never by Host/X-Forwarded-* input. */
+  setPublicOrigin(origin: string): void { this.#origin = checkedOrigin(origin); }
+  #publicOrigin(request: IncomingMessage): string {
+    if (this.#origin) return this.#origin;
+    // Standalone local use only. Public deployments must configure their origin.
+    return checkedOrigin(`http://${request.headers.host ?? ""}`);
+  }
+  #prune(force = false): void {
+    const now = Date.now();
+    if (!force && now < this.#nextPrune) return;
+    this.#nextPrune = now + 30000;
+    for (const map of [this.#codes, this.#accessTokens, this.#refreshTokens]) for (const [key, value] of map) if (value.expiresAt <= now) map.delete(key);
+  }
+  #allowRequest(request: IncomingMessage, response: ServerResponse, login: boolean): boolean {
+    const now = Date.now();
+    if (now >= this.#window.until) this.#window = { until: now + 60000, requests: 0, logins: 0 };
+    // Global quotas cannot be evaded with spoofed proxy IP headers, and are
+    // bounded without an attacker-controlled per-address/client map.
+    if (++this.#window.requests > this.#requestLimit || login && ++this.#window.logins > this.#loginLimit) {
+      request.resume();
+      response.setHeader("retry-after", String(Math.max(1, Math.ceil((this.#window.until - now) / 1000))));
+      oauthError(response, 429, "temporarily_unavailable", "OAuth request limit reached; retry later");
+      return false;
+    }
+    return true;
+  }
+  #tokenRoom(response: ServerResponse, rotating = false): boolean {
+    this.#prune(true);
+    if (this.#accessTokens.size >= this.#stateLimit || this.#refreshTokens.size >= this.#stateLimit + Number(rotating)) {
+      oauthError(response, 503, "temporarily_unavailable", "OAuth token capacity reached; retry after existing tokens expire"); return false;
+    }
+    return true;
   }
 
   get oauthEnabled(): boolean {
@@ -126,8 +174,10 @@ export class LocalOAuthServer implements McpAuthorization {
   }
 
   async authorize(request: IncomingMessage, resourcePath: string): Promise<McpPrincipal | undefined> {
+    this.#prune();
     const authorization = request.headers.authorization;
-    const expectedResource = normalizeResource(`${publicOrigin(request)}${resourcePath}`);
+    let expectedResource: string | undefined;
+    try { expectedResource = normalizeResource(`${this.#publicOrigin(request)}${resourcePath}`); } catch { return undefined; }
     if (!authorization?.startsWith("Bearer ")) {
       if (this.#options.staticBearerToken || this.oauthEnabled) return undefined;
       return {
@@ -172,7 +222,7 @@ export class LocalOAuthServer implements McpAuthorization {
   }
 
   challenge(request: IncomingMessage, resourcePath: string): string {
-    const metadata = `${publicOrigin(request)}/.well-known/oauth-protected-resource${resourcePath}`;
+    const metadata = `${this.#publicOrigin(request)}/.well-known/oauth-protected-resource${resourcePath}`;
     return `Bearer resource_metadata="${metadata}", scope="mcp"`;
   }
 
@@ -190,6 +240,10 @@ export class LocalOAuthServer implements McpAuthorization {
   async #route(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
     if (!this.oauthEnabled) return false;
     const path = url.pathname;
+    const known = ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-authorization-server", "/.well-known/openid-configuration", "/authorize", "/token", "/revoke"].includes(path);
+    if (!known) return false;
+    this.#prune();
+    if (!this.#allowRequest(request, response, path === "/authorize" && request.method === "POST")) return true;
     if (path === "/.well-known/oauth-protected-resource" || path === "/.well-known/oauth-protected-resource/mcp") {
       this.#metadata(request, response);
       return true;
@@ -214,7 +268,7 @@ export class LocalOAuthServer implements McpAuthorization {
   }
 
   #metadata(request: IncomingMessage, response: ServerResponse): void {
-    const origin = publicOrigin(request);
+    const origin = this.#publicOrigin(request);
     writeJson(response, 200, {
       resource: `${origin}/mcp`,
       authorization_servers: [origin],
@@ -224,7 +278,7 @@ export class LocalOAuthServer implements McpAuthorization {
   }
 
   #serverMetadata(request: IncomingMessage, response: ServerResponse): void {
-    const origin = publicOrigin(request);
+    const origin = this.#publicOrigin(request);
     writeJson(response, 200, {
       issuer: origin,
       authorization_endpoint: `${origin}/authorize`,
@@ -261,8 +315,8 @@ export class LocalOAuthServer implements McpAuthorization {
       return;
     }
     const challenge = params.get("code_challenge") ?? "";
-    const issuer = publicOrigin(request);
-    if (params.get("response_type") !== "code" || params.get("code_challenge_method") !== "S256" || !challenge) {
+    const issuer = this.#publicOrigin(request);
+    if (params.get("response_type") !== "code" || params.get("code_challenge_method") !== "S256" || !/^[A-Za-z0-9_-]{43}$/.test(challenge)) {
       response.writeHead(302, { location: redirectWith(redirectUri, { error: "invalid_request", state, iss: issuer }) }).end();
       return;
     }
@@ -282,6 +336,11 @@ export class LocalOAuthServer implements McpAuthorization {
       response.writeHead(302, { location: redirectWith(redirectUri, { error: "access_denied", error_description: "Invalid password", state, iss: issuer }) }).end();
       return;
     }
+    const resource = params.get("resource");
+    if (resource && normalizeResource(resource) !== normalizeResource(`${issuer}/mcp`)) { oauthError(response, 400, "invalid_target", "Resource must identify this MCP service"); return; }
+    if (params.get("scope") && params.get("scope") !== "mcp") { oauthError(response, 400, "invalid_scope", "Only mcp scope is supported"); return; }
+    this.#prune(true);
+    if (this.#codes.size >= this.#stateLimit) { oauthError(response, 503, "temporarily_unavailable", "OAuth code capacity reached; retry later"); return; }
     const code = randomToken();
     this.#codes.set(code, {
       clientId,
@@ -289,7 +348,7 @@ export class LocalOAuthServer implements McpAuthorization {
       redirectUri,
       codeChallenge: challenge,
       scope: params.get("scope") || "mcp",
-      resource: params.get("resource") ?? undefined,
+      resource: resource ?? `${issuer}/mcp`,
       expiresAt: Date.now() + 5 * 60_000,
     });
     response.writeHead(302, { location: redirectWith(redirectUri, { code, state, iss: issuer }) }).end();
@@ -304,25 +363,32 @@ export class LocalOAuthServer implements McpAuthorization {
     if (params.get("grant_type") === "authorization_code") {
       const codeValue = params.get("code") ?? "";
       const code = this.#codes.get(codeValue);
-      this.#codes.delete(codeValue);
+
       const verifier = params.get("code_verifier") ?? "";
       const computed = createHash("sha256").update(verifier).digest("base64url");
-      if (!code || code.expiresAt <= Date.now() || code.clientId !== params.get("client_id") || code.redirectUri !== params.get("redirect_uri") || !sameSecret(computed, code.codeChallenge)) {
+      if (!/^[A-Za-z0-9._~-]{43,128}$/.test(verifier) || !code || code.expiresAt <= Date.now() || code.clientId !== params.get("client_id") || code.redirectUri !== params.get("redirect_uri") || !sameSecret(computed, code.codeChallenge)) {
         oauthError(response, 400, "invalid_grant", "Authorization code or PKCE verifier is invalid");
         return;
       }
+      if (params.has("resource") && normalizeResource(params.get("resource")!) !== normalizeResource(code.resource ?? `${this.#publicOrigin(request)}/mcp`)) { oauthError(response, 400, "invalid_target", "Resource does not match the authorization grant"); return; }
+      if (!this.#tokenRoom(response)) return;
+      this.#codes.delete(codeValue);
       this.#issueTokens(response, code.clientId, code.scope, code.resource, randomToken(18), code.clientName);
       return;
     }
     if (params.get("grant_type") === "refresh_token") {
       const refreshValue = params.get("refresh_token") ?? "";
       const refresh = this.#refreshTokens.get(refreshValue);
-      this.#refreshTokens.delete(refreshValue);
+
       if (!refresh || refresh.expiresAt <= Date.now() || refresh.clientId !== params.get("client_id")) {
         oauthError(response, 400, "invalid_grant", "Refresh token is invalid");
         return;
       }
-      this.#issueTokens(response, refresh.clientId, params.get("scope") || refresh.scope, refresh.resource, refresh.sessionId, refresh.clientName);
+      if (params.has("resource") && normalizeResource(params.get("resource")!) !== normalizeResource(refresh.resource ?? `${this.#publicOrigin(request)}/mcp`)) { oauthError(response, 400, "invalid_target", "Resource does not match the refresh grant"); return; }
+      if (params.get("scope") && params.get("scope") !== refresh.scope) { oauthError(response, 400, "invalid_scope", "Refresh cannot expand scope"); return; }
+      if (!this.#tokenRoom(response, true)) return;
+      this.#refreshTokens.delete(refreshValue);
+      this.#issueTokens(response, refresh.clientId, refresh.scope, refresh.resource, refresh.sessionId, refresh.clientName);
       return;
     }
     oauthError(response, 400, "unsupported_grant_type", "Use authorization_code or refresh_token");

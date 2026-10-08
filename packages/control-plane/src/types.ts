@@ -1,6 +1,7 @@
 import type { ExtensionConfiguration, McpConnectionConfig } from "@micromatrix/plugin-kit";
 
 export interface ComputerUsePermissionStatus {
+  readonly screenRecording?: boolean;
   readonly platform: "macos" | "windows";
   readonly helperPath: string;
   readonly bundleId?: string;
@@ -12,6 +13,7 @@ export interface ComputerUsePermissionStatus {
   readonly requiresScreenRecording: false;
 }
 export interface BuiltinComputerUseStatus {
+  readonly browser?: { readonly endpoint: string; readonly allowedOrigins: readonly string[] };
   readonly enabled: boolean;
   readonly allowActions: boolean;
   readonly supported: boolean;
@@ -86,6 +88,7 @@ export interface RuntimeTool {
 
 export interface RuntimeControl {
   computerUseStatus?(): BuiltinComputerUseStatus;
+  configureComputerUseBrowser?(value: unknown): Promise<void>;
   setComputerUseEnabled?(enabled: boolean): Promise<void>;
   checkComputerUsePermissions?(request: boolean): Promise<BuiltinComputerUseStatus>;
   computerUseConnection?(): McpConnectionConfig;

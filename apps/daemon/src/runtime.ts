@@ -4,9 +4,10 @@ import { dirname, join } from "node:path";
 
 import { ApprovalPolicy } from "@micromatrix/approval";
 import type { RuntimeConfigurationUpdate, RuntimeControl, RuntimeSnapshot, SecretUpdate, BuiltinComputerUseStatus, ComputerUsePermissionStatus } from "@micromatrix/control-plane";
-import { DesktopProxy, desktopPlatform, nativeHelperPath } from "@micromatrix/computer-use";
+import { browserConfiguration, DesktopProxy, desktopPlatform, nativeHelperPath } from "@micromatrix/computer-use";
 import { McpHttpService } from "@micromatrix/mcp-server";
 import {
+  NetworkHealthMonitor, probePublicService, waitForPublicService, normalizeBaseUrl,
   CloudflareNetworkProvider,
   ExternalNetworkProvider,
   FrpNetworkProvider,
@@ -31,7 +32,7 @@ import { builtinComputerUseConfiguration, computerUseConnection } from "./builti
 
 export class RuntimeSupervisor implements RuntimeControl {
   computerUseConnection(): McpConnectionConfig {
-    return computerUseConnection(this.#config.workspace);
+    return computerUseConnection(this.#config.workspace, true, false, this.#config.computerUse);
   }
   #computerPermission: ComputerUsePermissionStatus | null = null;
   #computerPermissionCheckedAt = 0;
@@ -46,7 +47,7 @@ export class RuntimeSupervisor implements RuntimeControl {
       platform: supported ? desktopPlatform().name : process.platform, helperPath,
       running: this.#running, connected: this.#running && this.#mcpHealth.get("computer_use")?.status === "connected",
       permission: this.#computerPermission, checkedAt: this.#computerPermissionCheckedAt,
-      error: this.#computerPermissionError, conflict };
+      error: this.#computerPermissionError, conflict, ...(this.#config.computerUse?.browser ? {browser: this.#config.computerUse.browser} : {}) };
   }
   async setComputerUseEnabled(enabled: boolean): Promise<void> {
     return this.#exclusive(async () => {
@@ -57,8 +58,26 @@ export class RuntimeSupervisor implements RuntimeControl {
       if (enabled && status.conflict) throw new Error("Rename the custom MCP ID computer_use before enabling the built-in plugin");
       // A user's enable action opts into control, still guarded by existing approvals/TCC.
       // Saving a builtin must not validate/start an unfinished Tunnel configuration.
-      await this.#saveExtensions(parseExtensions(this.#config.extensions), { enabled, allowActions: enabled || status.allowActions });
+      await this.#saveExtensions(parseExtensions(this.#config.extensions), { ...this.#config.computerUse, enabled, allowActions: enabled || status.allowActions });
       this.#computerPermission = null; this.#computerPermissionCheckedAt = 0; this.#computerPermissionError = "";
+    });
+  }
+  async configureComputerUseBrowser(value: unknown): Promise<void> {
+    return this.#exclusive(async () => {
+      this.#assertExtensionsEditable();
+      if (this.#failureCleanup) await this.#failureCleanup;
+      const parsed = value === null ? undefined : browserConfiguration.safeParse(value);
+      if (parsed && !parsed.success) {
+        const field = parsed.error.issues[0]?.path[0];
+        throw new Error(field === "endpoint" ? "浏览器连接地址须为本机 WebSocket，例如 ws://127.0.0.1:9222/devtools/browser/ID"
+          : field === "allowedOrigins" ? "允许的网站须为 HTTP(S) origin，例如 https://example.com；不含额外路径，最多 32 个"
+          : "浏览器配置只接受连接地址和允许的网站列表");
+      }
+      const browser = parsed?.data;
+      const { browser: _previous, ...configuration } = this.#config.computerUse ?? {enabled: false, allowActions: true};
+      // Parse and persist only: no browser connection, profile discovery,
+      // download, permission prompt or Runtime/Tunnel startup on Save.
+      await this.#saveExtensions(parseExtensions(this.#config.extensions), {...configuration, ...(browser ? {browser} : {})});
     });
   }
   async checkComputerUsePermissions(request = false): Promise<BuiltinComputerUseStatus> {
@@ -77,7 +96,7 @@ export class RuntimeSupervisor implements RuntimeControl {
       this.#computerPermission = { platform: status.platform as "macos" | "windows", helperPath: status.helperPath,
         ...(status.platform === "macos" ? { accessibility: result.accessibility as boolean,
           ...(typeof result.bundle_id === "string" ? { bundleId: result.bundle_id } : {}),
-          signingMode: result.signing_mode === "certificate" ? "certificate" as const : "ad-hoc" as const }
+          signingMode: result.signing_mode === "certificate" ? "certificate" as const : "ad-hoc" as const, screenRecording:result.screen_recording===true }
           : { interactiveDesktop: result.interactive_desktop as boolean, elevated: result.elevated === true }),
         promptRequested: request, requiresScreenRecording: false };
       this.#computerPermissionCheckedAt = Date.now(); this.#computerPermissionError = "";
@@ -96,6 +115,7 @@ export class RuntimeSupervisor implements RuntimeControl {
   #service: McpHttpService | undefined;
   #provider: NetworkProvider | undefined;
   #network: NetworkProviderResult | undefined;
+  #networkHealth: NetworkHealthMonitor | undefined;
   #running = false;
   #startingAbort: AbortController | undefined;
   #testingMcp: McpConnection | undefined;
@@ -177,7 +197,7 @@ export class RuntimeSupervisor implements RuntimeControl {
         if (builtin.enabled && builtin.conflict) throw new Error("Custom MCP ID computer_use conflicts with the built-in plugin");
         if (builtin.enabled) await this.#checkComputerUsePermissions(false); // Never prompt on Start.
         startup.signal.throwIfAborted();
-        const connections = [...extensions.mcp, ...(builtin.enabled ? [computerUseConnection(this.#config.workspace, true, builtin.allowActions)] : [])];
+        const connections = [...extensions.mcp, ...(builtin.enabled ? [computerUseConnection(this.#config.workspace, true, builtin.allowActions, this.#config.computerUse)] : [])];
         const plugins = [createWorkspacePlugin(), ...(this.#config.plugins.shell ? [createShellPlugin()] : [])];
         this.#host = await PiBodyHost.create(context, join(dirname(this.#config.configFile), "pi"), [
           ...plugins.map((plugin) => ({ name: plugin.id, factory: createPiBodyExtension([plugin], context) })),
@@ -196,20 +216,30 @@ export class RuntimeSupervisor implements RuntimeControl {
         const service = this.#createService(this.#config, this.#registry);
         this.#service = service;
         startup.signal.throwIfAborted();
+        if (this.#config.network.publicUrl) service.setPublicBaseUrl(normalizeBaseUrl(this.#config.network.publicUrl));
         await service.start();
         startup.signal.throwIfAborted();
         let startingFailure: Error | undefined;
         let starting = true;
         this.#network = await provider.start({
+          signal: startup.signal,
           localBaseUrl: service.localBaseUrl,
           logger: this.#logger,
           onUnexpectedExit: (error) => {
-            if (starting) startingFailure = error;
+            if (starting) { startingFailure = error; startup.abort(error); }
             else this.#handleNetworkFailure(error);
           },
         });
         startup.signal.throwIfAborted();
         if (startingFailure) throw startingFailure;
+        service.setPublicBaseUrl(this.#network.publicBaseUrl);
+        try { await waitForPublicService(this.#network.publicBaseUrl, service.instanceId, startup.signal); }
+        catch (error) { throw startingFailure ?? new Error("Tunnel address is not ready or does not reach this MCP instance", { cause: error }); }
+        if (startingFailure) throw startingFailure;
+        startup.signal.throwIfAborted();
+        const publicBaseUrl = this.#network.publicBaseUrl;
+        this.#networkHealth = new NetworkHealthMonitor(signal => probePublicService(publicBaseUrl, service.instanceId, signal), error => this.#handleNetworkFailure(error));
+        this.#networkHealth.start();
         this.#running = true;
         starting = false;
         this.#logger.log("info", "Pi body ready", {
@@ -220,6 +250,7 @@ export class RuntimeSupervisor implements RuntimeControl {
           approvalMode: this.#config.permissionMode,
         });
       } catch (error) {
+        await this.#networkHealth?.stop(); this.#networkHealth = undefined;
         await this.#provider?.stop().catch((stopError) => {
           this.#logger.log("warn", "Tunnel cleanup after failed start failed", { error: String(stopError) });
         });
@@ -240,12 +271,14 @@ export class RuntimeSupervisor implements RuntimeControl {
     // lifecycle queue; desktop exit cannot leave an initializing npx tree alive.
     this.#mcpAuth.cancelPending();
     this.#startingAbort?.abort();
+    const healthCleanup = this.#networkHealth?.stop(); this.#networkHealth = undefined;
     const earlyCleanup = Promise.all([
       ...[...this.#mcpControllers.values()].map(controller => controller.close().catch(() => {})),
       this.#testingMcp?.close().catch(() => {}),
       ...(this.#startingAbort ? [this.#provider?.stop().catch(() => {})] : []),
     ]);
     return this.#exclusive(async () => {
+      await healthCleanup;
       await earlyCleanup;
       if (this.#failureCleanup) await this.#failureCleanup;
       this.#mcpAuth.cancelPending();
@@ -483,6 +516,7 @@ export class RuntimeSupervisor implements RuntimeControl {
     this.approval.resetSession();
     this.#logger.log("error", this.#exitReason);
     this.#failureCleanup = (async () => {
+      await this.#networkHealth?.stop(); this.#networkHealth = undefined;
       await this.#provider?.stop().catch((stopError) => {
         this.#logger.log("warn", "Tunnel cleanup after unexpected exit failed", { error: String(stopError) });
       });
@@ -552,7 +586,7 @@ export class RuntimeSupervisor implements RuntimeControl {
       || /^127\./.test(this.#config.host);
     const localOnly = this.#config.network.provider === "external"
       && loopbackHost
-      && (!this.#config.network.publicUrl || /localhost|127\.0\.0\.1|\[::1\]/.test(this.#config.network.publicUrl));
+      && (!this.#config.network.publicUrl || (() => { const u = new URL(this.#config.network.publicUrl!); return u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname); })());
     if (!localOnly && !this.#config.oauthPassword && !this.#config.authToken) {
       throw new Error("Public tunnel exposure requires an OAuth password or MICROMATRIX_AUTH_TOKEN");
     }

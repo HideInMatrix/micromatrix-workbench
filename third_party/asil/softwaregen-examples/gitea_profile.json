@@ -1,0 +1,97 @@
+{
+  "software_id": "gitea",
+  "display_name": "Gitea",
+  "version": "1.x",
+  "integration_pattern": "service_api",
+  "description": "A self-hosted Git service with a documented JSON REST API. This profile intentionally covers only repository listing plus reversible repository create/delete smoke operations.",
+  "evidence": [
+    {
+      "id": "ev_repo_list",
+      "kind": "api_spec",
+      "locator": "Gitea REST API: GET /api/v1/user/repos; local implementation reference src/asil/adapters/gitea.py",
+      "excerpt": "An authenticated GET /api/v1/user/repos returns a JSON array of repository objects. Stable task-relevant fields include id, name, full_name, description, private, empty, fork, stars_count, forks_count, and default_branch.",
+      "sample": [
+        {
+          "id": 1,
+          "name": "test-repo",
+          "full_name": "asil_admin/test-repo",
+          "description": "ASIL validation repository",
+          "private": false,
+          "empty": false,
+          "fork": false,
+          "stars_count": 0,
+          "forks_count": 0,
+          "default_branch": "main"
+        }
+      ]
+    },
+    {
+      "id": "ev_repo_create",
+      "kind": "api_spec",
+      "locator": "Gitea REST API: POST /api/v1/user/repos; local action reference src/asil/action_schemas/gitea.json",
+      "excerpt": "An authenticated POST /api/v1/user/repos creates a repository. The JSON request fields used by this profile are name (required string), description (string), private (boolean), and auto_init (boolean). A successful request returns the created repository object.",
+      "sample": {
+        "request": {
+          "name": "softwaregen-smoke",
+          "description": "Temporary softwaregen validation repository",
+          "private": true,
+          "auto_init": true
+        },
+        "response": {
+          "id": 2,
+          "name": "softwaregen-smoke",
+          "full_name": "asil_admin/softwaregen-smoke",
+          "description": "Temporary softwaregen validation repository",
+          "private": true,
+          "default_branch": "main"
+        }
+      }
+    },
+    {
+      "id": "ev_repo_delete",
+      "kind": "api_spec",
+      "locator": "Gitea REST API: DELETE /api/v1/repos/{owner}/{repo}; local action reference src/asil/action_schemas/gitea.json",
+      "excerpt": "An authenticated DELETE /api/v1/repos/{owner}/{repo} deletes the named repository and normally returns an empty successful response. Both owner and repo are path parameters. This operation is included only to clean up the isolated smoke repository created during validation.",
+      "sample": {
+        "method": "DELETE",
+        "path": "/api/v1/repos/asil_admin/softwaregen-smoke",
+        "success_body": null
+      }
+    },
+    {
+      "id": "ev_auth",
+      "kind": "source_code",
+      "locator": "src/asil/adapters/gitea.py:GiteaAdapter._headers",
+      "excerpt": "Authenticated requests use an Authorization header whose token value is supplied at runtime. The secret itself must never be embedded in the profile, model prompt, generated bundle report, or trace."
+    }
+  ],
+  "runtime": {
+    "base_url": "",
+    "base_url_env": "SOFTWAREGEN_GITEA_URL",
+    "allowed_hosts": [
+      "127.0.0.1",
+      "localhost",
+      "gitea"
+    ],
+    "allowed_executables": [],
+    "filesystem_root": ".",
+    "headers": {
+      "Authorization": "token ${ENV:SOFTWAREGEN_GITEA_TOKEN}"
+    },
+    "request_timeout_s": 15.0
+  },
+  "requirements": [
+    "Generate exactly one observation view named repositories using GET /api/v1/user/repos and the complete response array as its item collection.",
+    "Map each repository to a stable repository element using /id as id_pointer and /full_name as label_pointer.",
+    "Expose name, full_name, description, private, empty, fork, stars_count, forks_count, and default_branch as value_fields when evidenced.",
+    "Generate a create_repository api_call operation targeting gitea with typed parameters name, description, private, and auto_init, all used in the POST /api/v1/user/repos JSON body.",
+    "Generate a delete_repository api_call operation targeting gitea with required string parameters owner and repo, both used in DELETE /api/v1/repos/${owner}/${repo}.",
+    "Cite ev_repo_list for the observation probe and element mapping, ev_repo_create for create_repository, and ev_repo_delete for delete_repository.",
+    "Do not generate issue, pull request, user-administration, command-line, GUI, evaluator, task, or rendering behavior."
+  ],
+  "known_limitations": [
+    "This validation profile intentionally covers only repositories and is not a replacement for the full handwritten Gitea adapter.",
+    "GUI session startup, synchronization, screenshots, benchmark tasks, and evaluator paths remain manually reviewed integration work.",
+    "The delete operation must be used only for the uniquely named repository created by the same isolated validation run."
+  ]
+}

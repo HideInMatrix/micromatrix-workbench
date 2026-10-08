@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
+import { FormField } from '@/components/ui/form'
 import { Switch } from '@/components/ui/switch'
 import { desktopApi } from '../../api/desktop'
 import { updateInstallationLocked } from '../../composables/useAppUpdater'
@@ -12,6 +13,15 @@ const emit = defineEmits<{ changed: [] }>()
 const status = ref<ComputerUseStatusDto | null>(null)
 const busy = ref(false)
 const loadingError = ref('')
+const browserEndpoint = ref('')
+const browserOrigins = ref('')
+const browserDirty = ref(false)
+const browserError = ref('')
+function loadBrowser() {
+  if (browserDirty.value) return
+  browserEndpoint.value = status.value?.browser?.endpoint ?? ''
+  browserOrigins.value = status.value?.browser?.allowedOrigins.join('\n') ?? ''
+}
 const granted = computed(() => status.value?.platform === 'macos'
   ? status.value.permission?.accessibility === true : status.value?.permission?.interactiveDesktop === true)
 const locked = computed(() => busy.value || props.locked || status.value?.running || updateInstallationLocked.value)
@@ -19,21 +29,28 @@ const permissionLabel = computed(() => !status.value?.enabled ? '未启用'
   : loadingError.value || status.value.error ? '检测失败'
   : !status.value.permission ? '尚未检查'
   : status.value.platform === 'windows' && status.value.permission.elevated ? '请使用普通权限'
-  : granted.value ? '权限就绪' : status.value.platform === 'macos' ? '需要系统授权' : '需要解锁交互桌面')
+  : granted.value ? (status.value.platform === 'macos' && status.value.permission?.screenRecording === false ? '截图未授权' : '权限就绪') : status.value.platform === 'macos' ? '需要系统授权' : '需要解锁交互桌面')
 
 async function refresh() {
   status.value = await desktopApi.computerUseStatus()
   loadingError.value = ''
+  loadBrowser()
 }
 async function check(request = false) {
   status.value = await desktopApi.checkComputerUsePermissions(request)
   loadingError.value = ''
+  loadBrowser()
 }
-async function action(work: () => Promise<void>) {
+async function action(work: () => Promise<void>, browser = false) {
   if (busy.value || updateInstallationLocked.value) return
   busy.value = true
   try { await work() }
-  catch (error) { loadingError.value = error instanceof Error ? error.message : String(error); toast.error(loadingError.value) }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (browser) browserError.value = message
+    else loadingError.value = message
+    toast.error(message)
+  }
   finally { busy.value = false }
 }
 async function toggle(enabled: boolean) {
@@ -51,6 +68,20 @@ async function requestPermission() {
     // A transient IPC check is closed immediately and must not own onboarding.
     await desktopApi.openComputerUseSettings()
   })
+}
+async function saveBrowser(clear = false) {
+  if (locked.value) return
+  await action(async () => {
+    browserError.value = ''
+    const endpoint = browserEndpoint.value.trim()
+    const allowedOrigins = [...new Set(browserOrigins.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean))]
+    if (!clear && (!endpoint || !allowedOrigins.length)) throw new Error('填写本地连接地址和至少一个允许的网站')
+    status.value = await desktopApi.configureComputerUseBrowser(clear ? null : {endpoint, allowedOrigins})
+    browserDirty.value = false
+    loadBrowser()
+    emit('changed')
+    toast.success(clear ? '已关闭浏览器通道' : '浏览器配置已保存')
+  }, true)
 }
 // Mount reads cached metadata only. Permission checks are explicit, not timers
 // or focus listeners: switching apps must not spawn helpers or disable buttons.
@@ -74,7 +105,7 @@ defineExpose({ refresh: () => action(refresh) })
     <div v-else-if="status.enabled" class="mt-3 space-y-3">
       <template v-if="status.platform === 'macos'">
         <div class="flex flex-wrap gap-2">
-          <Button v-if="!granted" size="sm" :disabled="busy || !status.allowActions || updateInstallationLocked" @click="requestPermission">设置权限</Button>
+          <Button v-if="!granted || status.permission?.screenRecording === false" size="sm" :variant="granted ? 'outline' : 'default'" :disabled="busy || !status.allowActions || updateInstallationLocked" @click="requestPermission">设置权限</Button>
           <Button size="sm" variant="outline" :disabled="busy || updateInstallationLocked" @click="action(() => check(false))">重新检测</Button>
         </div>
       </template>
@@ -84,5 +115,23 @@ defineExpose({ refresh: () => action(refresh) })
       <Button v-if="!status.allowActions" size="sm" variant="outline" :disabled="locked" @click="toggle(true)">启用控制动作（保留本机审批）</Button>
       <p v-if="loadingError || status.error" role="alert" class="whitespace-pre-wrap text-xs text-destructive">{{ loadingError || status.error }}</p>
     </div>
+    <!-- Browser configuration is platform-independent; native support still gates desktop activation above. -->
+    <details v-if="status" class="mt-4 border-t border-border pt-3">
+      <summary class="cursor-pointer text-sm">浏览器连接<span v-if="status.browser" class="ml-2 text-xs text-muted-foreground">已配置</span></summary>
+      <fieldset :disabled="locked" class="mt-3 space-y-3">
+        <FormField label="本地浏览器连接地址">
+          <input id="computer-browser-endpoint" aria-label="本地浏览器连接地址" v-model="browserEndpoint" placeholder="ws://127.0.0.1:9222/devtools/browser/…" @input="browserDirty = true" />
+        </FormField>
+        <FormField label="允许的网站（每行一个）">
+          <textarea id="computer-browser-origins" aria-label="允许的网站" v-model="browserOrigins" :rows="3" placeholder="https://example.com" @input="browserDirty = true" />
+        </FormField>
+        <p class="text-xs text-muted-foreground">仅连接已开启调试的独立 Chromium 浏览器；保存不启动浏览器或 Runtime。</p>
+        <p v-if="browserError" role="alert" aria-label="浏览器配置错误" class="whitespace-pre-wrap text-xs text-destructive">{{ browserError }}</p>
+        <div class="flex gap-2">
+          <Button size="sm" :disabled="locked || !browserDirty" @click="saveBrowser()">保存</Button>
+          <Button size="sm" variant="outline" :disabled="locked || !status?.browser" @click="saveBrowser(true)">关闭通道</Button>
+        </div>
+      </fieldset>
+    </details>
   </section>
 </template>

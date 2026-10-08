@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { nativeBuildTarget } from './build-platform.mjs'
+import { generateDependencyNotices } from './dependency-notices.mjs'
 import { prepareDesktopResources } from './prepare-desktop-resources.mjs'
 import { prepareCloudflared } from './prepare-cloudflared.mjs'
 import { prepareComputerUse } from './prepare-computer-use.mjs'
@@ -36,5 +37,7 @@ const args = [postject, target, 'NODE_SEA_BLOB', blob, '--sentinel-fuse', 'NODE_
 if (process.platform === 'darwin') args.push('--macho-segment-name', 'NODE_SEA')
 execFileSync(process.execPath, args, { stdio: 'inherit' })
 if (process.platform === 'darwin') execFileSync('codesign', ['--sign', '-', target], { stdio: 'inherit' })
+execFileSync('cargo', ['fetch', '--manifest-path', path.join(root, 'src-tauri/Cargo.toml'), '--locked', '--target', triple], { stdio: 'inherit' })
+generateDependencyNotices(root)
 prepareDesktopResources(root)
 console.log(`Built Tauri sidecar ${path.relative(root, target)}`)

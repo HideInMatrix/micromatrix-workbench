@@ -1,0 +1,39 @@
+{
+  "software_id": "reference_workspace_script",
+  "display_name": "Reference Workspace (Native Script)",
+  "version": "1.0",
+  "integration_pattern": "native_script",
+  "description": "A reviewed native-script bridge that emits JSON state and accepts semantic operations.",
+  "evidence": [
+    {
+      "id": "ev_script",
+      "kind": "script",
+      "locator": "reference_state_tool.py observe",
+      "excerpt": "The reviewed native bridge inspects application state and emits an items array with stable IDs as JSON."
+    },
+    {
+      "id": "ev_command",
+      "kind": "command_help",
+      "locator": "reference_state_tool.py set-value ITEM_ID VALUE",
+      "excerpt": "The reviewed bridge accepts a typed semantic operation, updates one item, and emits the resulting JSON state."
+    }
+  ],
+  "runtime": {
+    "base_url": "",
+    "base_url_env": "",
+    "allowed_hosts": [],
+    "allowed_executables": [
+      "python"
+    ],
+    "filesystem_root": ".",
+    "headers": {},
+    "request_timeout_s": 10
+  },
+  "requirements": [
+    "Use direct argv without shell execution.",
+    "Expose stable item elements and one typed set_item_value operation."
+  ],
+  "known_limitations": [
+    "Real native applications require an application-specific reviewed bridge such as bpy or an official scripting pipe."
+  ]
+}

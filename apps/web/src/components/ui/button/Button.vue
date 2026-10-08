@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { computed, type HTMLAttributes } from 'vue'
+import { computed, type HTMLAttributes, type ButtonHTMLAttributes } from 'vue'
 import { Primitive, type PrimitiveProps } from 'reka-ui'
 import { cn } from '@/lib/utils'
 import { buttonVariants, type ButtonVariants } from '.'
 
 // Vue's SFC runtime-prop extractor cannot walk Reka UI's flattened declaration
 // bundle. Keep inheritance for typing, but declare runtime-consumed props here.
-interface Props extends /* @vue-ignore */ PrimitiveProps {
+interface Props extends /* @vue-ignore */ ButtonHTMLAttributes {
   // Explicit declarations are required for Vue's runtime prop extraction.
   // Without these, Primitive falls back to a div instead of a native button.
-  as?: PrimitiveProps['as']
+  as?: Exclude<PrimitiveProps['as'], undefined>
   asChild?: boolean
   variant?: ButtonVariants['variant']
   size?: ButtonVariants['size']

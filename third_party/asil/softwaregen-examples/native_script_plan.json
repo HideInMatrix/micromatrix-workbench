@@ -1,0 +1,84 @@
+{
+  "summary": "Observe and update state through a reviewed structured-output script bridge.",
+  "observation_views": [
+    {
+      "id": "items",
+      "description": "Items returned by the reviewed native script bridge.",
+      "probe": {
+        "transport": "command_json",
+        "argv": [
+          "python",
+          "examples/softwaregen/reference_state_tool.py",
+          "--state",
+          "examples/softwaregen/reference_state.json",
+          "observe"
+        ],
+        "items_pointer": "/items",
+        "evidence_refs": [
+          "ev_script"
+        ]
+      },
+      "element": {
+        "id_prefix": "workspace:",
+        "id_pointer": "/id",
+        "type": "workspace_item",
+        "label_pointer": "/label",
+        "value_fields": {
+          "value": "/value"
+        },
+        "metadata_fields": {},
+        "editable": true,
+        "actions": [
+          "set_item_value"
+        ],
+        "evidence_refs": [
+          "ev_script"
+        ]
+      },
+      "evidence_refs": [
+        "ev_script"
+      ]
+    }
+  ],
+  "operations": [
+    {
+      "name": "set_item_value",
+      "description": "Set one stable item value through the reviewed script bridge.",
+      "action_type": "set_value",
+      "target": "reference_workspace",
+      "parameters": [
+        {
+          "name": "item_id",
+          "value_type": "string",
+          "required": true,
+          "description": "Stable item ID."
+        },
+        {
+          "name": "value",
+          "value_type": "string",
+          "required": true,
+          "description": "Replacement value."
+        }
+      ],
+      "request": {
+        "transport": "command_json",
+        "argv": [
+          "python",
+          "examples/softwaregen/reference_state_tool.py",
+          "--state",
+          "examples/softwaregen/reference_state.json",
+          "set-value",
+          "${item_id}",
+          "${value}"
+        ],
+        "stdin": null
+      },
+      "evidence_refs": [
+        "ev_command"
+      ]
+    }
+  ],
+  "limitations": [
+    "The bridge itself remains reviewed application-specific code."
+  ]
+}

@@ -1,13 +1,19 @@
 import { execFileSync } from 'node:child_process'
-import { chmod, mkdir, readFile, readdir } from 'node:fs/promises'
+import { chmod, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { build } from 'esbuild'
 import { buildChannel } from './build-channel.mjs'
+import { createRequire } from 'node:module'
+import { generateDependencyNotices } from './dependency-notices.mjs'
+import { prepareAutomationResources } from './prepare-automation-resources.mjs'
 
 const root = process.cwd()
 const webDist = path.join(root, 'apps/web/dist')
 const output = path.join(root, 'dist/micromatrix-service.cjs')
 const prebuiltWeb = process.argv.includes('--prebuilt-web')
+const require = createRequire(import.meta.url)
+const quickjsWasm = (await readFile(require.resolve('@jitl/quickjs-wasmfile-release-sync/wasm'))).toString('base64')
+prepareAutomationResources(root)
 
 if (prebuiltWeb) {
   let index
@@ -57,7 +63,8 @@ async function collect(directory, prefix = '') {
 
 const assets = await collect(webDist)
 await mkdir(path.dirname(output), { recursive: true })
-await build({
+const result = await build({
+  metafile: true,
   absWorkingDir: root,
   entryPoints: ['apps/daemon/src/main.ts'],
   outfile: output,
@@ -67,7 +74,7 @@ await build({
   format: 'cjs',
   sourcemap: false,
   banner: { js: '#!/usr/bin/env node\nconst __micromatrix_import_meta_url = require("node:url").pathToFileURL(__filename).href;\n// SEA has no node_modules package tree. Never walk outside the bundled executable\n// looking for Pi metadata (which can prompt for Documents access before Start).\nif (require("node:sea").isSea() && !process.env.PI_PACKAGE_DIR) process.env.PI_PACKAGE_DIR = require("node:path").dirname(process.execPath);' },
-  define: { 'import.meta.url': '__micromatrix_import_meta_url', '__MICROMATRIX_RELEASE_BUILD__': String(buildChannel() === 'release') },
+  define: { 'import.meta.url': '__micromatrix_import_meta_url', '__MICROMATRIX_RELEASE_BUILD__': String(buildChannel() === 'release'), '__MICROMATRIX_QUICKJS_WASM__':JSON.stringify(quickjsWasm) },
   plugins: [{
     name: 'embedded-web-assets',
     setup(buildApi) {
@@ -79,5 +86,7 @@ await build({
     },
   }],
 })
+await writeFile(path.join(root, 'dist/service-metafile.json'), JSON.stringify(result.metafile))
+generateDependencyNotices(root, { cargo: false })
 await chmod(output, 0o755)
 console.log(`Built ${path.relative(root, output)} with ${Object.keys(assets).length} embedded web assets`)

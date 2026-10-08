@@ -7,7 +7,15 @@ import {
   type NgrokProviderOptions,
 } from "./types.js";
 
-const NGROK_URL = /https:\/\/[a-zA-Z0-9.-]+(?:\.ngrok(?:-free)?\.(?:app|dev|io)|\.[a-zA-Z]{2,})(?=[\s"']|$)/;
+function startedUrl(line: string): string | undefined {
+  try {
+    const event = JSON.parse(line);
+    if (event.msg !== "started tunnel" || typeof event.url !== "string") return undefined;
+    const url = new URL(event.url);
+    if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/" || url.search || url.hash) return undefined;
+    return url.origin;
+  } catch { return undefined; }
+}
 
 export class NgrokNetworkProvider implements NetworkProvider {
   readonly key = "ngrok";
@@ -23,20 +31,18 @@ export class NgrokNetworkProvider implements NetworkProvider {
   }
 
   async start(context: NetworkProviderContext): Promise<NetworkProviderResult> {
+    context.signal?.throwIfAborted();
     this.#process = new ManagedProcess(context.logger);
     const args = ["http", "--log=stdout", "--log-format=json"];
     if (this.#options.authToken) args.push("--authtoken", this.#options.authToken);
     if (this.#options.publicUrl) args.push("--url", this.#options.publicUrl);
     args.push(context.localBaseUrl);
     this.#process.start(this.#options.executable, args, "ngrok");
-    if (this.#options.publicUrl) {
-      await this.#process.waitFor((line) => /started tunnel|url=/i.test(line), 30_000, "ngrok tunnel");
-      this.#process.monitorUnexpectedExit(context.onUnexpectedExit);
-      return providerResult(this.key, this.#options.publicUrl, "ngrok");
-    }
-    const line = await this.#process.waitFor((candidate) => NGROK_URL.test(candidate), 30_000, "ngrok public URL");
-    const publicUrl = line.match(NGROK_URL)?.[0];
-    if (!publicUrl) throw new Error("ngrok output did not contain a public URL");
+    const line = await this.#process.waitFor(candidate => {
+      const url = startedUrl(candidate);
+      return Boolean(url && (!this.#options.publicUrl || url === new URL(this.#options.publicUrl).origin));
+    }, 30000, "ngrok started tunnel event", context.signal);
+    const publicUrl = startedUrl(line)!;
     this.#process.monitorUnexpectedExit(context.onUnexpectedExit);
     return providerResult(this.key, publicUrl, "ngrok");
   }

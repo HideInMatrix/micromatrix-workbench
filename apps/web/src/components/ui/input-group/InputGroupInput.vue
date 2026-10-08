@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import type { HTMLAttributes } from 'vue'
+import type { HTMLAttributes, InputHTMLAttributes } from 'vue'
 import { cn } from '@/lib/utils'
 
 defineOptions({ inheritAttrs: false })
 
-const props = defineProps<{
-  modelValue?: string | number
+interface Props extends /* @vue-ignore */ InputHTMLAttributes {
+  modelValue?: string | number | undefined
   class?: HTMLAttributes['class']
-}>()
+}
+const props = defineProps<Props>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]

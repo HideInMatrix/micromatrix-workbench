@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import type { HTMLAttributes } from 'vue'
+import type { HTMLAttributes, ButtonHTMLAttributes } from 'vue'
 import { cn } from '@/lib/utils'
 
-const props = defineProps<{ class?: HTMLAttributes['class']; disabled?: boolean }>()
+interface Props extends /* @vue-ignore */ ButtonHTMLAttributes { class?: HTMLAttributes['class']; disabled?: boolean }
+const props = defineProps<Props>()
 </script>
 
 <template>

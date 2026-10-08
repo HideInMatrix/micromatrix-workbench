@@ -45,6 +45,22 @@ jobs:
           node --input-type=module -e 'import { macSigningIdentity } from "./scripts/build-channel.mjs"; macSigningIdentity(); if (!process.env.APPLE_CERTIFICATE) throw new Error("Missing APPLE_CERTIFICATE; refusing another ad-hoc macOS release")'
       - run: npm ci
       - run: npm run check
+      - name: Reject high or critical dependency vulnerabilities
+        run: npm audit --audit-level=high
+      - name: Verify browser configuration, OAuth trust/limits and owned tunnel lifecycle
+        run: node scripts/smoke-priority.mjs
+      - name: Verify release notice integrity and network diagnostics
+        run: node scripts/smoke-release-closeout.mjs
+      - name: Bundle the service using the already checked frontend
+        run: npm run build:service -- --prebuilt-web
+      - name: Install an isolated CI Chromium for real browser acceptance
+        run: node node_modules/playwright-core/cli.js install --with-deps chromium
+      - name: Verify real Vue configuration and packaged browser execution
+        run: |
+          node scripts/smoke-runtime-ui.mjs
+          node scripts/smoke-computer-batch.mjs --service-entry dist/micromatrix-service.cjs --browser-executable "$(node -e 'process.stdout.write(require("playwright-core").chromium.executablePath())')"
+      - name: Verify OAuth issuer binding and hostile source-map offsets
+        run: node scripts/smoke-dependency-security.mjs
       - name: Share the single frontend build with native jobs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7, Node 24
         with:
@@ -100,6 +116,10 @@ jobs:
       - run: npm ci
       - name: Native-platform typecheck
         run: npm run typecheck
+      - name: Verify isolated JavaScript Computer Use batches
+        run: node scripts/smoke-computer-batch.mjs
+      - name: Verify ported ASIL declarative examples on the native OS
+        run: node scripts/smoke-asil.mjs
       - name: Download the verified shared frontend
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8, Node 24
         with:
@@ -111,8 +131,6 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: node scripts/import-macos-certificate.mjs import
-      - name: Build and smoke-test native Node SEA
-        run: npm run build:sidecar -- --prebuilt-web && npm run smoke:sidecar
       - name: Restore Rust dependencies and compiled crates
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2, Node 24
         with:
@@ -122,6 +140,14 @@ jobs:
           # Default-branch caches are available to later tags; other tags are not.
           save-if: ${{ github.ref == 'refs/heads/master' }}
           cache-on-failure: true
+      - name: Build and smoke-test native Node SEA
+        run: npm run build:sidecar -- --prebuilt-web && npm run smoke:sidecar
+      - name: Require complete fixed-version dependency notice files
+        run: node scripts/dependency-notices.mjs --strict
+      - name: Install an isolated native-runner browser
+        run: node node_modules/playwright-core/cli.js install chromium
+      - name: Verify packaged browser, native permission and owned process lifecycle
+        run: node scripts/smoke-packaged-platform.mjs
       - name: Build Tauri application and native installers
         id: tauri-build
         env:

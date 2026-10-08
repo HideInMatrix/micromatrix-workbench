@@ -34,6 +34,15 @@ function safeUrl(value: string | URL): URL {
   if (url.username || url.password || (url.protocol !== "https:" && !(url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)))) throw new Error("OAuth requires HTTPS or loopback HTTP");
   return url;
 }
+function boundIssuer(value: unknown): value is string {
+  if (typeof value !== "string" || !value) return false;
+  try { const url=safeUrl(value); return !url.search && !url.hash; } catch { return false; }
+}
+function sameIssuer(a: string, b: string): boolean {
+  // Match the SDK's parsed-URL/trailing-slash comparison, not just the host.
+  const x=safeUrl(a).href, y=safeUrl(b).href;
+  return x===y || x.replace(/\/$/,"")===y.replace(/\/$/,"");
+}
 /** Local-only credential store. Never included in snapshots or the public MCP. */
 export class McpAuthStore {
   #records: Record<string, Credentials> = {};
@@ -41,6 +50,7 @@ export class McpAuthStore {
   #disposed = false;
   constructor(readonly path: string, private remember: boolean) {
     if (remember) {
+      let migratedOAuth = false;
       try {
         if (statSync(path).size > 2_000_000) throw new Error("Credential file too large");
         const value: unknown = JSON.parse(readFileSync(path, "utf8"));
@@ -52,17 +62,22 @@ export class McpAuthStore {
           for (const [name, secret] of Object.entries(record.values)) if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name) || typeof secret !== "string" || !secret || secret.length > 16384 || secret.includes("\0")) throw new Error("Invalid credential value");
           if (record.oauth) {
             safeUrl(record.oauth.redirect);
-            if (record.oauth.tokens) OAuthTokensSchema.parse(record.oauth.tokens);
+            const tokens = record.oauth.tokens ? OAuthTokensSchema.parse(record.oauth.tokens) : undefined;
             if (record.oauth.client) {
               const client = OAuthClientInformationSchema.parse(record.oauth.client);
-              // Old dynamically registered identities must not survive migration.
-              if (!/^https:\/\//i.test(client.client_id) || client.client_secret) delete record.oauth;
+              // Do not bind legacy credentials to whatever issuer a remote MCP
+              // advertises on first use. Re-login once; keep header secrets.
+              if (!/^https:\/\//i.test(client.client_id) || client.client_secret || !boundIssuer(client.issuer)
+                || (tokens && (!boundIssuer(tokens.issuer) || !sameIssuer(client.issuer,tokens.issuer)))) { delete record.oauth; migratedOAuth = true; }
+              else { record.oauth.client = {...record.oauth.client, ...client}; if (tokens) record.oauth.tokens = {...record.oauth.tokens, ...tokens}; }
             }
+            else { delete record.oauth; migratedOAuth = true; }
             // Re-discover on startup, rather than trusting persisted endpoint metadata.
             if (record.oauth) delete record.oauth.discovery;
           }
           this.#records[id] = record;
         }
+        if (migratedOAuth) this.#persist();
       }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error("Cannot load local MCP credentials"); }
     } else rmSync(path, { force: true });
@@ -140,10 +155,22 @@ export class McpAuthStore {
         // Always return URL-based identity: the SDK's registration branch is
         // unreachable, including invalid_client retries. Discovery is checked
         // separately, so a DCR-only provider cannot silently accept this ID.
-        return { client_id: identity.clientId, token_endpoint_auth_method: "none" };
+        const client=get()?.client;
+        if (!interactive && (!boundIssuer(client?.issuer) || !boundIssuer(get()?.tokens?.issuer))) throw new Error(`MCP ${config.id} requires issuer-bound OAuth login; use the extension Login button`);
+        return { ...client, client_id: identity.clientId, token_endpoint_auth_method: "none" };
+      },
+      saveClientInformation: client => {
+        if (client.client_id !== identity.clientId || client.client_secret || !boundIssuer(client.issuer)) throw new Error("CIMD credentials require the configured public client ID and issuer binding");
+        const previous=get()?.client?.issuer;
+        if (!interactive && (!boundIssuer(previous) || !sameIssuer(previous,client.issuer))) throw new Error(`MCP ${config.id} authorization server changed; use the extension Login button`);
+        update({ client: {...client, token_endpoint_auth_method: "none"} });
       },
       tokens: () => get()?.tokens,
-      saveTokens: tokens => update({ tokens }),
+      saveTokens: tokens => {
+        const clientIssuer=get()?.client?.issuer;
+        if (!boundIssuer(tokens.issuer) || !boundIssuer(clientIssuer) || !sameIssuer(clientIssuer,tokens.issuer)) throw new Error("OAuth tokens must retain the SDK's matching issuer binding");
+        update({ tokens: {...tokens} });
+      },
       redirectToAuthorization: url => {
         safeUrl(url);
         if (!interactive) throw new Error(`MCP ${config.id} requires OAuth login; use the extension Login button`);

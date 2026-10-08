@@ -30,6 +30,9 @@ const credentialKeys = computed(() => {
 })
 const configuredKeys = computed(() => state.value?.mcp_status?.[mcp.value.id]?.keys ?? [])
 function credentialUpdates() { return Object.fromEntries(Object.entries(credentials.value).filter(([, value]) => value === null || Boolean(value))) }
+async function refreshTools(id: string) { await action(async () => { await desktopApi.refreshPiMcp(id); toast.success('工具目录已刷新') }) }
+async function logout(id: string) { await action(async () => { await desktopApi.logoutPiMcp(id) }) }
+async function cancelLogin(id: string) { await action(async () => { await desktopApi.cancelPiMcpLogin(id) }) }
 async function oauth(id: string) {
   await action(async () => {
     const result = await desktopApi.loginPiMcp(id)
@@ -175,11 +178,11 @@ defineExpose({ refresh: () => action(async () => {}) })
       <div v-for="connection in state.configuration.mcp" :key="`mcp:${connection.id}`" class="flex flex-wrap items-center gap-2 px-4 py-3">
         <div class="min-w-0 basis-40 flex-1"><div class="text-sm font-medium">{{ connection.name }}</div><div class="mt-1 truncate text-xs text-muted-foreground">MCP · {{ connection.id }} · {{ connection.transport }} · {{ connection.url || connection.command }}</div></div>
         <div class="text-xs text-muted-foreground">{{ state.mcp_status?.[connection.id]?.status ?? 'stopped' }}<span v-if="connection.auth === 'oauth'"> · OAuth {{ state.mcp_status?.[connection.id]?.oauth ?? 'logged_out' }}</span><div>{{ state.mcp_status?.[connection.id]?.message }}</div></div>
-        <Button v-if="state.running && connection.enabled" size="sm" variant="ghost" :disabled="busy" @click="action(async () => { await desktopApi.refreshPiMcp(connection.id); toast.success('工具目录已刷新') })">刷新工具</Button>
+        <Button v-if="state.running && connection.enabled" size="sm" variant="ghost" :disabled="busy" @click="refreshTools(connection.id)">刷新工具</Button>
         <template v-if="connection.auth === 'oauth'">
           <Button size="sm" variant="ghost" :disabled="busy || state.running" @click="oauth(connection.id)">授权登录</Button>
-          <Button size="sm" variant="ghost" :disabled="busy || state.running" @click="action(async () => { await desktopApi.logoutPiMcp(connection.id) })">注销</Button>
-          <Button v-if="state.mcp_status?.[connection.id]?.oauth === 'pending'" size="sm" variant="ghost" :disabled="busy" @click="action(async () => { await desktopApi.cancelPiMcpLogin(connection.id) })">取消授权</Button>
+          <Button size="sm" variant="ghost" :disabled="busy || state.running" @click="logout(connection.id)">注销</Button>
+          <Button v-if="state.mcp_status?.[connection.id]?.oauth === 'pending'" size="sm" variant="ghost" :disabled="busy" @click="cancelLogin(connection.id)">取消授权</Button>
         </template>
         <Button size="sm" variant="ghost" :disabled="busy || state.running" @click="editConnection(connection)">编辑</Button>
         <Button size="sm" variant="ghost" :disabled="busy || state.running" @click="remove('mcp', connection.id)">移除</Button>

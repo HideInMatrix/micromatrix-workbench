@@ -17,3 +17,4 @@ coverage/
 .local/
 src-tauri/binaries/
 src-tauri/resources/notices/
+src-tauri/resources/automation/

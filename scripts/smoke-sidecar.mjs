@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url'
 import { nativeBuildTarget } from './build-platform.mjs'
 import { cloudflaredManifest } from './prepare-cloudflared.mjs'
 import { smokeComputerUse } from './smoke-computer-use.mjs'
+import { exposedMcpName } from '@micromatrix/plugin-mcp'
 
 const root = process.cwd()
 const expectedVersion = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version
@@ -251,7 +252,7 @@ try {
   if (!card.tools.names.includes('skills_read') || !card.tools.names.includes('skills_list') || !card.tools.names.includes('skills_file_read') || !card.tools.names.some(name => name.startsWith('mcp__fixture__'))) {
     throw new Error('Pi registered Skill tools were not exposed by the packaged MCP service')
   }
-  if (card.tools.names.filter(name => name.startsWith('mcp__computer_use__')).length !== 7) {
+  if (!['computer_capabilities', 'computer_targets', 'computer_permissions', 'computer_observe', 'computer_inspect', 'computer_validate', 'computer_act', 'computer_trace', 'computer_run'].every(name => card.tools.names.includes(exposedMcpName('computer_use', name)))) {
     throw new Error('Packaged Computer Use was not registered through the official Pi extension host')
   }
   if (JSON.stringify(card).includes(temporary) || JSON.stringify(card).includes('smoke-only-private-password')) {

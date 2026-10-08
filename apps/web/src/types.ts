@@ -137,6 +137,7 @@ export interface PiMcpConnectionDto {
 }
 
 export interface ComputerUseStatusDto {
+  readonly browser?: { readonly endpoint: string; readonly allowedOrigins: readonly string[] };
   enabled: boolean
   allowActions: boolean
   supported: boolean
@@ -145,7 +146,7 @@ export interface ComputerUseStatusDto {
   helperPath: string
   running: boolean
   connected: boolean
-  permission: { platform: 'macos' | 'windows'; helperPath: string; bundleId?: string; signingMode?: 'certificate' | 'ad-hoc'; accessibility?: boolean; interactiveDesktop?: boolean; elevated?: boolean; promptRequested: boolean; requiresScreenRecording: false } | null
+  permission: { platform: 'macos' | 'windows'; helperPath: string; bundleId?: string; signingMode?: 'certificate' | 'ad-hoc'; accessibility?: boolean; screenRecording?: boolean; interactiveDesktop?: boolean; elevated?: boolean; promptRequested: boolean; requiresScreenRecording: false } | null
   checkedAt: number
   error: string
   conflict: boolean

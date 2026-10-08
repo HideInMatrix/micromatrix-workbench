@@ -37,6 +37,7 @@ export class CloudflareNetworkProvider implements NetworkProvider {
   }
 
   async start(context: NetworkProviderContext): Promise<NetworkProviderResult> {
+    context.signal?.throwIfAborted();
     this.#process = new ManagedProcess(context.logger);
     if (this.#options.publicUrl && this.#options.tunnelToken) {
       this.#process.start(
@@ -44,11 +45,7 @@ export class CloudflareNetworkProvider implements NetworkProvider {
         ["--no-autoupdate", "tunnel", "--protocol", this.#protocol, "run", "--token", this.#options.tunnelToken],
         "cloudflared",
       );
-      await this.#process.waitFor(
-        (line) => line.toLowerCase().includes("registered tunnel connection"),
-        60_000,
-        "Cloudflare Named Tunnel connection",
-      );
+      await this.#waitForConnection(context.signal);
       this.#process.monitorUnexpectedExit(context.onUnexpectedExit);
       return providerResult(this.key, this.#options.publicUrl, "Cloudflare Named Tunnel");
     }
@@ -62,15 +59,45 @@ export class CloudflareNetworkProvider implements NetworkProvider {
       (candidate) => QUICK_TUNNEL_URL.test(candidate),
       60_000,
       "Cloudflare Quick Tunnel URL",
+      context.signal,
     );
     const publicUrl = line.match(QUICK_TUNNEL_URL)?.[0];
     if (!publicUrl) throw new Error("cloudflared output did not contain a tunnel URL");
+    await this.#waitForConnection(context.signal);
     this.#process.monitorUnexpectedExit(context.onUnexpectedExit);
     return providerResult(this.key, publicUrl, "Cloudflare Quick Tunnel");
+  }
+
+  async #waitForConnection(signal?: AbortSignal): Promise<void> {
+    const managed = this.#process!;
+    try {
+      await managed.waitFor(
+        (line) => line.toLowerCase().includes("registered tunnel connection"),
+        60_000,
+        "Cloudflare tunnel connection",
+        signal,
+      );
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason;
+      // Report only a fixed diagnostic, never raw log lines/tokens. Keep the
+      // actual timeout/exit as cause. A URL is not evidence of connection.
+      throw cloudflareConnectionError(managed.recentOutput(), error);
+    }
   }
 
   async stop(): Promise<void> {
     await this.#process?.stop();
     this.#process = undefined;
   }
+}
+
+/** Known upstream diagnostics, not raw stderr or token-bearing command args. */
+export function cloudflareConnectionError(lines: readonly string[], cause: unknown): unknown {
+  const output = lines.join("\n");
+  const fakeIp = /(?:ip=|on |address[^\n]*)(?:198\.(?:18|19)\.)/.test(output);
+  const blocked = /precheck.*component="(?:TCP|UDP) Connectivity".*status=fail/.test(output);
+  if (!fakeIp && !blocked) return cause;
+  return new Error(fakeIp
+    ? "Cloudflare 未连接：代理 DNS 将边缘地址解析为 198.18.0.0/15 fake-IP；检查代理 DNS/分流，并允许 Tunnel 出站 TCP 或 UDP 7844。没有发布公网地址。"
+    : "Cloudflare 未连接：连通性检查报告出站 7844 不可达；HTTP/2 使用 TCP，QUIC 使用 UDP。没有发布公网地址。", { cause });
 }

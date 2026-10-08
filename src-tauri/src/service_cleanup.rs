@@ -24,7 +24,9 @@ fn request(port: u16, method: &str, path: &str, body: &str, deadline: Instant) -
 
 fn stop_owned(port: u16, pid: u32) {
   // Never stop a different service that happens to occupy the same port.
-  let deadline = Instant::now() + Duration::from_secs(6);
+  // Owned stdio/process-tree cleanup and a status+off Tailscale transaction
+  // can run sequentially. Do not SIGKILL the service halfway through them.
+  let deadline = Instant::now() + Duration::from_secs(12);
   let Some(health) = request(port, "GET", "/healthz", "", deadline) else { return; };
   let Some((_, body)) = health.split_once("\r\n\r\n") else { return; };
   let Ok(health) = serde_json::from_str::<serde_json::Value>(body) else { return; };

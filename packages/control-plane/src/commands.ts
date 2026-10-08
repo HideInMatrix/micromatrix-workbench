@@ -191,6 +191,11 @@ export class DesktopCommandRouter {
         if (typeof request.args[0] !== "boolean") throw new Error("Computer Use enabled must be a boolean");
         await this.#options.runtime.setComputerUseEnabled(request.args[0]);
         return this.#options.runtime.computerUseStatus?.();
+      case "configure_computer_use_browser":
+        if (!this.#options.runtime.configureComputerUseBrowser) throw new Error("Computer Use browser configuration unavailable");
+        if (request.args.length !== 1) throw new Error("One browser configuration or null is required");
+        await this.#options.runtime.configureComputerUseBrowser(request.args[0]);
+        return this.#options.runtime.computerUseStatus?.();
       case "check_computer_use_permissions":
         if (!this.#options.runtime.checkComputerUsePermissions) throw new Error("Computer Use permission check unavailable");
         if (request.args[0] !== undefined && typeof request.args[0] !== "boolean") throw new Error("Permission request must be a boolean");

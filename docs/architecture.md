@@ -34,7 +34,7 @@ MCP transport、Tunnel Provider 和 UI 不得实现文件、Shell 等业务工�
 
 ### Computer Use 的能力边界
 
-ASIL 风格服务是同一可执行文件的独立 stdio MCP 模式，通过现有 Pi MCP 扩展注册，不构造 Runtime/Tunnel 或本地模型。Computer Use 作为受管理的内置插件，在独立 computerUse 配置保存启用/动作标志；不混入用户 MCP 目录，不占用外部连接名额。程序与 helper 路径从当前安装派生，旧官方预填项保留开关与只读语义迁移（不覆盖同名第三方连接）。开关保存不启动 Runtime/Tunnel；系统检查仅运行短生命周期固定 helper 查询信任状态，不读取应用内容。只有用户点击权限按钮才请求 TCC 提示和打开固定系统设置地址，返回复检；Windows 不自动提权。适配器拥有结构化状态、语义动作、revision 校验和动作后验证，禁止任意 eval/坐标点击回退。统一 DesktopProxy 组合惰性 NativeDesktopChannel，由 OS descriptor 选择 macOS Swift/Accessibility 或 Windows C#/UI Automation helper；状态、动作校验、审批、过期/revision、回读及生命周期共用，不按系统复制执行引擎。JSON 适配遵循 Workspace 边界。Linux 客户端构建和更新目标暂停，纯 TS CI 的 Linux runner 不属于产品客户端。状态是模型的不可信输入，工具审批与 OS 授权独立；内置插件默认关闭，显式启用后可请求控制动作，仍遵循外部 MCP 审批策略；旧只读配置不会静默升级为控制。具体合同及限制见 [Computer Use](computer-use.md)。
+ASIL 风格服务是同一可执行文件的独立 stdio MCP 模式，通过现有 Pi MCP 扩展注册，不构造 Runtime/Tunnel 或本地模型。Computer Use 作为受管理的内置插件，在独立 computerUse 配置保存启用/动作标志；不混入用户 MCP 目录，不占用外部连接名额。程序与 helper 路径从当前安装派生，旧官方预填项保留开关与只读语义迁移（不覆盖同名第三方连接）。开关保存不启动 Runtime/Tunnel；系统检查仅运行短生命周期固定 helper 查询信任状态，不读取应用内容。只有用户点击权限按钮才打开固定原生权限引导窗口；重新检测必须显式操作，无焦点/定时轮询。Windows 不自动提权。适配器拥有结构化状态、语义动作、revision 校验和动作后验证，原生语义路径不做隐式坐标回退；另有显式 desktop-visual 截图/窗口内动作和受限 JavaScript 批处理，脚本无 Node host globals。统一 DesktopProxy 组合惰性 NativeDesktopChannel，由 OS descriptor 选择 macOS Swift/Accessibility 或 Windows C#/UI Automation helper；状态、动作校验、审批、过期/revision、回读及生命周期共用，不按系统复制执行引擎。JSON 适配遵循 Workspace 边界。Linux 客户端构建和更新目标暂停，纯 TS CI 的 Linux runner 不属于产品客户端。状态是模型的不可信输入，工具审批与 OS 授权独立；内置插件默认关闭，显式启用后可请求控制动作，仍遵循外部 MCP 审批策略；旧只读配置不会静默升级为控制。具体合同及限制见 [Computer Use](computer-use.md)。
 
 ## Approval before execution
 
@@ -87,3 +87,9 @@ stdio 使用 SDK 的 framing 和 Client，transport 专门拥有启动程序的�
 Skill 编辑仅允许已配置资源的准确 ID，保存前后核验 revision，并由 Pi 验证候选文档后原子替换。支持文件按已发现 Skill root 解析，只读有界 UTF-8 普通文件；对本机恶意代码的 filesystem race 仍需 OS 沙箱，不承诺仅凭路径检查实现进程隔离。
 
 Tauri 正常退出通过 native cleanup 请求 PID 匹配的控制服务停止 Runtime，再终止 sidecar；更新器的资源释放路径也使用同一清理函数。失败和超时保留有界强制退出，不伪装为已完成所有 Provider 的清理。默认仍不启动 Runtime。
+
+## 公网地址与隧道归属
+
+LocalOAuthServer 的 public origin 由 listener/Runtime 设置，不根据转发头猜测。MCP 的 Host/Origin allowlist 使用实际监听端口和明确公网 origin；客户端 scope/resource 绑定本服务，S256/有界 token/codes/限流在授权路由执行。
+
+Provider 返回日志/配置地址只表示候选路由；Runtime 校验服务实例 nonce 后才暴露 publicMcpUrl。后台探活串行、可取消；失败和 Stop 共用宿主/审批/服务清理。自有 CLI 使用 Unix process group 或 Windows PID tree；Tailscale 是共享 daemon，必须先查 selected port，再记录 exact route footprint，停止前校验归属，只执行匹配端口的 off。外部 CLI 改动不是原子事务；发现变更保留用户配置并报告，而非 reset 全部配置。

@@ -12,6 +12,8 @@ import { cn } from '@/lib/utils'
 // bundle. Reka props remain type checked and are forwarded as component attrs.
 interface Props extends /* @vue-ignore */ SwitchRootProps {
   class?: HTMLAttributes['class']
+  title?: string
+  'aria-label'?: string
 }
 
 const props = defineProps<Props>()
@@ -23,12 +25,17 @@ const delegatedProps = computed(() => {
 })
 
 const forwarded = useForwardPropsEmits(delegatedProps, emits)
+function defined<T extends object>(value: T) {
+  // Reka's forwarding type includes undefined even for omitted optional props.
+  // Remove them at runtime rather than weakening exactOptionalPropertyTypes.
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as { [K in keyof T]?: Exclude<T[K], undefined> }
+}
 </script>
 
 <template>
   <SwitchRoot
     data-slot="switch"
-    v-bind="forwarded"
+    v-bind="defined(forwarded)"
     :class="cn(
       'peer inline-flex h-[1.15rem] w-8 shrink-0 cursor-pointer items-center justify-start gap-0 rounded-full border border-transparent shadow-xs transition-all outline-none',
       'data-[state=checked]:bg-primary data-[state=unchecked]:bg-input dark:data-[state=unchecked]:bg-input/80',

@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -10,16 +10,24 @@ export function prepareDesktopResources(root = process.cwd()) {
     [nodeLicense, 'NODE_LICENSE.txt'],
     [path.join(root, 'third_party/pi/LICENSE'), 'PI_LICENSE.txt'],
     [path.join(root, 'third_party/cloudflared/LICENSE'), 'CLOUDFLARED_LICENSE.txt'],
+    [path.join(root, 'third_party/asil/LICENSE'), 'ASIL_LICENSE.txt'],
+    [path.join(root, 'third_party/asil/DATA_LICENSE'), 'ASIL_DATA_LICENSE.txt'],
+    [path.join(root, 'third_party/asil/NOTICE'), 'ASIL_NOTICE.txt'],
+    [path.join(root, 'third_party/automation/QUICKJS_LICENSE'), 'QUICKJS_LICENSE.txt'],
+    [path.join(root, 'third_party/automation/PLAYWRIGHT_LICENSE'), 'PLAYWRIGHT_LICENSE.txt'],
     [path.join(root, 'THIRD_PARTY_NOTICES.md'), 'THIRD_PARTY_NOTICES.md'],
     [path.join(root, '.github/release-notes.md'), 'KNOWN_LIMITS.md'],
   ]
   for (const [source] of sources) {
     if (!existsSync(source)) throw new Error(`Missing desktop notice: ${source}`)
   }
+  const inventory = path.join(root, 'dist/dependency-notices')
+  if (!existsSync(path.join(inventory, 'DEPENDENCIES.json'))) throw new Error('Dependency notice inventory is missing; rebuild the service first')
   const output = path.join(root, 'src-tauri/resources/notices')
   rmSync(output, { recursive: true, force: true })
   mkdirSync(output, { recursive: true })
   for (const [source, name] of sources) copyFileSync(source, path.join(output, name))
+  cpSync(inventory, path.join(output, 'dependencies'), { recursive: true })
   return output
 }
 

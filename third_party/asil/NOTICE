@@ -1,0 +1,17 @@
+ASIL: Replacing Screenshot-and-Click with Structured State and Semantic Actions
+Authors: Rui Xie and Lu Chen, Shanghai Jiao Tong University
+Source: https://github.com/sharryXR/ASIL
+Reference commit: ca7706c87a0b1184c99623691adafed7693e25d3
+
+packages/computer-use/src/softwaregen/{models,templates,audit,runtime,generation}.ts
+adapt the corresponding upstream Python softwaregen modules to TypeScript/Zod.
+Changes include explicit separate host permission grants, pinned registry/support
+files, bounded async I/O, stricter path/command/header validation, cancellation,
+secret redaction and mapping into the existing Pi/MCP approval/runtime contract.
+Upstream code is Apache-2.0; the complete license accompanies this notice.
+Upstream DATA_LICENSE describes the separate CC BY 4.0 data/documentation terms.
+
+softwaregen-examples/ contains unchanged upstream example JSON files, not a new
+application integration or a redistribution of benchmark/training datasets.
+Regressions explicitly rebind the Python reference command to a pinned Node
+fixture. No upstream Python runtime, agent loop or training code is bundled.

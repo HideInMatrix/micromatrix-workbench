@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -30,6 +31,8 @@ function writeJson(response: ServerResponse, status: number, value: unknown): vo
 }
 
 export class McpHttpService {
+  readonly instanceId = randomUUID();
+  #publicBaseUrl: string | undefined;
   readonly #options: McpHttpServiceOptions;
   readonly #server;
   readonly #protocols = new Set<ReturnType<typeof createProtocolServer>>();
@@ -50,6 +53,7 @@ export class McpHttpService {
   }
 
   async start(): Promise<void> {
+    if (!isLoopback(this.#options.host) && !this.#publicBaseUrl) throw new Error("Non-loopback MCP binding requires an explicit public HTTPS origin before Start");
     await new Promise<void>((resolve, reject) => {
       this.#server.once("error", reject);
       this.#server.listen(this.#options.port, this.#options.host, () => {
@@ -57,6 +61,7 @@ export class McpHttpService {
         resolve();
       });
     });
+    this.setPublicBaseUrl(this.#publicBaseUrl ?? this.localBaseUrl);
     this.#options.logger.log("info", "MCP server listening", {
       url: this.localMcpUrl,
       tools: this.#options.registry.listTools().map((tool) => tool.name),
@@ -74,15 +79,40 @@ export class McpHttpService {
     return `${this.localBaseUrl}/mcp`;
   }
 
+  setPublicBaseUrl(value: string): void {
+    const url = new URL(value);
+    if (url.username || url.password || url.search || url.hash || url.pathname !== "/" || !(url.protocol === "https:" || url.protocol === "http:" && isLoopback(url.hostname.replace(/^\[|\]$/g, "")))) throw new Error("Public MCP URL must be HTTPS or loopback HTTP with no extra path");
+    this.#publicBaseUrl = url.origin;
+    this.#options.authorization.setPublicOrigin?.(url.origin);
+  }
+  #allowedRequest(request: IncomingMessage): boolean {
+    const host = request.headers.host;
+    if (!host || /[\s/@?#\\]/.test(host)) return false;
+    let url: URL; try { url = new URL(`http://${host}`); } catch { return false; }
+    const local = new URL(this.localBaseUrl);
+    const localHost = (isLoopback(url.hostname.replace(/^\[|\]$/g, "")) || url.hostname === local.hostname) && url.port === local.port;
+    const publicHost = this.#publicBaseUrl && new URL(`${new URL(this.#publicBaseUrl).protocol}//${host}`).host === new URL(this.#publicBaseUrl).host;
+    if (!localHost && !publicHost) return false;
+    const origin = request.headers.origin;
+    if (!origin) return true; // MCP clients usually run server-side.
+    if (origin === this.#publicBaseUrl) return true;
+    try { const parsed = new URL(origin); return parsed.origin === origin && parsed.protocol === "http:" && isLoopback(parsed.hostname.replace(/^\[|\]$/g, "")) && parsed.port === local.port; }
+    catch { return false; }
+  }
+
   async stop(): Promise<void> {
     if (!this.#server.listening) return;
     await Promise.all([...this.#protocols].map(protocol => protocol.close().catch(() => {})));
-    await new Promise<void>((resolve, reject) =>
-      this.#server.close((error) => (error ? reject(error) : resolve())),
-    );
+    await new Promise<void>((resolve, reject) => {
+      this.#server.close((error) => (error ? reject(error) : resolve()));
+      // Stop ingress before destroying remaining sockets: a stalled OAuth body
+      // must not hold Runtime Stop/update hostage until Node's body timeout.
+      this.#server.closeAllConnections();
+    });
   }
 
   async #handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    if (!this.#allowedRequest(request)) { writeJson(response, 403, { error: "host_or_origin_not_allowed" }); return; }
     const url = new URL(request.url ?? "/", this.localBaseUrl);
     if (await this.#options.authorization.handle(request, response, url)) return;
     if (url.pathname === "/") {
@@ -121,6 +151,7 @@ export class McpHttpService {
     if (url.pathname === "/healthz") {
       writeJson(response, 200, {
         ok: true,
+        instance_id: this.instanceId,
         plugins: this.#options.registry.listPlugins().map(({ plugin }) => plugin.id),
         tools: this.#options.registry.listTools().map((tool) => tool.name),
       });

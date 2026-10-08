@@ -1,0 +1,78 @@
+{
+  "summary": "Observe a structured workspace file and update one item value.",
+  "observation_views": [
+    {
+      "id": "items",
+      "description": "Items in the open workspace file.",
+      "probe": {
+        "transport": "json_file",
+        "path": "examples/softwaregen/reference_state.json",
+        "items_pointer": "/items",
+        "evidence_refs": [
+          "ev_file"
+        ]
+      },
+      "element": {
+        "id_prefix": "workspace:",
+        "id_pointer": "/id",
+        "type": "workspace_item",
+        "label_pointer": "/label",
+        "value_fields": {
+          "value": "/value"
+        },
+        "metadata_fields": {},
+        "editable": true,
+        "actions": [
+          "set_item_value"
+        ],
+        "evidence_refs": [
+          "ev_file"
+        ]
+      },
+      "evidence_refs": [
+        "ev_file"
+      ]
+    }
+  ],
+  "operations": [
+    {
+      "name": "set_item_value",
+      "description": "Set the value of one stable workspace item.",
+      "action_type": "set_value",
+      "target": "reference_workspace",
+      "parameters": [
+        {
+          "name": "item_id",
+          "value_type": "string",
+          "required": true,
+          "description": "Stable item ID."
+        },
+        {
+          "name": "value",
+          "value_type": "string",
+          "required": true,
+          "description": "Replacement value."
+        }
+      ],
+      "request": {
+        "transport": "command_json",
+        "argv": [
+          "python",
+          "examples/softwaregen/reference_state_tool.py",
+          "--state",
+          "examples/softwaregen/reference_state.json",
+          "set-value",
+          "${item_id}",
+          "${value}"
+        ],
+        "stdin": null
+      },
+      "evidence_refs": [
+        "ev_command"
+      ]
+    }
+  ],
+  "limitations": [
+    "The example covers one structured-file view and one semantic update operation."
+  ]
+}

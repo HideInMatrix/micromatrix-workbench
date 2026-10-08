@@ -17,3 +17,5 @@ export {
   type NetworkProviderContext,
   type NetworkProviderResult,
 } from "./types.js";
+
+export { probePublicService, waitForPublicService, NetworkHealthMonitor } from "./health.js";

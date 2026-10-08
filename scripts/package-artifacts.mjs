@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { nativeBuildTarget } from './build-platform.mjs'
@@ -58,6 +58,9 @@ export function packageArtifacts(root = process.cwd(), env = process.env) {
   // saved OAuth credentials, user workspaces or other repository state.
   copyFileSync(service, path.join(serviceDirectory, `micromatrix-service${extension}`))
   copyFileSync(cloudflared, path.join(serviceDirectory, `cloudflared${extension}`))
+  const automation=path.join(root,'src-tauri/resources/automation')
+  if(!existsSync(path.join(automation,'playwright-core/index.js')))throw new Error('Missing bundled Playwright runtime; rebuild the service')
+  cpSync(automation,path.join(serviceDirectory,'automation'),{recursive:true})
   if (process.platform === 'darwin') {
     const application = path.join(root, 'src-tauri/binaries/micromatrix Computer Use.app')
     if (!existsSync(path.join(application, 'Contents/MacOS/micromatrix-computer'))) throw new Error('Missing bundled Computer Use application')
@@ -69,12 +72,15 @@ export function packageArtifacts(root = process.cwd(), env = process.env) {
     if (!existsSync(computer)) throw new Error('Missing bundled Computer Use native helper')
     copyFileSync(computer, path.join(serviceDirectory, `micromatrix-computer${extension}`))
   }
+  cpSync(path.join(root, 'src-tauri/resources/notices/dependencies'), path.join(serviceDirectory, 'notices/dependencies'), { recursive: true })
   copyFileSync(nodeLicense, path.join(serviceDirectory, 'NODE_LICENSE'))
   for (const [source, destination] of [
     ['README.md', 'README.md'], ['.env.example', '.env.example'],
     ['THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_NOTICES.md'],
     ['third_party/pi/LICENSE', 'PI_LICENSE'], ['.github/release-notes.md', 'KNOWN_LIMITS.md'],
     ['third_party/cloudflared/LICENSE', 'CLOUDFLARED_LICENSE'],
+    ['third_party/asil/LICENSE', 'ASIL_LICENSE'], ['third_party/asil/DATA_LICENSE', 'ASIL_DATA_LICENSE'], ['third_party/asil/NOTICE', 'ASIL_NOTICE'],
+    ['third_party/automation/QUICKJS_LICENSE', 'QUICKJS_LICENSE'], ['third_party/automation/PLAYWRIGHT_LICENSE', 'PLAYWRIGHT_LICENSE'],
   ]) copyFileSync(path.join(root, source), path.join(serviceDirectory, destination))
 
   const label = env.GITHUB_REF_TYPE === 'tag' ? env.GITHUB_REF_NAME : `v${version}`

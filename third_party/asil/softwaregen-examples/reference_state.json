@@ -1,0 +1,14 @@
+{
+  "items": [
+    {
+      "id": "item-a",
+      "label": "Alpha",
+      "value": "draft"
+    },
+    {
+      "id": "item-b",
+      "label": "Beta",
+      "value": "ready"
+    }
+  ]
+}

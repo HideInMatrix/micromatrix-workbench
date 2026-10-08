@@ -29,11 +29,15 @@ export async function smokeComputerUse(executable) {
   try {
     await writeFile(path.join(directory, 'input.json'), JSON.stringify({ marker, status: 'pending' }))
     await client.connect(transport)
-    assert.equal((await client.listTools()).tools.length, 7)
+    const toolNames = (await client.listTools()).tools.map(tool => tool.name)
+    for (const name of ['computer_capabilities', 'computer_targets', 'computer_permissions', 'computer_observe', 'computer_inspect', 'computer_validate', 'computer_act', 'computer_trace', 'computer_run']) assert.ok(toolNames.includes(name))
     const capabilities = await call('computer_capabilities')
     assert.equal(capabilities.actions_enabled, true)
     const desktop = capabilities.adapters.find(adapter => adapter.id === 'desktop')
     assert.equal(desktop.available, true)
+    assert.equal(desktop.source, process.platform === 'darwin' ? 'macos_accessibility' : 'windows_uiautomation')
+    assert.equal(desktop.description.scope, 'accessibility_tree')
+    assert.ok(desktop.description.actions.some(action => action.action_type === 'set_value' && action.params_schema.type === 'object'))
     const permissions = await call('computer_permissions', { request: false })
     if (process.platform === 'darwin') {
       assert.equal(permissions.bundle_id, `org.micromatrix.computer-use${buildChannel() === 'release' ? '' : '.dev'}`)
@@ -65,6 +69,12 @@ export async function smokeComputerUse(executable) {
       console.log('PASS: packaged Windows UIA helper, permission/desktop check; no elevation or desktop action')
     }
     const observed = await call('computer_observe', { adapter: 'json', target: 'input.json' })
+    assert.equal(observed.meta.coverage.scope, 'saved_document')
+    assert.equal(observed.meta.coverage.complete_internal_state, false)
+    const inspected = await call('computer_inspect', {observation_id: observed.meta.observation_id, query: 'status', editable: true, limit: 1})
+    assert.equal(inspected.total_matches, 1)
+    assert.equal(inspected.elements[0].id, 'json:/status')
+    assert.equal(inspected.observation_id, observed.meta.observation_id)
     const action = {
       observation_id: observed.meta.observation_id, action_type: 'modify_file',
       target: 'json:/status', params: { value: 'passed' },
@@ -77,8 +87,12 @@ export async function smokeComputerUse(executable) {
     assert.equal(replay.isError, true)
     assert.match(JSON.stringify(replay.content), /STALE_OBSERVATION/)
     assert.equal((await call('computer_trace')).length, 1)
+    const batch = await call('computer_run', {code: `const s=await computer.observe({adapter:'json',target:'input.json'});await computer.act({observation_id:s.meta.observation_id,action_type:'modify_file',target:'json:/status',params:{value:'batch-passed'},expect_observation:{target:'json:/status',value:'batch-passed'}});return [typeof process,typeof require,(await computer.observe({adapter:'json',target:'input.json'})).interactive_elements.find(n=>n.id==='json:/status').value];`})
+    assert.deepEqual(batch.result, ['undefined', 'undefined', 'batch-passed'])
+    assert.deepEqual(JSON.parse(await readFile(path.join(directory, 'input.json'), 'utf8')), { marker, status: 'batch-passed' })
+    assert.equal((await call('computer_trace')).length, 2)
     assert.doesNotMatch(stderr, /Desktop control plane listening/)
-    console.log('PASS: packaged Computer Use stdio, semantic edit, independent verification and stale-action rejection')
+    console.log('PASS: packaged Computer Use stdio, semantic edit + embedded QuickJS batch, independent verification and stale-action rejection')
   } finally {
     await client.close()
     await transport.close()

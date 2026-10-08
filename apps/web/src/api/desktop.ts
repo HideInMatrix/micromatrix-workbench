@@ -90,6 +90,7 @@ export const desktopApi = {
   ) => call<boolean>('respond_permission_request', requestId, decision),
   capabilityCatalog: () => call<CapabilityCatalogDto>('get_workbench_capability_catalog'),
   piExtensions: () => call<PiExtensionsDto>('get_pi_extensions'),
+  configureComputerUseBrowser: (configuration: {endpoint: string; allowedOrigins: string[]} | null) => call<ComputerUseStatusDto>('configure_computer_use_browser', configuration),
   computerUseStatus: () => call<ComputerUseStatusDto>('get_computer_use_status'),
   setComputerUseEnabled: (enabled: boolean) => call<ComputerUseStatusDto>('set_computer_use_enabled', enabled),
   checkComputerUsePermissions: (request = false) => call<ComputerUseStatusDto>('check_computer_use_permissions', request),

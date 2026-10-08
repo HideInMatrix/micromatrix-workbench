@@ -2,26 +2,33 @@ import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { open, realpath, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
+import { z } from "zod";
 import { exactParams, fail, type Action, type Adapter, type Element, type Json, type State } from "./protocol.js";
 
 const LIMIT = 256 * 1024;
 const secret = /password|secret|token|credential|api[_-]?key/i;
 function pointerToken(value: string) { return value.replace(/~/g, "~0").replace(/\//g, "~1"); }
-function elements(value: Json, pointer = "", result: Element[] = []): Element[] {
-  if (result.length >= 200) return result;
+function elements(value: Json, pointer = "", result: Element[] = [], coverage = { truncated: false }): Element[] {
+  if (result.length >= 200) { coverage.truncated = true; return result; }
   const name = pointer.split("/").at(-1) ?? "document", sensitive = secret.test(name);
   const container = value !== null && typeof value === "object";
   const children = container ? Object.keys(value).map(key => `${pointer}/${pointerToken(key)}`) : [];
   result.push({ id: `json:${pointer}`, type: container ? Array.isArray(value) ? "array" : "object" : typeof value, label: name,
     ...(sensitive ? {} : { value: container ? null : typeof value === "string" ? value.slice(0,2048) : value }),
-    editable: !sensitive && !container, available_actions: !sensitive && !container ? ["modify_file"] : [], children: children.map(id => `json:${id}`) });
-  if (container && !sensitive) for (const [key, child] of Object.entries(value)) elements(child as Json, `${pointer}/${pointerToken(key)}`, result);
+    editable: !sensitive && !container, available_actions: !sensitive && !container ? ["modify_file"] : [], children: children.map(id => `json:${id}`),
+    metadata: { secure: sensitive, value_truncated: !sensitive && typeof value === "string" && value.length > 2048 } });
+  if (container && !sensitive) for (const [key, child] of Object.entries(value)) elements(child as Json, `${pointer}/${pointerToken(key)}`, result, coverage);
   return result;
 }
 export class JsonDocumentAdapter implements Adapter {
   readonly id = "json" as const; readonly source = "file_parse";
   constructor(readonly workspace: string) {}
   capabilities() { return { available: true, scope: "Existing .json files in the selected workspace; closed-file state only", operations: ["modify_file"] }; }
+  describe() {
+    return { name: "JSON Document", scope: "saved_document", target_examples: ["input.json"],
+      limitations: ["Existing non-hidden, non-credential JSON inside the authorized workspace; no GUI synchronization or unsaved edits", "At most 256 KiB, 200 elements and 2048 characters per displayed text; named secrets excluded"],
+      actions: [{ action_type: "modify_file" as const, params_schema: z.toJSONSchema(z.object({value: z.json()}).strict()) as Record<string, Json> }] };
+  }
   async #path(target: string): Promise<string> {
     const root = await realpath(this.workspace), candidate = await realpath(path.resolve(root, target));
     const relative = path.relative(root, candidate);
@@ -42,11 +49,11 @@ export class JsonDocumentAdapter implements Adapter {
   }
   async targets() { return (await readdir(this.workspace, { withFileTypes: true })).filter(entry => entry.isFile() && entry.name.endsWith(".json") && !entry.name.startsWith(".") && !secret.test(entry.name)).slice(0,100).map(entry => ({ target: entry.name, type: "json_document" })); }
   async observe(target: string): Promise<State> {
-    const doc = await this.#read(target), nodes = elements(doc.data);
+    const doc = await this.#read(target), coverage = { truncated: false }, nodes = elements(doc.data, "", [], coverage);
     const ids = new Set(nodes.map(node => node.id));
     for (const node of nodes) node.children = node.children.filter(id => ids.has(id));
     return { revision: doc.revision, app_state: { document: target, bytes: doc.info.size, synchronized_with_gui: false }, interactive_elements: nodes,
-      environment: { max_bytes: LIMIT, redacts_named_secrets: true, truncated: nodes.length >= 200 }, navigation: [],
+      environment: { max_bytes: LIMIT, max_elements: 200, max_text_length: 2048, redacts_named_secrets: true, truncated: coverage.truncated }, navigation: [],
       data_summary: "File-backed semantic document state; no promise about unsaved edits in a GUI. Values may be truncated/redacted." };
   }
   validateAction(state: State, action: Action) {

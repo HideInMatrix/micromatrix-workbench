@@ -8,6 +8,7 @@ export interface NetworkProviderResult {
 }
 
 export interface NetworkProviderContext {
+  readonly signal?: AbortSignal;
   readonly localBaseUrl: string;
   readonly logger: PluginLogger;
   readonly onUnexpectedExit: (error: Error) => void;
