@@ -15,6 +15,9 @@ coverage/
 .cache/
 .tmp/
 .local/
+/.micromatrix-workbench/
+/.tmp-nvmd-ci/
+/.pnpm-store/
 src-tauri/binaries/
 src-tauri/resources/notices/
 src-tauri/resources/automation/
