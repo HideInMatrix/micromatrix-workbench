@@ -1,99 +1,41 @@
-# micromatrix agent v0.5.24
+# micromatrix agent v0.5.26
 
-Normal version tags publish automatically as stable releases and GitHub Latest;
-tags with a prerelease suffix remain prereleases. Review the known limitations
-and the release-readiness report before using these packages. A stable release
-label does not imply production signing or that all security work is complete.
+## Remote Desktop + ASIL
 
-- Fix Runtime cancellation while startup is waiting for public Tunnel health:
-  the button now offers Cancel Start and sends Stop to the local control service.
-  Late startup responses cannot restore a Runtime that the user has stopped.
-- Local Stop requests have a 20-second deadline; timeout reports an unconfirmed
-  result and refreshes actual Runtime state rather than leaving the button locked.
-  State polling continues during Start/Stop, and update downloads no longer
-  prevent stopping existing work. An unreachable local control service still
-  reports a connection error; timeout does not claim successful cleanup.
-- Isolated offline startup and in-flight health-probe cancellation, lifecycle
-  races and control request deadlines passed seven focused regression tests.
-  This is not a claim of physical network-disconnect acceptance on every OS.
+- New remote-desktop provider returns an explicitly selected display image,
+  monitor topology, visible-window layout and the foreground AX/UIA tree over
+  the existing authenticated MCP. No VM, separate VNC/RDP listener or video loop.
+- AI can combine pixels with native structure, submit approved JavaScript
+  batches, click across observed windows and independently observe the result.
+  Native semantics, single-window capture, opt-in browser and approved ASIL
+  file/command/API providers remain available.
+- Display IDs, coordinate spaces and image revisions are validated. Stale
+  actions are refused without retry; keyboard input stays in the observed
+  foreground application. Secure-field checks are not general privacy redaction.
 
-- v0.5.21 was blocked before packaging by an Ubuntu CI attempt to start the
-  unsupported native Linux MCP. v0.5.22 keeps real UI/browser checks on Ubuntu
-  and requires packaged browser/MCP acceptance in every macOS/Windows job;
-  Linux desktop support is not re-enabled and native gates are not skipped.
-  v0.5.22 was then blocked by Windows checkout converting reviewed notices to
-  CRLF. v0.5.23 preserves vendored bytes and verifies a real autocrlf checkout;
-  notice hashes remain mandatory. Neither blocked tag produced a Release.
+## Platforms and limits
 
-- Runtime and tunnels start only after the user clicks Start.
-- cloudflared 2026.9.3 is bundled; the desktop uses its private copy without an
-  executable-path form field. Other tunnel providers still require their clients.
-- New macOS packages use a pinned long-lived self-signed code-signing certificate, without Apple notarization; v0.5.18 and earlier used ad-hoc signing. Windows packages
-  are not Authenticode-signed. Updater packages use the dedicated Tauri signing
-  key; this does not provide Apple notarization or Authenticode signing.
-- The build matrix targets macOS arm64/x64 and Windows x64 (Linux desktop support is suspended). Successful
-  compilation is not a guarantee that installation or all Tunnel providers have
-  been validated on those platforms.
-- Computer Use is preinstalled as a Pi MCP plugin; enable its switch instead of
-  adding a separate MCP service. It is disabled on fresh installs and still loads
-  only after Runtime Start. Enabling permits control actions subject to Runtime
-  approval policy; legacy read-only configurations remain read-only until opted in.
-- macOS now bundles a separate micromatrix Computer Use.app with the original
-  icon and fixed bundle identity. Permission checks and desktop operations use
-  this same application through LaunchServices and private local IPC, instead
-  of spawning a bare helper under the main application.
-- Grant Accessibility to micromatrix Computer Use.app, not just micromatrix
-  agent or Blender. Plugins offers Open Permission Settings, Recheck and Locate
-  Application. Existing main-app grants do not prove that this new app is
-  authorized. Migration from an old ad-hoc build may require one new grant. New builds keep
-  the same certificate-bound identity, with an isolated Dev bundle ID; granted
-  TCC behavior across upgrades still requires real-machine acceptance. Self-signing
-  does not make the app Apple-trusted or notarized.
-- Runtime now contains connection configuration and Start/Stop only. Tools,
-  Computer Use, external MCP services and Skills are managed on the Plugins
-  page; connection help and the tool catalog are collapsed by default.
-- macOS arm64 packaging, signatures, native application identity and denial
-  paths were verified without requesting OS permission or controlling Blender.
-  A grant-enabled AppKit fixture has now verified real AX batch mutation and
-  independent readback with the new certificate-signed candidate; installed
-  0.5.19 and candidate 0.5.20 retain the same already-granted helper identity.
-  This is not Blender scene modeling or positive screen-capture acceptance. Windows checks the interactive desktop;
-  the UIA/window capture/input helper compiles, but grant-enabled capture/input awaits real-machine acceptance.
-- This source revision adds fixed public OAuth origins, Host/Origin validation,
-  login/request quotas, bounded expiring grants, instance-bound Tunnel readiness
-  and serial health checks. Tailscale cleanup is port/route-owned, not global reset.
-- Browser endpoint/origin configuration is available in Plugins. Saving never
-  connects or starts Runtime; browser debugging must be explicitly enabled in a
-  separate session. Packaged real Chromium batch/readback was verified locally.
-- Dependency notices are generated from actual JS inputs and the target Cargo
-  graph and retained inside installers; missing upstream notices are reported,
-  not silently represented as a completed legal audit. All three native jobs now check strict notice files and real packaged browser
-  batches; headless native GUI checks report UNVERIFIED, never a false PASS.
-  Real Windows GUI, macOS positive visual input and live provider accounts still
-  need acceptance.
-  The app checks for stable updates automatically; About offers signed download,
-  installation and restart. Runtime/Tunnel stop only after verified download.
-  Old versions without the updater require one manual installation first.
-- Public assets contain four desktop installers, two macOS updater archives,
-  latest.json (embedded signatures) and one combined SHA256SUMS.txt.
-  Standalone service archives and build metadata remain in Actions artifacts;
-  they are not Release downloads. The desktop still includes its required service
-  sidecar. Listed license notices and known limits are bundled inside the app.
+- macOS 14+ full-display capture uses ScreenCaptureKit and requires Screen
+  Recording plus Accessibility for micromatrix Computer Use.app. The fixed
+  certificate-bound identity and original icon are retained; no automatic grant.
+- Windows x64 uses bounded GDI display capture and UI Automation on the unlocked
+  interactive desktop. Protected/hardware-overlay pixels may be unavailable;
+  no UAC/secure-desktop access or elevation. Linux desktop support remains off.
+- Images are at most 1280px on the longest side and 384 KiB. Window layout and
+  foreground controls are bounded, non-atomic evidence, not full application
+  internal state. Animations/clocks may trigger stale-observation refusal.
+- Local MCP/QuickJS contracts and macOS compilation/permission-denial paths
+  passed. Native build gates run on all supported release runners; positive
+  whole-display capture/input and GUI installation still need real-machine
+  acceptance. Headless checks do not claim GUI success.
 
-- Computer Use now offers approved JavaScript batches in embedded QuickJS/WASM,
-  native AX/UIA plus explicit foreground-window images (macOS 14+ / Windows),
-  and opt-in DOM/ARIA/image + Playwright on a user-configured loopback browser.
-  macOS OCR is local; Windows has no local OCR yet. A disconnected browser
-  session must be reconfigured; no browser download or automatic profile access.
-  Scripts cannot use Node, shell, arbitrary page.evaluate or implicit permissions.
-  Browser connection UI has been verified with the real bundled web application.
-  Full native visual capture/input and generic visual task success are not
-  established by compile or headless fixture tests.
+## Distribution
 
-- Dependency security: MCP SDK 1.32.1 and source-map-js 1.2.2 fix two high-severity advisories. External MCP OAuth tokens and client information retain SDK issuer binding; legacy unbound credentials require one fresh login, without clearing other saved secrets. CI verifies real local CIMD/PKCE and blocks high/critical npm advisories.
-
-- Provider startup is cancellable; Tailscale in-flight CLI drains before owned
-  cleanup, and simultaneous Stops share one cleanup. Cloudflare fake-IP/blocked
-  7844 failures report targeted diagnostics without publishing an unready URL.
-  Local live HTTP2/QUIC acceptance was blocked by the network environment, not
-  represented as a successful public connectivity test.
+- Runtime/Tunnel still start only when the user clicks Start. Retains the latest
+  public-outage handling, startup cancellation and user-controlled update flow.
+  Stable updates are checked automatically; installation is initiated in About.
+- macOS uses a long-lived self-signed certificate, not Apple notarization;
+  Windows installers are not Authenticode-signed. Updater packages are signed
+  with the dedicated Tauri key. Installer notices preserve known review limits.
+- Releases contain desktop installers, macOS updater archives, latest.json and
+  a combined checksum file. Standalone services are not public release assets.

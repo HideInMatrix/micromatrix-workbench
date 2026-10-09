@@ -50,3 +50,5 @@ jobs:
         run: node scripts/smoke-asil.mjs
       - name: Verify isolated JavaScript Computer Use batches
         run: node scripts/smoke-computer-batch.mjs
+      - name: Verify remote display and ASIL protocol contracts
+        run: node scripts/smoke-remote-desktop.mjs

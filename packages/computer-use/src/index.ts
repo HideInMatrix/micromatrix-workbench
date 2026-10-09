@@ -2,6 +2,7 @@ export { startComputerUseMcp, createComputerUseServer } from "./mcp.js";
 export { ComputerUseRuntime } from "./runtime.js";
 export { DesktopProxy } from "./desktop.js";
 export { VisualDesktopAdapter } from "./visual-desktop.js";
+export { RemoteDesktopAdapter } from "./remote-desktop.js";
 export { BrowserAdapter, browserConfiguration } from "./browser.js";
 export { ComputerScriptRunner, scriptInput } from "./script.js";
 export type { BrowserConfiguration } from "./browser.js";

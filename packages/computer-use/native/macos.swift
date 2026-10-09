@@ -8,7 +8,7 @@ import ScreenCaptureKit
 import Vision
 import Carbon
 
-// Fixed native ABI. Visual capture/input is explicit and foreground-window scoped;
+// Fixed native ABI. Visual capture/input is explicit, window or display scoped;
 // never run an interpreter, prompt on startup, or read exposed secure fields.
 struct Failure: Error { let code: String; let message: String }
 func refuse(_ code: String, _ message: String) throws -> Never { throw Failure(code: code, message: message) }
@@ -223,6 +223,80 @@ func visualCapture(_ target: String) throws -> [String: Any] {
     return ["state":state,"frame":["revision":revision,"width":image.width,"height":image.height,"bounds":frameBounds,
             "window_id":String(id),"mimeType":"image/jpeg","data":jpeg.base64EncodedString()],"ocr":ocr,"ocr_available":ocrAvailable]
 }
+// Remote display capture uses the same app/TCC identity and semantic handles.
+// No second OS, listener, idle capture loop or synthesized software internals.
+func remoteTargets() throws -> [[String:Any]] {
+    var ids = [CGDirectDisplayID](repeating:0,count:16); var count:UInt32 = 0
+    guard CGGetActiveDisplayList(16,&ids,&count) == .success else { try refuse("CAPTURE_FAILED","Cannot enumerate active displays") }
+    return ids.prefix(Int(count)).map { id in
+        let r = CGDisplayBounds(id)
+        return ["target":"display:\(id)","display_id":String(id),"primary":id == CGMainDisplayID(),
+            "bounds":["x":r.origin.x,"y":r.origin.y,"width":r.width,"height":r.height],"coordinate_space":"screen_points"] as [String:Any]
+    }
+}
+func requireInteractiveSession() throws {
+    let d = CGSessionCopyCurrentDictionary() as? [String:Any] ?? [:]
+    guard d["kCGSSessionOnConsoleKey"] as? Bool == true, d["kCGSessionLoginDoneKey"] as? Bool == true,
+          d["CGSSessionScreenIsLocked"] as? Bool != true,
+          NSWorkspace.shared.frontmostApplication?.bundleIdentifier != "com.apple.loginwindow" else {
+        try refuse("DESKTOP_ACCESS_REQUIRED","Unlock the local interactive desktop; remote capture never unlocks or switches users")
+    }
+}
+func remoteScene(_ target:String) throws -> [String:Any] {
+    try requireInteractiveSession()
+    guard let display = try remoteTargets().first(where:{$0["target"] as? String == target}),
+          let app = NSWorkspace.shared.frontmostApplication, app.activationPolicy == .regular,
+          !IsSecureEventInputEnabled() else { try refuse("FOREGROUND_REQUIRED","Select an active display with a nonsecure foreground GUI application") }
+    var state = try capture("pid:\(app.processIdentifier)")
+    guard let nodes = state["interactive_elements"] as? [[String:Any]], !nodes.contains(where:{($0["metadata"] as? [String:Any])?["secure"] as? Bool == true}) else {
+        try refuse("VISUAL_SECURE_CONTENT","Exposed foreground secure fields refuse whole-display capture")
+    }
+    let rawBounds = display["bounds"] as! [String:CGFloat]
+    let screen = CGRect(x:rawBounds["x"]!,y:rawBounds["y"]!,width:rawBounds["width"]!,height:rawBounds["height"]!)
+    let all = CGWindowListCopyWindowInfo([.optionOnScreenOnly],kCGNullWindowID) as? [[String:Any]] ?? []
+    var appState = state["app_state"] as! [String:Any]
+    appState["foreground_window_id"] = all.first(where:{($0[kCGWindowOwnerPID as String] as? Int32) == app.processIdentifier && ($0[kCGWindowLayer as String] as? Int) == 0})?[kCGWindowNumber as String].map{String(describing:$0)} ?? ""
+    state["app_state"] = appState
+    var windows = [[String:Any]]()
+    for (order,w) in all.enumerated() {
+        guard let id = w[kCGWindowNumber as String] as? UInt32, let pid = w[kCGWindowOwnerPID as String] as? Int32,
+              let raw = w[kCGWindowBounds as String] as? [String:Any], let bounds = CGRect(dictionaryRepresentation:raw as CFDictionary),
+              bounds.width > 0, bounds.height > 0, bounds.intersects(screen), (w[kCGWindowAlpha as String] as? Double ?? 1) > 0 else { continue }
+        windows.append(["id":String(id),"pid":pid,"name":String((w[kCGWindowOwnerName as String] as? String ?? "").prefix(256)),
+            "title":String((w[kCGWindowName as String] as? String ?? "").prefix(256)),"z_order":order,"layer":w[kCGWindowLayer as String] as? Int ?? 0,
+            "bounds":["x":bounds.origin.x,"y":bounds.origin.y,"width":bounds.width,"height":bounds.height]])
+    }
+    var environment = state["environment"] as! [String:Any]
+    let nativeRevision = state["revision"]!
+    if windows.count > 100 { environment["truncated"] = true }
+    environment["remote_desktop"] = ["display":display,"displays":try remoteTargets(),"windows":Array(windows.prefix(100)),
+        "window_count":windows.count,"windows_truncated":windows.count > 100,"structure_scope":"foreground_application_only","native_revision":nativeRevision,
+        "layout_coordinate_space":"screen_points","capture_atomic":false]
+    state["environment"] = environment
+    state.removeValue(forKey:"revision")
+    state["revision"] = SHA256.hash(data:try JSONSerialization.data(withJSONObject:state,options:[.sortedKeys])).map{String(format:"%02x",$0)}.joined()
+    return state
+}
+func remoteCapture(_ target:String) throws -> [String:Any] {
+    guard #available(macOS 14.0, *) else { try refuse("VISUAL_UNSUPPORTED","Remote display capture requires macOS 14 or later") }
+    guard CGPreflightScreenCaptureAccess() else { try refuse("SCREEN_RECORDING_PERMISSION_REQUIRED","Explicitly grant Screen Recording to \(applicationName()); no automatic permission prompt") }
+    let state = try remoteScene(target)
+    guard target.hasPrefix("display:"), let id = UInt32(target.dropFirst(8)) else { try refuse("TARGET_GONE","Choose a display from remote desktop targets") }
+    let content:SCShareableContent = try awaitCapture { SCShareableContent.getExcludingDesktopWindows(false,onScreenWindowsOnly:true,completionHandler:$0) }
+    guard let display = content.displays.first(where:{$0.displayID == id}) else { try refuse("TARGET_GONE","Display disconnected") }
+    let bounds = CGDisplayBounds(id)
+    guard bounds.width > 0, bounds.height > 0, bounds.width <= 32768, bounds.height <= 32768 else { try refuse("FRAME_LIMIT","Display geometry exceeds capture limits") }
+    let scale = min(1,1280 / max(bounds.width,bounds.height)), configuration = SCStreamConfiguration()
+    configuration.width = max(1,Int(bounds.width * scale)); configuration.height = max(1,Int(bounds.height * scale)); configuration.showsCursor = false
+    let image:CGImage = try awaitCapture { SCScreenshotManager.captureImage(contentFilter:SCContentFilter(display:display,excludingWindows:[]),configuration:configuration,completionHandler:$0) }
+    guard (try remoteScene(target))["revision"] as? String == state["revision"] as? String else { try refuse("STALE_OBSERVATION","Display layout or foreground native state changed during capture") }
+    guard let jpeg = NSBitmapImageRep(cgImage:image).representation(using:.jpeg,properties:[.compressionFactor:0.65]), jpeg.count <= 393216 else { try refuse("FRAME_LIMIT","Remote display image exceeds 384 KiB; select a window instead") }
+    let frameBounds:[String:Any] = ["x":bounds.origin.x,"y":bounds.origin.y,"width":bounds.width,"height":bounds.height]
+    var bytes = jpeg
+    bytes.append(try JSONSerialization.data(withJSONObject:["bounds":frameBounds,"display":String(id),"scene_revision":state["revision"]!],options:[.sortedKeys]))
+    let revision = SHA256.hash(data:bytes).map{String(format:"%02x",$0)}.joined()
+    return ["state":state,"frame":["revision":revision,"width":image.width,"height":image.height,"bounds":frameBounds,"display_id":String(id),"mimeType":"image/jpeg","data":jpeg.base64EncodedString()]]
+}
 // Keep event payloads small without splitting surrogate pairs or graphemes.
 // AppKit may interpret posted Unicode differently; always verify by recapturing.
 func unicodeInputChunks(_ text: String) throws -> [[UniChar]] {
@@ -239,13 +313,25 @@ func unicodeInputChunks(_ text: String) throws -> [[UniChar]] {
 func visualExecute(_ input: [String:Any]) throws -> [String:Any] {
     guard let target = input["target"] as? String, let expected = input["revision"] as? String,
           let params = input["params"] as? [String:Any], let operation = params["operation"] as? String else { try refuse("INVALID_ACTION", "Malformed visual action") }
-    let before = try visualCapture(target), frame = before["frame"] as! [String:Any], state = before["state"] as! [String:Any]
+    let remote = target.hasPrefix("display:")
+    let before = try remote ? remoteCapture(target) : visualCapture(target), frame = before["frame"] as! [String:Any], state = before["state"] as! [String:Any]
     guard frame["revision"] as? String == expected else { try refuse("STALE_OBSERVATION", "Image, native state, focus or geometry changed; observe again. No automatic retry") }
-    let app = try appFor(target)
+    let appState = state["app_state"] as! [String:Any]
+    let appTarget = remote ? "pid:\(appState["pid"]!)" : target
+    let app = try appFor(appTarget)
     guard app.isActive, !IsSecureEventInputEnabled() else { try refuse("FOREGROUND_REQUIRED", "Visual input requires the captured foreground application") }
+    if remote && (operation == "type_text" || operation == "key") {
+        let scene = (state["environment"] as! [String:Any])["remote_desktop"] as! [String:Any]
+        let windows = scene["windows"] as! [[String:Any]]
+        guard windows.contains(where:{$0["id"] as? String == appState["foreground_window_id"] as? String}) else {
+            try refuse("FOREGROUND_REQUIRED","Keyboard target is not visible on the selected display")
+        }
+    }
     if operation == "semantic" {
         guard params.count == 2, let action = params["action"] as? [String:Any] else { try refuse("INVALID_ACTION", "Invalid semantic route") }
-        return try execute(["target":target,"revision":state["revision"]!,"action":action])
+        let environment = state["environment"] as! [String:Any]
+        let nativeRevision = remote ? (environment["remote_desktop"] as! [String:Any])["native_revision"]! : state["revision"]!
+        return try execute(["target":appTarget,"revision":nativeRevision,"action":action])
     }
     var point = CGPoint.zero
     if operation == "click" || operation == "scroll" {
@@ -260,7 +346,11 @@ func visualExecute(_ input: [String:Any]) throws -> [String:Any] {
             try refuse("TARGET_GONE", "Cannot establish native owner of visual coordinate")
         }
         var pid: pid_t = 0
-        guard AXUIElementGetPid(hit,&pid) == .success, pid == app.processIdentifier, !secure(hit) else { try refuse("INVALID_ACTION", "Coordinate belongs to a foreign/secure target") }
+        let scene = (state["environment"] as? [String:Any])?["remote_desktop"] as? [String:Any]
+        let windows = scene?["windows"] as? [[String:Any]] ?? []
+        guard AXUIElementGetPid(hit,&pid) == .success, !secure(hit) else { try refuse("INVALID_ACTION", "Coordinate belongs to a secure or unknown target") }
+        // Determine owner AFTER AXUIElementGetPid populates pid.
+        guard remote ? windows.contains(where:{$0["pid"] as? Int32 == pid}) : pid == app.processIdentifier else { try refuse("INVALID_ACTION","Coordinate belongs to an unobserved window") }
     }
     let source = CGEventSource(stateID:.combinedSessionState)
     let held = CGEventSource.flagsState(.combinedSessionState)
@@ -327,6 +417,13 @@ func dispatch(_ input: [String: Any]) throws -> Any {
         guard let target = input["target"] as? String else { try refuse("INVALID_ARGUMENT", "Missing target") }
         return try visualCapture(target)
     case "visual_act": return try visualExecute(input)
+    case "remote_targets": return try remoteTargets()
+    case "remote_observe":
+        guard let target = input["target"] as? String else { try refuse("INVALID_ARGUMENT","Missing display target") }
+        return try remoteCapture(target)
+    case "remote_act":
+        guard (input["target"] as? String)?.hasPrefix("display:") == true else { try refuse("INVALID_ARGUMENT","Remote input requires an observed display") }
+        return try visualExecute(input)
     default: try refuse("INVALID_ARGUMENT","Unknown native operation")
     }
 }

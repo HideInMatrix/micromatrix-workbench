@@ -62,7 +62,8 @@ export interface Adapter {
   targets(): Promise<Json[]>;
   observe(target: string): Promise<State>;
   validateAction(state: State, action: Action): void;
-  execute(target: string, state: State, action: Action, signal?: AbortSignal): Promise<State>;
+  /** Runtime always captures independent post-state; a dispatch-only provider need not capture twice. */
+  execute(target: string, state: State, action: Action, signal?: AbortSignal): Promise<State | void>;
   close(): Promise<void>;
   /** Optional, bounded image of the same observation; never capture on retrieval. */
   image?(revision: string): { data: string; mimeType: "image/jpeg" } | undefined;

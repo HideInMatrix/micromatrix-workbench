@@ -2,23 +2,13 @@ import { z } from "zod";
 import { actionInput, exactParams, fail, type Action, type Adapter, type Element, type Json, type State } from "./protocol.js";
 import { checkedState } from "./providers.js";
 import { DesktopProxy } from "./desktop.js";
+import { rectangle, frameSchema, ocrSchema, visualParams, checkedImage } from "./desktop-frame.js";
 
-const rectangle = z.object({ x:z.number().finite(), y:z.number().finite(), width:z.number().positive().max(32_768), height:z.number().positive().max(32_768) }).strict();
 const packetSchema = z.object({
-  state: z.unknown(), frame: z.object({ revision:z.string().regex(/^[0-9a-f]{64}$/), width:z.number().int().positive().max(1280),
-    height:z.number().int().positive().max(1280), bounds:rectangle, window_id:z.string().min(1).max(128),
-    data:z.string().min(4).max(524_288), mimeType:z.literal("image/jpeg") }).strict(),
-  ocr: z.array(z.object({text:z.string().min(1).max(2048),confidence:z.number().min(0).max(1),bounds:rectangle}).strict()).max(200),
+  state: z.unknown(), frame: frameSchema.extend({window_id:z.string().min(1).max(128)}),
+  ocr: ocrSchema,
   ocr_available:z.boolean(),
 }).strict();
-const pointer = {x:z.number().int().min(0).max(1279),y:z.number().int().min(0).max(1279)};
-const keys = ["enter","escape","tab","backspace","delete","left","right","up","down","space","home","end","page_up","page_down","a","c","v","x","z"] as const;
-const visualParams = z.discriminatedUnion("operation",[
-  z.object({operation:z.literal("click"),...pointer}).strict(),
-  z.object({operation:z.literal("scroll"),...pointer,delta:z.number().int().min(-5).max(5).refine(n=>n!==0)}).strict(),
-  z.object({operation:z.literal("type_text"),text:z.string().min(1).max(4096).refine(s=>!/[\u0000-\u001f\u007f]/.test(s))}).strict(),
-  z.object({operation:z.literal("key"),key:z.enum(keys),modifiers:z.array(z.enum(["primary","alt","shift"])).max(3).default([])}).strict(),
-]);
 
 /** One OS-independent router. No app-name dispatch, perception model, untrusted plugin or coordinate API outside a captured window. */
 export class VisualDesktopAdapter implements Adapter {
@@ -45,9 +35,7 @@ export class VisualDesktopAdapter implements Adapter {
     const packet=packetSchema.parse(await this.desktop.visualObserve(target)), state=checkedState(packet.state as State), frame=packet.frame;
     if(state.app_state.active!==true) fail("FOREGROUND_REQUIRED","Activate the target with desktop navigation before explicitly capturing it");
     if(state.interactive_elements.some(n=>n.metadata?.secure===true)) fail("VISUAL_SECURE_CONTENT","Visual capture refused for a window containing exposed secure controls");
-    const bytes=Buffer.from(frame.data,"base64");
-    if(bytes.length>393_216 || bytes.toString("base64")!==frame.data || bytes[0]!==0xff || bytes[1]!==0xd8 || bytes.at(-2)!==0xff || bytes.at(-1)!==0xd9)
-      fail("INVALID_FRAME","Native image is malformed or exceeds capture limits");
+    const image=checkedImage(frame);
     const elements:Element[]=state.interactive_elements.map(n=>({...n,metadata:{...n.metadata,source:"accessibility",confidence:1,semantic_evidence:"native_provider"}}));
     const inside=(r:z.infer<typeof rectangle>)=>r.x>=0&&r.y>=0&&r.x+r.width<=frame.width+0.001&&r.y+r.height<=frame.height+0.001;
     for(const [index,text] of packet.ocr.entries()) {
@@ -59,7 +47,7 @@ export class VisualDesktopAdapter implements Adapter {
     elements.push({id:"visual:surface",type:"visual_surface",label:"Captured foreground window",editable:false,children:[],available_actions:["invoke_function"],
       metadata:{source:"window_capture",confidence:1,semantic_evidence:"pixels_only",operations:["click","scroll","type_text","key"],bounds:{x:0,y:0,width:frame.width,height:frame.height},coordinate_space:"image_pixels"}});
     while(this.#frames.size>=2) this.#frames.delete(this.#frames.keys().next().value!);
-    this.#frames.set(frame.revision,{data:frame.data,mimeType:frame.mimeType});
+    this.#frames.set(frame.revision,image);
     return checkedState({...state,revision:frame.revision,interactive_elements:elements,
       environment:{...state.environment,visual:{width:frame.width,height:frame.height,bounds:frame.bounds,window_id:frame.window_id,
         native_revision:state.revision,ocr_available:packet.ocr_available,ocr_count:packet.ocr.length,image_capture:"explicit",coordinate_space:"image_pixels",synchronized_with_internal_state:false}},

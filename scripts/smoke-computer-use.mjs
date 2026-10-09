@@ -38,7 +38,22 @@ export async function smokeComputerUse(executable) {
     assert.equal(desktop.source, process.platform === 'darwin' ? 'macos_accessibility' : 'windows_uiautomation')
     assert.equal(desktop.description.scope, 'accessibility_tree')
     assert.ok(desktop.description.actions.some(action => action.action_type === 'set_value' && action.params_schema.type === 'object'))
+    const remote = capabilities.adapters.find(adapter => adapter.id === 'remote-desktop')
+    assert.equal(remote?.vm, false)
+    assert.equal(remote?.description.scope, 'selected_display_frame+visible_window_layout+foreground_native_tree')
     const permissions = await call('computer_permissions', { request: false })
+    // Enumeration does not capture the user's screen or request new permissions.
+    const displays = await call('computer_targets', {adapter:'remote-desktop'})
+    assert.ok(Array.isArray(displays['remote-desktop']))
+    if(process.platform==='darwin' && permissions.screen_recording===false && displays['remote-desktop'].length) {
+      const denied=await client.callTool({name:'computer_observe',arguments:{adapter:'remote-desktop',target:displays['remote-desktop'][0].target}})
+      assert.equal(denied.isError,true);assert.match(JSON.stringify(denied.content),/SCREEN_RECORDING_PERMISSION_REQUIRED/)
+      assert.ok(!denied.content.some(part=>part.type==='image'))
+    }
+    if(process.platform==='win32' && !permissions.interactive_desktop) {
+      const denied=await client.callTool({name:'computer_observe',arguments:{adapter:'remote-desktop',target:'display:1'}})
+      assert.equal(denied.isError,true);assert.match(JSON.stringify(denied.content),/DESKTOP_ACCESS_REQUIRED/)
+    }
     if (process.platform === 'darwin') {
       assert.equal(permissions.bundle_id, `org.micromatrix.computer-use${buildChannel() === 'release' ? '' : '.dev'}`)
       if (buildChannel() === 'release') assert.equal(permissions.signing_mode, 'certificate', 'macOS releases must not use ad-hoc signing')

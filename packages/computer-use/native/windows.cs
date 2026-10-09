@@ -14,7 +14,7 @@ using System.Text;
 using System.Web.Script.Serialization;
 using System.Windows.Automation;
 
-// Fixed UIA + explicit foreground-window capture/input ABI. Never use PowerShell,
+// Fixed UIA + explicit window/display capture/input ABI. Never use PowerShell,
 // eval, auto-elevation, UIAccess, credentials or secure desktop access.
 internal sealed class Failure : Exception {
     public readonly string Code;
@@ -37,6 +37,11 @@ internal static class ComputerHelper {
     [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
     [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
     [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
+    private delegate bool MonitorCallback(IntPtr monitor, IntPtr dc, ref Rect rect, IntPtr data);
+    [StructLayout(LayoutKind.Sequential)] private struct MonitorInfo { public int Size; public Rect Monitor, Work; public uint Flags; }
+    [DllImport("user32.dll")] private static extern bool EnumDisplayMonitors(IntPtr dc, IntPtr clip, MonitorCallback callback, IntPtr data);
+    [DllImport("user32.dll")] private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern int GetWindowText(IntPtr window, StringBuilder title, int length);
     [StructLayout(LayoutKind.Sequential)] private struct MouseInput { public int X, Y; public uint Data, Flags, Time; public UIntPtr Extra; }
     [StructLayout(LayoutKind.Sequential)] private struct KeyInput { public ushort Key, Scan; public uint Flags, Time; public UIntPtr Extra; }
     [StructLayout(LayoutKind.Explicit, Size=32)] private struct InputUnion { [FieldOffset(0)] public MouseInput Mouse; [FieldOffset(0)] public KeyInput Key; }
@@ -293,16 +298,87 @@ internal static class ComputerHelper {
             throw new Failure("NATIVE_ACTION_FAILED", "Input dispatch was partial or refused (possibly UIPI); outcome unknown. Never auto-elevate or retry");
         }
     }
+    private static List<Dictionary<string,object>> RemoteTargets() {
+        var result=new List<Dictionary<string,object>>();
+        if(!Interactive()) return result;
+        if(!EnumDisplayMonitors(IntPtr.Zero,IntPtr.Zero,delegate(IntPtr monitor,IntPtr dc,ref Rect ignored,IntPtr data){
+            var info=new MonitorInfo {Size=Marshal.SizeOf(typeof(MonitorInfo))};
+            if(GetMonitorInfo(monitor,ref info) && result.Count<16) {
+                string id=monitor.ToInt64().ToString("X",CultureInfo.InvariantCulture);var r=info.Monitor;
+                result.Add(Obj("target","display:"+id,"display_id",id,"primary",(info.Flags&1)!=0,"bounds",Obj("x",r.Left,"y",r.Top,"width",r.Right-r.Left,"height",r.Bottom-r.Top),"coordinate_space","screen_pixels"));
+            }
+            return true;
+        },IntPtr.Zero)) throw new Failure("CAPTURE_FAILED","Cannot enumerate active displays");
+        return result;
+    }
+    private static Dictionary<string,object> RemoteScene(string target) {
+        if(!Interactive()) throw new Failure("DESKTOP_ACCESS_REQUIRED","Unlock the local interactive desktop; never access UAC/secure desktop");
+        var displays=RemoteTargets();var display=displays.FirstOrDefault(d=>(string)d["target"]==target);
+        if(display==null) throw new Failure("TARGET_GONE","Select a display from remote desktop targets");
+        uint pid;var foreground=GetForegroundWindow();GetWindowThreadProcessId(foreground,out pid);
+        if(pid==0) throw new Failure("FOREGROUND_REQUIRED","Nonsecure foreground application required");
+        var state=Observe("pid:"+pid);
+        ((Dictionary<string,object>)state["app_state"])["foreground_window_id"]=foreground.ToInt64().ToString(CultureInfo.InvariantCulture);
+        if(((List<Dictionary<string,object>>)state["interactive_elements"]).Any(n=>n.ContainsKey("metadata")&&(bool)((Dictionary<string,object>)n["metadata"])["secure"]))
+            throw new Failure("VISUAL_SECURE_CONTENT","Exposed foreground password controls refuse whole-display capture");
+        var b=(Dictionary<string,object>)display["bounds"];
+        var screen=new Rectangle((int)b["x"],(int)b["y"],(int)b["width"],(int)b["height"]);
+        var windows=new List<Dictionary<string,object>>();int order=0;
+        EnumWindows(delegate(IntPtr window,IntPtr ignored){
+            uint owner;GetWindowThreadProcessId(window,out owner);Rect r;
+            if(IsWindowVisible(window)&&owner>0&&GetWindowRect(window,out r)&&r.Right>r.Left&&r.Bottom>r.Top&&screen.IntersectsWith(Rectangle.FromLTRB(r.Left,r.Top,r.Right,r.Bottom))) {
+                var title=new StringBuilder(257);GetWindowText(window,title,title.Capacity);
+                windows.Add(Obj("id",window.ToInt64().ToString(CultureInfo.InvariantCulture),"pid",(int)owner,"title",title.ToString(),"z_order",order,"bounds",Obj("x",r.Left,"y",r.Top,"width",r.Right-r.Left,"height",r.Bottom-r.Top)));
+            }
+            order++;return order<1000;
+        },IntPtr.Zero);
+        var environment=(Dictionary<string,object>)state["environment"];
+        if(windows.Count>100||order>=1000)environment["truncated"]=true;
+        environment["remote_desktop"]=Obj("display",display,"displays",displays,"windows",windows.Take(100).ToArray(),"window_count",windows.Count,"windows_truncated",windows.Count>100||order>=1000,
+            "structure_scope","foreground_application_only","native_revision",state["revision"],"layout_coordinate_space","screen_pixels","capture_atomic",false);
+        if(GetForegroundWindow()!=foreground)throw new Failure("STALE_OBSERVATION","Foreground window changed while gathering desktop structure");
+        state.Remove("revision");state["revision"]=Hash(Json.Serialize(Canonical(state)));return state;
+    }
+    private static Dictionary<string,object> RemoteObserve(string target) {
+        var state=RemoteScene(target);var scene=(Dictionary<string,object>)((Dictionary<string,object>)state["environment"])["remote_desktop"];
+        var display=(Dictionary<string,object>)scene["display"];var bounds=(Dictionary<string,object>)display["bounds"];
+        int width=(int)bounds["width"],height=(int)bounds["height"];
+        if(width<=0||height<=0||width>8192||height>8192||(long)width*height>16777216)throw new Failure("FRAME_LIMIT","Display exceeds bounded GDI capture allocation; select a window instead");
+        double scale=Math.Min(1.0,1280.0/Math.Max(width,height));int imageWidth=Math.Max(1,(int)(width*scale)),imageHeight=Math.Max(1,(int)(height*scale));byte[] bytes;
+        using(var original=new Bitmap(width,height,PixelFormat.Format24bppRgb)) {
+            using(var graphics=Graphics.FromImage(original))graphics.CopyFromScreen((int)bounds["x"],(int)bounds["y"],0,0,new Size(width,height),CopyPixelOperation.SourceCopy);
+            using(var resized=new Bitmap(imageWidth,imageHeight,PixelFormat.Format24bppRgb)) {
+                using(var graphics=Graphics.FromImage(resized))graphics.DrawImage(original,0,0,imageWidth,imageHeight);
+                using(var stream=new MemoryStream())using(var parameters=new EncoderParameters(1)) {
+                    parameters.Param[0]=new EncoderParameter(System.Drawing.Imaging.Encoder.Quality,65L);
+                    resized.Save(stream,ImageCodecInfo.GetImageEncoders().First(c=>c.MimeType=="image/jpeg"),parameters);bytes=stream.ToArray();
+                }
+            }
+        }
+        if((string)RemoteScene(target)["revision"]!=(string)state["revision"])throw new Failure("STALE_OBSERVATION","Desktop layout/native state changed during capture");
+        if(bytes.Length>393216)throw new Failure("FRAME_LIMIT","Remote image exceeds 384 KiB; select a window instead");
+        string data=Convert.ToBase64String(bytes),id=(string)display["display_id"];
+        string revision=Hash(data+Json.Serialize(Canonical(Obj("bounds",bounds,"display",id,"scene_revision",state["revision"]))));
+        return Obj("state",state,"frame",Obj("revision",revision,"width",imageWidth,"height",imageHeight,"bounds",bounds,"display_id",id,"mimeType","image/jpeg","data",data));
+    }
     private static Input Key(ushort key, bool down) { return new Input { Type=1, Value=new InputUnion { Key=new KeyInput {Key=key,Flags=down?0U:2U} } }; }
     private static object VisualAct(Dictionary<string,object> input) {
-        string target=(string)input["target"]; var before=VisualObserve(target); var frame=(Dictionary<string,object>)before["frame"];
+        string target=(string)input["target"];bool remote=target.StartsWith("display:",StringComparison.Ordinal);
+        var before=remote?RemoteObserve(target):VisualObserve(target); var frame=(Dictionary<string,object>)before["frame"];
         if ((string)input["revision"]!=(string)frame["revision"]) throw new Failure("STALE_OBSERVATION", "Image/native state/geometry changed; observe again, no automatic retry");
-        var args=(Dictionary<string,object>)input["params"]; string operation=(string)args["operation"]; int pid=Pid(target);
+        var state=(Dictionary<string,object>)before["state"];
+        var args=(Dictionary<string,object>)input["params"]; string operation=(string)args["operation"]; int pid=remote?Convert.ToInt32(((Dictionary<string,object>)state["app_state"])["pid"]):Pid(target);
         uint foregroundPid; GetWindowThreadProcessId(GetForegroundWindow(),out foregroundPid);
         if (foregroundPid!=pid || !Interactive()) throw new Failure("FOREGROUND_REQUIRED", "Captured foreground interactive window required");
+        if(remote&&(operation=="type_text"||operation=="key")) {
+            var scene=(Dictionary<string,object>)((Dictionary<string,object>)state["environment"])["remote_desktop"];
+            string foregroundId=(string)((Dictionary<string,object>)state["app_state"])["foreground_window_id"];
+            if(!((Dictionary<string,object>[])scene["windows"]).Any(w=>(string)w["id"]==foregroundId))throw new Failure("FOREGROUND_REQUIRED","Keyboard target is not visible on the selected display");
+        }
         if (operation=="semantic") {
             if(args.Count!=2 || !args.ContainsKey("action")) throw new Failure("INVALID_ACTION","Invalid native route");
-            return Act(Obj("target",target,"revision",((Dictionary<string,object>)before["state"])["revision"],"action",args["action"]));
+            var scene=remote?(Dictionary<string,object>)((Dictionary<string,object>)state["environment"])["remote_desktop"]:null;
+            return Act(Obj("target",remote?"pid:"+pid:target,"revision",remote?scene["native_revision"]:state["revision"],"action",args["action"]));
         }
         if(new[]{16,17,18,91,92,1,2,4}.Any(key=>(GetAsyncKeyState(key)&0x8000)!=0)) throw new Failure("INPUT_BUSY","Release physical modifiers/mouse buttons before visual input");
         var focused=AutomationElement.FocusedElement;
@@ -314,9 +390,11 @@ internal static class ComputerHelper {
             var bounds=(Dictionary<string,object>)frame["bounds"];
             var point=new Point {X=Convert.ToInt32(bounds["x"])+(int)(x*Convert.ToDouble(bounds["width"])/(int)frame["width"]),Y=Convert.ToInt32(bounds["y"])+(int)(y*Convert.ToDouble(bounds["height"])/(int)frame["height"])};
             uint owner; GetWindowThreadProcessId(WindowFromPoint(point),out owner);
-            if(owner!=pid) throw new Failure("INVALID_ACTION","Coordinate belongs to another window/overlay");
+            var scene=remote?(Dictionary<string,object>)((Dictionary<string,object>)state["environment"])["remote_desktop"]:null;
+            bool observedOwner=remote?((Dictionary<string,object>[])scene["windows"]).Any(w=>Convert.ToInt32(w["pid"])==owner):owner==pid;
+            if(!observedOwner) throw new Failure("INVALID_ACTION","Coordinate belongs to an unobserved window/overlay");
             var hit=AutomationElement.FromPoint(new System.Windows.Point(point.X,point.Y));
-            if(hit==null || hit.Current.ProcessId!=pid || hit.Current.IsPassword) throw new Failure("INVALID_ACTION","Coordinate is foreign or secure");
+            if(hit==null || hit.Current.ProcessId!=owner || hit.Current.IsPassword) throw new Failure("INVALID_ACTION","Coordinate owner is inconsistent or secure");
             var move=new Input { Type=0, Value=new InputUnion {Mouse=new MouseInput {X=(int)((point.X-GetSystemMetrics(76))*65535.0/Math.Max(1,GetSystemMetrics(78)-1)),Y=(int)((point.Y-GetSystemMetrics(77))*65535.0/Math.Max(1,GetSystemMetrics(79)-1)),Flags=0xC001}}};
             if(operation=="click") {
                 if(args.Count!=3) throw new Failure("INVALID_ACTION","Unexpected click parameters");
@@ -358,6 +436,11 @@ internal static class ComputerHelper {
             case "act": return Act(input);
             case "visual_observe": return VisualObserve((string)input["target"]);
             case "visual_act": return VisualAct(input);
+            case "remote_targets": return RemoteTargets();
+            case "remote_observe": return RemoteObserve((string)input["target"]);
+            case "remote_act":
+                if(!((string)input["target"]).StartsWith("display:",StringComparison.Ordinal))throw new Failure("INVALID_ARGUMENT","Remote input requires an observed display");
+                return VisualAct(input);
             default: throw new Failure("INVALID_ARGUMENT", "Unknown native operation");
         }
     }

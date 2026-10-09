@@ -1,4 +1,15 @@
-# 发布就绪 — 2026-10-08
+# 发布就绪 — 2026-10-09
+
+## v0.5.26 候选：远程桌面 + ASIL
+
+在原有 Pi MCP 与 Computer Use helper 内新增 `remote-desktop`，按需返回选定显示器 JPEG、显示器拓扑、可见窗口布局与前台 AX/UIA；沿用 JavaScript 批量审批、观察 token、执行前检查及独立后置观察。无 VM、VNC/RDP 监听端口、后台视频采集或软件启动时自动控制。旧的单窗口及浏览器通道保留为显式选择。
+
+- 真实 SDK / QuickJS 回归验证图像与 JSON 分离、显示器身份/坐标绑定、跨窗口动作路由、一次后置采集、过期 token、只读与安全字段拒绝；原生后端明确为契约测试替身，不冒充实机操作。
+- macOS arm64 helper 实际编译通过，arm64/Intel SDK 类型检查通过；服务 CJS 构建通过。打包 CJS 经真实 MCP 启动新 Dev helper，枚举到 1 个显示器，未授权整屏观察返回 `SCREEN_RECORDING_PERMISSION_REQUIRED`，无图像、无授权请求或用户应用操作。Intel 类型检查不等同 Intel 实机运行。
+- 源码回归：308 项 Vitest、65 项 Node、36 项 Vue 通过；`npm run check`、批量执行与发布收口 smoke 通过。这轮未重跑 Rust 测试，不将旧结果累加为新验收。
+- **仍需验收**：授权后的整屏截图/跨窗口输入、Windows 新原生代码编译与交互实机、最终桌面包。macOS/Windows 契约通过不能替代原生验收。按需远程帧不等同实时视频预览；最长边 1280px、状态树有界，非完整软件内部状态，动画/时钟可能使严格图像检查拒绝动作。
+
+本修订按用户要求走提交 → 推送 → `v0.5.26` tag 发布流水线，完整矩阵成功后才公开 Release。已合并远端 v0.5.24/v0.5.25 的更新和忽略规则，保留其用户控制更新逻辑。下方是 v0.5.23 的历史验收证据，不作为本候选已经发布或通过全部原生矩阵的证明。
 
 ## 结论
 
@@ -64,6 +75,7 @@ npm test
 node node_modules/vitest/vitest.mjs run --config apps/web/tests/vitest.config.ts
 npm audit --audit-level=high
 npm run smoke:priority
+npm run smoke:remote-desktop
 npm run notices -- --strict
 
 # 真实 ChatGPT CIMD + 隔离 loopback OAuth/MCP，不跟随回调

@@ -38,6 +38,11 @@ export class DesktopProxy implements Adapter {
   visualExecute(target: string, revision: string, params: Record<string, unknown>, signal?: AbortSignal) {
     return this.#backend.request("visual_act", { target, revision, params }, signal);
   }
+  async remoteTargets() { return await this.#backend.request("remote_targets") as Json[]; }
+  remoteObserve(target:string) { return this.#backend.request("remote_observe",{target}); }
+  remoteExecute(target:string,revision:string,params:Record<string,unknown>,signal?:AbortSignal) {
+    return this.#backend.request("remote_act",{target,revision,params},signal);
+  }
   async targets() { return await this.#backend.request("targets") as Json[]; }
   async observe(target: string) { return await this.#backend.request("observe", { target }) as State; }
   validateAction(state: State, action: Action) {

@@ -22,11 +22,11 @@ Web AI → OAuth MCP → approval policy → Pi BodyPlugin → local workspace
 
 ## Computer Use MCP
 
-**Computer Use** 已内置在插件页，无需添加 MCP 或填写路径；默认关闭，开关启用后由独立 stdio MCP 通过现有 Pi 扩展注册：支持 `computer_run` 受限 JavaScript 批量执行：模型显式选择原生结构化状态、窗口截图/OCR 或可选 DOM/ARIA + Playwright，再执行并回读；批量统一经过审批、失败停止。统一 DesktopProxy 自动选择 macOS 独立 **micromatrix Computer Use.app** 的 Accessibility 或 Windows UI Automation，Workspace JSON 和批准的 ASIL 声明式包保持共用逻辑。窗口截图只在显式调用时捕获（macOS 14+），浏览器连接需要本地配置，不自动读取用户浏览器或下载浏览器。Linux 客户端暂时停止支持。启用只保存开关，不启动 Runtime/Tunnel；macOS 检测与执行使用同一应用身份，只有点击权限按钮才请求授权，Windows 检查交互桌面而不提权，不是完整复刻论文的 15 个应用。[接入、工具合同、权限与验收边界](docs/computer-use.md)。
+**Computer Use** 已内置在插件页，无需添加 MCP 或填写路径；默认关闭，开关启用后由独立 stdio MCP 通过现有 Pi 扩展注册：支持 `computer_run` 受限 JavaScript 批量执行：视觉桌面任务使用 **remote-desktop：选定显示器整屏画面 + 窗口布局 + 前台 AX/UIA 状态**；也可显式选择单窗口截图/OCR、原生语义或可选 DOM/ARIA + Playwright，再执行并回读；批量统一经过审批、失败停止。统一 DesktopProxy 自动选择 macOS 独立 **micromatrix Computer Use.app** 的 Accessibility 或 Windows UI Automation，Workspace JSON 和批准的 ASIL 声明式包保持共用逻辑。屏幕/窗口画面只在显式调用时捕获（macOS 14+），不启动 VM 或持续视频，不宣称像素能还原完整内部状态，浏览器连接需要本地配置，不自动读取用户浏览器或下载浏览器。Linux 客户端暂时停止支持。启用只保存开关，不启动 Runtime/Tunnel；macOS 检测与执行使用同一应用身份，只有点击权限按钮才请求授权，Windows 检查交互桌面而不提权，不是完整复刻论文的 15 个应用。[接入、工具合同、权限与验收边界](docs/computer-use.md)。
 
 通过 `computer_capabilities` 发现已注册 Provider 的来源、作用域与动作参数，再选择目标观察。新增 `computer_inspect` 对已有观察做子树筛选、标签检索和分页，不重新捕获或使动作 token 失效；`meta.coverage` 明确报告捕获范围与截断，不将 Accessibility 控件树当成完整软件内部状态。原生窗口/焦点等属性可独立验证；Provider 扩展由受信任源码注册，不执行 Workspace 或模型提供的插件路径。
 
-已移植 ASIL 官方 `softwaregen` 的声明式模型、审计、确定性组装和文件/命令/REST 执行器，复用 Pi 插件与审批，不要求软件实现专有 RPC。通过 `npm run asil -- assemble ...` 生成候选包，审查并用哈希批准的注册表通过 `computerUse.asilRegistry` 接入；没有注册表时仍默认只有 Desktop 和 JSON。`npm run smoke:asil` 验证官方 JSON 样例及真实本机 MCP/命令/普通 REST 链路，不代表已支持全部软件或当前 Blender 的未保存场景。[源码依据、配置与验收边界](docs/computer-use.md#asil-主线与实施顺序)。
+已移植 ASIL 官方 `softwaregen` 的声明式模型、审计、确定性组装和文件/命令/REST 执行器，复用 Pi 插件与审批，不要求软件实现专有 RPC。通过 `npm run asil -- assemble ...` 生成候选包，审查并用哈希批准的注册表通过 `computerUse.asilRegistry` 接入；没有注册表时仍有远程桌面、原生语义、单窗口视觉和 JSON 通道。`npm run smoke:asil` 验证官方 JSON 样例及真实本机 MCP/命令/普通 REST 链路，不代表已支持全部软件或当前 Blender 的未保存场景。[源码依据、配置与验收边界](docs/computer-use.md#asil-主线与实施顺序)。
 
 ## 开发运行
 

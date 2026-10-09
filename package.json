@@ -1,6 +1,6 @@
 {
   "name": "micromatrix-pi-agent-mcp",
-  "version": "0.5.23",
+  "version": "0.5.26",
   "private": true,
   "type": "module",
   "packageManager": "npm@11",
@@ -25,6 +25,7 @@
     "smoke:dependency-security": "npm run typecheck && node scripts/smoke-dependency-security.mjs",
     "smoke:asil": "npm run typecheck && node scripts/smoke-asil.mjs",
     "smoke:computer-batch": "npm run typecheck && node scripts/smoke-computer-batch.mjs",
+    "smoke:remote-desktop": "npm run typecheck && node scripts/smoke-remote-desktop.mjs",
     "asil": "npm run typecheck && node scripts/asil.mjs",
     "check:sidecar": "npm run build:sidecar && npm run smoke:sidecar",
     "tauri": "tauri",

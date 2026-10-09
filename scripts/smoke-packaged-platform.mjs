@@ -11,6 +11,7 @@ const service=path.resolve('src-tauri/binaries',`micromatrix-service-${nativeBui
 if(!existsSync(service)||!existsSync(browser))throw Error('Build SEA and explicitly install the isolated CI Chromium before platform acceptance')
 for(const args of [
  ['scripts/smoke-priority.mjs'],
+ ['scripts/smoke-remote-desktop.mjs'],
  ['scripts/smoke-computer-batch.mjs','--service-executable',service,'--browser-executable',browser],
  ['scripts/smoke-native-desktop.mjs','--run','--service-executable',service],
 ])execFileSync(process.execPath,args,{stdio:'inherit',timeout:120000})

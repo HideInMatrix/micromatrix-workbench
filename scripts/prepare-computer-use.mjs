@@ -54,7 +54,7 @@ export function prepareComputerUse(root = process.cwd()) {
 <key>LSMinimumSystemVersion</key><string>11.0</string>
 <key>LSUIElement</key><true/>
 <key>NSAccessibilityUsageDescription</key><string>读取和操作经你批准的应用控件。</string>
-<key>NSScreenCaptureUsageDescription</key><string>仅在明确请求视觉观察时截取目标应用窗口。</string>
+<key>NSScreenCaptureUsageDescription</key><string>仅在明确请求时采集选中的屏幕或应用窗口。</string>
 </dict></plist>
 `)
     // A cryptographic certificate pin + identifier, never identifier alone.

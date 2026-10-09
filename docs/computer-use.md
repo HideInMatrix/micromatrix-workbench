@@ -13,14 +13,16 @@
   → Computer Use stdio MCP（无模型 / 无规划器）
   → ProviderRegistry：能力发现 → observe → inspect → validate → execute → observe / verify
     → computer_run：受限 QuickJS JavaScript，批量调用上述合同
-    → NativeDesktopChannel → macOS AX / 窗口截图+OCR，Windows UIA / 窗口截图（按 OS 自动选择）
+    → RemoteDesktopAdapter → 选定显示器画面 + 可见窗口布局 + 前台 AX/UIA
+    → NativeDesktopChannel → macOS ScreenCaptureKit / AX，Windows GDI / UIA（按 OS 自动选择）
+    → VisualDesktopAdapter → 可选前台窗口截图，macOS 可附 OCR
     → 可选 BrowserAdapter → DOM / ARIA / 截图 + Playwright
     → DeclarativeAdapter → JSON 文件 / 固定原生命令 / 已批准服务 API
 ```
 
 `packages/computer-use` 拥有适配器、共享协议、状态校验、生命周期和有限追踪。应用 UI 只管理 Pi 插件配置，不维护第二套执行目录。
 
-核心按能力而不是软件名称分支。默认 Provider 是 desktop、desktop-visual 和 json；browser 必须由本地用户显式配置，ASIL 声明式软件包是可选增强，不是控制通用 GUI 的前置条件。配置后加载经过审计与哈希批准的声明式软件适配包，不扫描 Workspace、不执行生成代码或自动安装软件。
+核心按能力而不是软件名称分支。默认 Provider 是 remote-desktop、desktop、desktop-visual 和 json；browser 必须由本地用户显式配置，ASIL 声明式软件包是可选增强，不是控制通用 GUI 的前置条件。配置后加载经过审计与哈希批准的声明式软件适配包，不扫描 Workspace、不执行生成代码或自动安装软件。
 
 ## 默认用法：模型选择通道，用 JavaScript 批量执行
 
@@ -28,6 +30,7 @@
 
 | 通道 | 适用任务 | 实际来源与限制 |
 | --- | --- | --- |
+| `remote-desktop` | 桌面全局布局、跨窗口视觉判断与操作 | 选定显示器整屏 JPEG + 最多 100 个窗口布局 + 前台应用 AX/UIA；不启动 VM/VNC/RDP 或视频轮询，不是所有应用内部状态 |
 | `desktop` | 原生按钮、文本框、窗口 | AX / UIA 的真实语义，未暴露的控件不能凭空补齐 |
 | `desktop-visual` | 自绘界面、画布、AX 信息不足 | 前台目标窗口 JPEG + AX/UIA；macOS 14+ 可附本地 Vision OCR，Windows 本轮没有 OCR。像素/OCR 推断不等于软件内部状态 |
 | `browser` | 网页表单和导航 | Playwright 读取 DOM / ARIA 并执行动作；`page:N/visual` 额外返回截图。仅配置过的浏览器与 origins |
@@ -55,9 +58,42 @@ await computer.act({
 return await computer.observe({adapter: "json", target: "input.json"});
 ```
 
-视觉任务先提交 `computer.observe({adapter:"desktop-visual", target:"pid:真实PID"})`。返回的截图由网页模型判断；下一批传入新的观察 ID 和 `visual:surface` 的 `invoke_function`，参数从能力发现选取 `click / scroll / type_text / key`。坐标使用返回 JPEG 的像素空间，native 层换算到窗口屏幕坐标；OCR 对象的 click 使用文本框中心。原生控件仍优先执行其 AX/UIA 语义，不因失败自动退到坐标点击。截图是 MCP image content，不是塞进 JSON 的 base64；批量保留最后三张，`image_observations` 与 image content 顺序对应。JS 没有第二个模型，不能在执行器内部理解截图后自行规划。
+单窗口视觉任务可提交 `computer.observe({adapter:"desktop-visual", target:"pid:真实PID"})`，整屏任务使用下节的 `remote-desktop`。返回的截图由网页模型判断；下一批传入新的观察 ID 和 `visual:surface` 的 `invoke_function`，参数从能力发现选取 `click / scroll / type_text / key`。坐标使用返回 JPEG 的像素空间，native 层换算到窗口屏幕坐标；OCR 对象的 click 使用文本框中心。原生控件仍优先执行其 AX/UIA 语义，不因失败自动退到坐标点击。截图是 MCP image content，不是塞进 JSON 的 base64；批量保留最后三张，`image_observations` 与 image content 顺序对应。JS 没有第二个模型，不能在执行器内部理解截图后自行规划。
 
 整段代码经过现有 Pi `open_world` 审批，只读模式拒绝批量执行。QuickJS/WASM 限制：32 MiB 内存、512 KiB 栈、每段同步执行最多约 1 秒、最多 32 次 host 调用、代码 16 KiB、返回值 64 KiB；默认 30 秒、最高 60 秒。`process / require / fetch / timers / filesystem / shell` 不存在，唯一 host crossing 是有界 JSON。调用串行调度，用户应 `await`；未 await 的已请求调用也会在成功返回前排空。第一处 host 失败、取消或超限停止后续派发，报告已完成/失败步骤；已执行动作不回滚、不自动重试，先观察再判断。捕获/浏览器原生调用有自己的短超时，取消不保证撤回已经发出的系统动作。这是受限嵌入式执行器，不是整机 OS 沙箱。
+
+### 远程桌面 + ASIL 闭环
+
+本机 helper 承担远程桌面的采集/输入端，既有经过认证的 MCP 承担按需帧与动作传输。不新增监听端口或第二个 Agent，不启动 VM、RDP/VNC 服务或持续录像。插件和 Runtime 的手动启动方式不变；`computer_capabilities` 不启动 native helper，`computer_targets` 的屏幕枚举不捕获图像。
+
+1. 调用 `computer_targets({adapter:"remote-desktop"})`，从实际返回中选择显示器。最多列出 16 个；不假定 ID、分辨率、主屏位置或所有屏幕都已捕获。
+2. 调用 `computer_observe({adapter:"remote-desktop",target:"display:实际ID"})`，获得同一目标的 JPEG image content、`environment.remote_desktop` 窗口布局/显示器拓扑以及前台应用的 AX/UIA 树。其他应用不逐个抓取内部状态；采集前后比较布局/焦点，但并非原子快照。
+3. 网页模型结合像素与事实性结构判断。有原生控件就提交该控件的语义动作，否则显式操作 `remote:surface`。
+4. 执行前 helper 重新检查画面 revision、显示器布局、前台与安全输入状态；点击位置通过 native hit-test 归属到布局中的可见进程，不能凭空指定 PID。可跨窗口点击，不自动激活其他应用；文本/键盘只发往已观察前台且位于该显示器的窗口。
+5. Runtime 执行一次独立后置采集，返回新图片与状态。旧 token 消耗，失败不重试；模型判断结果后再提交下一批。动画、时钟或图像变化可能导致 `STALE_OBSERVATION`，不能承诺每次图像判断都能直接执行。
+
+下面是第一批 `computer_run.code` 的形状，显示器 ID 必须使用第 1 步的真实返回；图片由批量执行器自动附带，不在 JavaScript 中理解图片或返回 base64：
+
+```js
+const s = await computer.observe({adapter:"remote-desktop", target:"display:实际ID"});
+return {meta:s.meta, frame:s.environment.frame, layout:s.environment.remote_desktop};
+```
+
+模型看图后，另一批代码使用上次真实返回的观察 ID 和图像坐标（不要照抄占位值）：
+
+```js
+const r = await computer.act({
+  observation_id:"替换为上次观察ID", action_type:"invoke_function",
+  target:"remote:surface", params:{operation:"click", x:实际图像横坐标, y:实际图像纵坐标}
+});
+return {execution:r.execution, verification:r.verification, meta:r.observation.meta};
+```
+
+`frame.bounds` 是显示器在全局屏幕空间的位置/尺寸，支持负原点；`frame.width/height` 是压缩图像像素尺寸。点击坐标只使用图像像素，helper 负责缩放与全局转换。窗口与原生控件 bounds 的单位由 `layout_coordinate_space` 标明：macOS screen points，Windows DPI-aware screen pixels。
+
+整屏采集会包含其他可见窗口与系统 UI 的私密信息。只对已暴露的前台安全控件执行拒绝，不声称完整 DLP。macOS 14+ 使用 ScreenCaptureKit，需同一 helper 的辅助功能和屏幕录制权限；Windows 使用 GDI 显示器复制，捕获分配上限 16,777,216 源像素，受保护或硬件 overlay 内容可能缺失。输出仍限制到最长边 1280px / 384 KiB，必要时选择单窗口或原生语义通道。多屏逐一显式观察；隐藏、被遮挡或软件内部数据不能由像素完整恢复。
+
+本次交付是按需远程帧 + ASIL，不包含实时视频预览/人工接管 UI。复用当前 Pi 审批，依然在真实用户桌面执行；没有额外 OS 或后台常驻帧缓存。`npm run smoke:remote-desktop` 验证真实 SDK/QuickJS/image 合同，其原生后端明确使用测试替身，不能替代 macOS/Windows 整屏实机验收。
 
 ### 可选浏览器接入
 
@@ -74,7 +110,7 @@ return await computer.observe({adapter: "json", target: "input.json"});
 }
 ```
 
-只支持显式 loopback CDP WebSocket；CDP 只是 Playwright 连接浏览器的底层传输，不替代 ASIL 状态/动作合同，也不用于读取普通原生软件。配置 URL 不允许凭据或 query；origin 填根 URL。浏览器重启后 WebSocket ID 会变化，需要更新配置。目前没有浏览器配置表单或自动管理浏览器生命周期。独立 stdio 启动可使用 `--browser-configuration 'JSON'`。不配置则不注册 browser、不扫描用户浏览器、不自动启动或下载浏览器。退出断开连接，不关闭用户浏览器进程。
+只支持显式 loopback CDP WebSocket；CDP 只是 Playwright 连接浏览器的底层传输，不替代 ASIL 状态/动作合同，也不用于读取普通原生软件。配置 URL 不允许凭据或 query；origin 填根 URL。浏览器重启后 WebSocket ID 会变化，需要在插件页的浏览器连接表单更新配置；不自动管理浏览器生命周期。独立 stdio 启动可使用 `--browser-configuration 'JSON'`。不配置则不注册 browser、不扫描用户浏览器、不自动启动或下载浏览器。退出断开连接，不关闭用户浏览器进程。
 
 DOM 最多 300 个元素、ARIA 16 KiB，仅顶层 DOM，不保证完整 iframe/shadow tree；隐藏字段值不返回，命名敏感控件不提供动作/值，可见安全控件阻止截图并省略 ARIA。普通文字、作者标签或像素仍可能含秘密，这不是完整 DLP。导航检查 origin 并拒绝跨域重定向；页面子资源与未管理 popup 不构成网络沙箱。
 
@@ -239,6 +275,7 @@ Desktop 额外输出原生实际提供的只读属性：macOS 的 focused / sele
 | 适配器 | 状态来源 | 动作 | 边界 |
 | --- | --- | --- | --- |
 | `desktop` | macOS Accessibility：运行应用、控件角色/标签/值/可用操作 | 激活已观察应用；设置可写值；执行控件声明的 press / show_menu / raise | 必须授予辅助功能权限；不是完整内部状态；不支持安全输入框、坐标点击、任意键鼠注入或启动未观察应用 |
+| `remote-desktop` | 选定显示器整屏 + 可见窗口布局 + 前台 AX/UIA | 原生语义；已观察显示器内点击/滚动；有限前台文本/键盘 | 显式整屏采集；多屏分别选择；前台结构并非所有软件内部状态；画面可包含其他窗口的秘密，无完整 DLP |
 | `desktop` (Windows) | UI Automation 控件树与运行窗口 | Value/RangeValue 设置；Invoke/Toggle/SelectionItem/ExpandCollapse 语义操作；激活已观察应用 | Windows 10/11 x64，.NET Framework 4.8；锁屏、UAC 安全桌面、密码控件拒绝，不自动提权 |
 | `desktop-visual` | 前台窗口截图 + 原生语义；macOS 可附 OCR | 原生语义动作、窗口内点击/滚动、有限按键和文本输入 | macOS 14+、辅助功能与屏幕录制；Windows 窗口渲染有限；拒绝安全输入/前台变化，非原子检查 |
 | `browser` | 配置过的网页 DOM / ARIA，可选截图 | Playwright click / fill / press / scroll / goto | 显式 loopback 调试连接 + origins；顶层 DOM 有界，无任意 evaluate、浏览器启动或自动认证 |
