@@ -6,6 +6,7 @@ use tauri_plugin_shell::{process::{CommandChild, CommandEvent}, ShellExt};
 mod saved_secrets;
 mod service_cleanup;
 mod updater_policy;
+mod update_preferences;
 mod computer_use_settings;
 
 #[derive(Default)]
@@ -76,7 +77,8 @@ pub fn run() {
     .plugin(tauri_plugin_shell::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
     .plugin(tauri_plugin_process::init())
-    .invoke_handler(tauri::generate_handler![desktop_service_error, show_permission_prompt, runtime_saved_secrets, open_authorization_url, open_computer_use_settings])
+    .invoke_handler(tauri::generate_handler![desktop_service_error, show_permission_prompt, runtime_saved_secrets, open_authorization_url, open_computer_use_settings,
+      update_preferences::get_update_preferences, update_preferences::save_update_preferences, update_preferences::check_update_with_prefix])
     .setup(|app| {
       let service = Arc::new(Mutex::new(ServiceState::default()));
       app.manage(ServiceChild(service.clone()));

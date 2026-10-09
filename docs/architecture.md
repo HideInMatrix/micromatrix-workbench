@@ -92,4 +92,6 @@ Tauri 正常退出通过 native cleanup 请求 PID 匹配的控制服务停止 R
 
 LocalOAuthServer 的 public origin 由 listener/Runtime 设置，不根据转发头猜测。MCP 的 Host/Origin allowlist 使用实际监听端口和明确公网 origin；客户端 scope/resource 绑定本服务，S256/有界 token/codes/限流在授权路由执行。
 
-Provider 返回日志/配置地址只表示候选路由；Runtime 校验服务实例 nonce 后才暴露 publicMcpUrl。后台探活串行、可取消；失败和 Stop 共用宿主/审批/服务清理。自有 CLI 使用 Unix process group 或 Windows PID tree；Tailscale 是共享 daemon，必须先查 selected port，再记录 exact route footprint，停止前校验归属，只执行匹配端口的 off。外部 CLI 改动不是原子事务；发现变更保留用户配置并报告，而非 reset 全部配置。
+Provider 返回日志/配置地址只表示候选路由；Runtime 校验服务实例 nonce 后才暴露 publicMcpUrl。后台公网探活串行、可取消；连续失败仅标记公网异常并撤销可用地址展示，保留本地 Runtime / Tunnel 及审批会话，继续探活后自动恢复展示。单次错误保留超时、网络、HTTP、JSON、实例不匹配等分类，不把本机自探测路径失败当成 Provider 进程退出。Provider 真正退出/owned route 失效和用户 Stop 才共用宿主/审批/服务清理。自有 CLI 使用 Unix process group 或 Windows PID tree；Tailscale 是共享 daemon，必须先查 selected port，再记录 exact route footprint，停止前校验归属，只执行匹配端口的 off。外部 CLI 改动不是原子事务；发现变更保留用户配置并报告，而非 reset 全部配置。
+
+桌面更新只自动检测，不自动下载或安装。用户主动更新后才执行官方 updater 的下载/签名校验、Runtime Stop、安装和重启。原生 `check_update_with_prefix` 仅改变本项目 GitHub 版本清单和 Release 包的传输 URL，保留官方 Update 资源、固定公钥及 signed-version 校验；资源仍由官方 download/install/close 命令管理。用户保存 HTTPS 加速前缀后，旧资源撤销并重新检查；留空直连。

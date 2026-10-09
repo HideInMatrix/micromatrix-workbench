@@ -181,7 +181,7 @@ GitHub Actions **Variables**：将 `variables.json` 中的 `APPLE_SIGNING_IDENTI
 
 - 分支 push / PR：`CI` 自动准备应用版本、运行类型检查和 Web 构建。
 - 手动运行 `Desktop packages`：检查后构建 macOS arm64/x64、Windows x64 的实验性安装包，并执行各平台 SEA 冒烟；下载入口为该次运行的 **Artifacts**。
-- 推送 `v*` tag：执行同样的打包流程；全部平台成功后，只选择 4 个桌面安装包，验证各平台 SHA-256 并合并为 `SHA256SUMS.txt`，上传完成后自动公开为正式 **Release / Latest**（如 `v0.5.9`）。显式 `-rc` / `-beta` tag 保持 Pre-release，避免进入正式渠道。独立服务、构建 JSON 和单独通知文件不上传 Release。任意平台失败不会进入发布；上传失败保留草稿，不公开不完整的版本。无需手动点击 Publish；签名更新包供桌面应用自动下载安装。
+- 推送 `v*` tag：执行同样的打包流程；全部平台成功后，只选择 4 个桌面安装包，验证各平台 SHA-256 并合并为 `SHA256SUMS.txt`，上传完成后自动公开为正式 **Release / Latest**（如 `v0.5.9`）。显式 `-rc` / `-beta` tag 保持 Pre-release，避免进入正式渠道。独立服务、构建 JSON 和单独通知文件不上传 Release。任意平台失败不会进入发布；上传失败保留草稿，不公开不完整的版本。无需手动点击 Publish；签名更新包供桌面应用在用户主动更新时下载安装。
 
 提交当前实现、脚本和 `.github` 后推送分支，再推送一个未使用的 tag，例如：
 
@@ -203,11 +203,13 @@ git push origin v0.5.3
 
 手动触发需要 workflow 文件已经存在于仓库默认分支，随后可在 Run workflow 选择当前开发分支；尚未合并时可先使用 tag 自动触发。Actions 必须启用且允许工作流中使用的固定提交 Actions。checkout/setup-node/upload/download 已使用 Node 24 运行时版本，项目构建与 SEA 的 Node 版本仍固定为 22.23.3；两者不是同一个配置。GitHub 发布使用内置 `GITHUB_TOKEN`，无需个人 Token；只有 tag 的发布 job 获得 `contents: write`。Updater 签名使用下面说明的专用密钥，不等同于 Apple / Authenticode 签名。
 
-### 桌面自动更新与签名配置
+### 桌面更新与签名配置
 
-正式桌面版启动后和每 6 小时自动检查 GitHub Latest 正式版；发现新版无需确认，自动下载、校验签名、安装并重启。“关于”页面展示版本、进度和失败信息，失败可手动重试，也会在后续定时检查时重试。下载与签名校验完成后才停止 Runtime / Tunnel，安装后重启；不会自动运行 Runtime。下载失败保留当前执行，停止失败不安装，安装或重启失败显示可重试状态。网页版本不会调用桌面 updater，开发壳不会自动更新为正式包。
+当前源码的正式桌面版启动后和每 24 小时自动检查 GitHub Latest；只提示新版本，不自动下载、安装、停止 Runtime 或重启。用户在“关于”点击“下载更新并重启”后，才下载、验证签名、停止 Runtime / Tunnel、安装并重启。下载失败保留当前执行，停止失败不安装；开发壳不会自动检查正式版，Web 页面不安装桌面更新。
 
-更新强制校验签名和签名绑定的版本，拒绝改包、错版本、错误公钥。正式环境只允许 HTTPS。Windows 按 NSIS / MSI 匹配安装格式；本次不再生成 Linux 更新目标。默认 NSIS 为当前用户安装，updater 使用 `quiet` 模式，无安装向导升级；原生检测到 MSI 安装格式时采用 `passive` 无确认流程，以便系统请求所需管理员权限，避免 quiet 权限失败后应用直接退出。MSI 可能显示系统安装进度。无写权限的 macOS 安装目录可能需要系统授权，不能绕过；普通可写 macOS `.app` 可自动替换。自动重启前请及时保存正在编辑的配置。`v0.5.12` 起采用上述自动安装策略；`v0.5.11` 用户升级到 `v0.5.12` 时仍需点击一次“下载更新并重启”，之后的正式版无需确认。更早没有 updater 的版本需手动安装首个支持更新的版本，不能凭发布新 Release 获得该能力。[Tauri 官方 updater](https://v2.tauri.app/plugin/updater/)。
+“关于”可保存 GitHub 下载加速前缀，默认 `https://cdn.gh-proxy.org/`，留空直连。原生更新器对版本清单和本项目 Release 安装包 URL 应用前缀，不把前缀当成 HTTP 代理服务器；清单加速失败时尝试 GitHub 原地址。设置保存在应用配置目录的 `update-preferences.json`，保存前缀会撤销旧下载资源，需重新检查版本。修改传输 URL 不改变固定公钥或 `requireSignedVersion` 校验。
+
+更新强制校验签名和签名绑定的版本，拒绝改包、错版本、错误公钥。正式环境只允许 HTTPS。Windows 按 NSIS / MSI 匹配安装格式；本次不再生成 Linux 更新目标。默认 NSIS 为当前用户安装，updater 使用 `quiet` 模式，无安装向导升级；原生检测到 MSI 安装格式时采用 `passive` 无确认流程，以便系统请求所需管理员权限，避免 quiet 权限失败后应用直接退出。MSI 可能显示系统安装进度。无写权限的 macOS 安装目录可能需要系统授权，不能绕过；普通可写 macOS `.app` 可自动替换。自动重启前请及时保存正在编辑的配置。已发布的 `v0.5.12` 至 `v0.5.24` 使用旧自动安装策略；当前源码已改为自动检测、手动更新，需要安装包含此修改的新版本才生效。更早没有 updater 的版本仍须手动安装。[Tauri 官方 updater](https://v2.tauri.app/plugin/updater/)。
 
 本机已生成长期密钥，私钥位于 `.local/updater/micromatrix.key`，权限 `600`；整个 `.local/` 被 Git 忽略，只有公钥写入 Tauri 配置。**务必离线备份，不要重新生成替换，不要提交或粘贴私钥到聊天/日志。** 当前密钥没有额外口令，安全性依赖本机文件权限、离线备份和 GitHub Secret 保护。
 
@@ -245,7 +247,7 @@ macOS 保持 Hardened Runtime，补充 V8 所需 JIT/可执行内存 entitlement
 ### 本轮运行安全与验收（未发布）
 
 - 对外 OAuth issuer/resource 来自明确配置及 Provider 的已确认地址，不信任 `X-Forwarded-*`；MCP 校验 Host/Origin。非回环监听需先配置 HTTPS 公网 origin 和认证。默认 OAuth 每分钟 240 次请求、20 次密码授权尝试，每类状态最多 2048 条，过期回收；额度不足不销毁仍可重试的有效 grant。
-- Tunnel 不因日志打印 URL 就宣布 ready：还须经过注册/路由确认及 `/healthz` 本实例 nonce 验证。每 15 秒串行探活，连续三次失败撤销公网地址并停止该 Runtime。Unix 清理 owned process group，Windows 使用 owned PID tree，不按进程名杀应用。Tailscale 拒绝占用端口，仅移除未被外部改动的自有路由，不执行全局 reset。
+- Tunnel 不因日志打印 URL 就宣布 ready：还须经过注册/路由确认及 `/healthz` 本实例 nonce 验证。每 15 秒串行探活，单次 3 秒；连续三次失败标记公网异常、暂停展示可用公网地址，并保持 Runtime / Tunnel 运行以继续探测恢复。探测日志保留分类原因；只有 Provider 进程退出、owned route 失效或用户停止时才清理 Runtime。Unix 清理 owned process group，Windows 使用 owned PID tree，不按进程名杀应用。Tailscale 拒绝占用端口，仅移除未被外部改动的自有路由，不执行全局 reset。
 - 插件页可保存浏览器 endpoint/origin allowlist，仍须用户显式启动 Runtime；禁止远端调试端点，不自动启动浏览器、不请求权限。
 - `npm run check` 包含 TS 7、Vue SFC 严格检查与 Vite 构建。`vue-tsc` 暂需旧 compiler API，单独使用 `typescript-sfc` 检查依赖；产品和服务编译器仍是 TS 7，不用该兼容依赖打包产品。
 - `npm run smoke:priority` 覆盖 OAuth/Host/Origin/容量、健康与配置保存，以及真实 Unix 进程组或 Windows live PID tree 清理；Tailscale CLI 使用明确标注的契约替身，不等同于账号联调。

@@ -4,13 +4,15 @@ import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {createHash} from 'node:crypto'
 import {request as httpRequest} from 'node:http'
+import {createServer as reservePort} from 'node:net'
 import {LocalOAuthServer} from '@micromatrix/oauth'
 import {CimdClientResolver} from '../packages/oauth/dist/cimd.js'
 import {McpHttpService} from '@micromatrix/mcp-server'
 import {PluginRegistry} from '@micromatrix/plugin-kit'
-import {probePublicService,waitForPublicService,NetworkHealthMonitor,ManagedProcess,TailscaleNetworkProvider} from '@micromatrix/network'
+import {probePublicService,waitForPublicService,NetworkHealthMonitor,ManagedProcess,TailscaleNetworkProvider,ExternalNetworkProvider} from '@micromatrix/network'
 import {RuntimeSupervisor} from '../apps/daemon/dist/runtime.js'
 import {loadConfig} from '../apps/daemon/dist/config.js'
+import {createUpdateController,emptyUpdateState} from '../apps/web/dist-types/api/updateController.js'
 
 const directory=await mkdtemp(path.join(tmpdir(),'mm-priority-')),logger={log(){}},cleanups=[]
 const savedResolve=CimdClientResolver.prototype.resolve
@@ -89,6 +91,23 @@ try {
   assert.equal(failures,1);assert.equal(probes,3);assert.equal(maximum,1)
   console.log('PASS: owned service nonce, cancellable readiness, serial health monitoring and three-failure shutdown')
 
+  let degraded=0,recovered,attempts=0
+  const recovery=new Promise(resolve=>{recovered=resolve})
+  const recovering=new NetworkHealthMonitor(async()=>{if(++attempts<=5)throw Error('fixture public outage')},()=>{degraded++},5,
+    {keepRunningOnFailure:true,onProbeResult:result=>{if(result.ok)recovered()}})
+  recovering.start()
+  try{await Promise.race([recovery,new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('Degraded monitor did not recover')),2000);timer.unref()})])}finally{await recovering.stop()}
+  assert.equal(degraded,1);assert.ok(attempts>=6)
+  console.log('PASS: recoverable public outage reports degradation once and continues probing until recovery instead of terminating the monitor')
+
+  const updateEvents=[],updateLocks=[],updateState=emptyUpdateState();let rejectDownload=false
+  const updatePackage={version:'99.0.0',close:async()=>{},download:async()=>{updateEvents.push('download');if(rejectDownload)throw Error('fixture signature rejected')},install:async()=>{updateEvents.push('install')}}
+  const updates=createUpdateController(updateState,{check:async()=>updatePackage,stopRuntime:async()=>{updateEvents.push('stop')},relaunch:async()=>{updateEvents.push('restart')},installationLock:value=>updateLocks.push(value)})
+  await updates.check();await updates.check();assert.equal(updateState.phase,'available');assert.deepEqual(updateEvents,[]);assert.deepEqual(updateLocks,[])
+  rejectDownload=true;await updates.install();assert.equal(updateState.phase,'error');assert.deepEqual(updateEvents,['download']);assert.equal(updateLocks.at(-1),false)
+  updateEvents.length=0;rejectDownload=false;await updates.install();assert.deepEqual(updateEvents,['download','stop','install','restart']);assert.equal(updateState.phase,'installed')
+  console.log('PASS: update checks never download/stop/install/restart; explicit installation alone runs that sequence and download/signature failure keeps existing work intact (updater contract fixture)')
+
   const unrelated={TCP:{'8443':{HTTPS:true}},Web:{'user.ts.net:8443':{Handlers:{'/':{Proxy:'http://127.0.0.1:9999'}}}},AllowFunnel:{'user.ts.net:8443':true}}
   let state=structuredClone(unrelated);const commands=[]
   const command=async args=>{
@@ -145,6 +164,31 @@ try {
     const before=(await stat(markerFile)).size;await new Promise(r=>setTimeout(r,120));assert.equal((await stat(markerFile)).size,before)
     console.log(process.platform==='win32'?'PASS: actual Windows owned live PID tree cleaned by taskkill /T; independent descendant marker stops (not an orphan/breakaway guarantee)':'PASS: actual Unix owned tunnel process group cleaned after leader exit, including TERM-ignoring descendant')
   }
+
+  // Actual Runtime/listener, with only public transport and provider exit
+  // injected. A remote probe outage must not dispose the local execution host.
+  const reservation=reservePort();await new Promise(resolve=>reservation.listen(0,'127.0.0.1',resolve))
+  const port=reservation.address().port;await new Promise(resolve=>reservation.close(resolve))
+  const local=`http://127.0.0.1:${port}`,originalFetch=globalThis.fetch,originalStart=NetworkHealthMonitor.prototype.start,originalProviderStart=ExternalNetworkProvider.prototype.start
+  let exitProvider
+  const liveRuntime=new RuntimeSupervisor({...loadConfig({MICROMATRIX_CONFIG_FILE:path.join(directory,'health-runtime.json'),MICROMATRIX_WORKSPACE:directory,MICROMATRIX_NETWORK_PROVIDER:'external',MICROMATRIX_PUBLIC_URL:local,MICROMATRIX_PORT:String(port)}),network:{provider:'external',publicUrl:local,options:{}}},logger)
+  cleanups.push(()=>liveRuntime.dispose())
+  const until=async predicate=>{const deadline=Date.now()+2000;while(!predicate()){if(Date.now()>deadline)throw Error('Runtime health fixture exceeded deadline');await new Promise(resolve=>setTimeout(resolve,10))}}
+  try{
+    NetworkHealthMonitor.prototype.start=function(){Object.defineProperty(this,'intervalMs',{value:5});originalStart.call(this)}
+    ExternalNetworkProvider.prototype.start=function(context){exitProvider=context.onUnexpectedExit;return originalProviderStart.call(this,context)}
+    await liveRuntime.start()
+    globalThis.fetch=async(input,init)=>String(input).startsWith(local)?new Response('',{status:502}):originalFetch(input,init)
+    await until(()=>liveRuntime.snapshot().networkWarning.includes('HTTP 502'))
+    assert.equal(liveRuntime.snapshot().running,true);assert.equal(liveRuntime.snapshot().extensionHostActive,true);assert.equal(liveRuntime.snapshot().publicMcpUrl,'');assert.equal(liveRuntime.snapshot().exitReason,'')
+    assert.equal((await originalFetch(local+'/healthz')).status,200)
+    globalThis.fetch=originalFetch;await until(()=>liveRuntime.snapshot().networkWarning==='');assert.equal(liveRuntime.snapshot().publicMcpUrl,local+'/mcp')
+    exitProvider(Error('fixture provider actually exited'))
+    await until(()=>!liveRuntime.snapshot().extensionHostActive);await liveRuntime.stop()
+    assert.equal(liveRuntime.snapshot().running,false);assert.ok(liveRuntime.snapshot().exitReason.includes('fixture provider actually exited'))
+    await assert.rejects(originalFetch(local+'/healthz'))
+  }finally{globalThis.fetch=originalFetch;NetworkHealthMonitor.prototype.start=originalStart;ExternalNetworkProvider.prototype.start=originalProviderStart;await liveRuntime.dispose()}
+  console.log('PASS: actual Runtime survives repeated public 502 responses, preserves its local listener/host, recovers its URL; actual provider-exit notification still disposes execution (injected network/exit events)')
 
   // Save/browser configuration via the actual supervisor must remain idle.
   const runtime=new RuntimeSupervisor(loadConfig({MICROMATRIX_CONFIG_FILE:path.join(directory,'runtime.json'),MICROMATRIX_WORKSPACE:directory,MICROMATRIX_NETWORK_PROVIDER:'frp',MICROMATRIX_PORT:'8222'}),logger)

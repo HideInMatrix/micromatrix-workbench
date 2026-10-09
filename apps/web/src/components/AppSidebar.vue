@@ -11,10 +11,12 @@ import {
 import { useRoute, useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import type { AppRouteName } from '../router'
+import { useAppUpdater } from '../composables/useAppUpdater'
 
 const route = useRoute()
 const router = useRouter()
 const collapsed = ref(false)
+const updater = useAppUpdater()
 
 onMounted(() => {
   try {
@@ -105,6 +107,7 @@ function navClass(name: AppRouteName): string[] {
       >
         <Info class="flex-none" :size="16" :stroke-width="1.8" />
         <span v-if="!collapsed" class="leading-none">关于</span>
+        <span v-if="updater.updateAvailable.value" class="ml-auto size-1.5 rounded-full bg-destructive" aria-label="有新版本可更新" />
       </Button>
     </div>
   </aside>

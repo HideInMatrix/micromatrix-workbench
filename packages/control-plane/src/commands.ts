@@ -94,6 +94,7 @@ function runtimeDto(runtime: RuntimeSnapshot) {
     public_mcp_url: runtime.publicMcpUrl,
     url_mode: runtime.urlMode,
     exit_reason: runtime.exitReason,
+    network_warning: runtime.networkWarning ?? "",
   };
 }
 

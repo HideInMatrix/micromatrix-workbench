@@ -44,6 +44,7 @@ export interface RuntimeDto {
   public_mcp_url: string
   url_mode: string
   exit_reason: string
+  network_warning?: string
 }
 
 export interface RuntimeDraft {

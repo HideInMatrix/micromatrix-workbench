@@ -14,11 +14,12 @@ export interface UpdateState {
   error: string
   downloaded: number
   total: number
+  lastCheckedAt: number
 }
-export const emptyUpdateState = (): UpdateState => ({ phase: 'idle', version: '', notes: '', error: '', downloaded: 0, total: 0 })
+export const emptyUpdateState = (): UpdateState => ({ phase: 'idle', version: '', notes: '', error: '', downloaded: 0, total: 0, lastCheckedAt: 0 })
 
 // The updater never starts Runtime. Download/signature verification completes
-// before stopping execution; automatic updates and manual retries share one installer.
+// before stopping execution; only the user's Install action starts this path.
 export function createUpdateController(state: UpdateState, dependencies: {
   check(): Promise<UpdatePackage | null>
   stopRuntime(): Promise<unknown>
@@ -32,22 +33,22 @@ export function createUpdateController(state: UpdateState, dependencies: {
     state.error = error instanceof Error ? error.message : String(error)
     state.phase = installed ? 'installed' : 'error'
   }
-  async function check({ installAutomatically = false } = {}) {
+  async function check() {
     if (busy || installed) return
     busy = true
     state.phase = 'checking'
     state.error = ''
     state.version = state.notes = ''
     try {
-      if (update) await update.close()
+      const previous = update
       update = null
+      if (previous) await previous.close()
       update = await dependencies.check()
       state.version = update?.version ?? ''
       state.notes = update?.body ?? ''
       state.phase = update ? 'available' : 'current'
+      state.lastCheckedAt = Date.now()
     } catch (error) { fail(error) } finally { busy = false }
-    // Continue directly, without a confirmation dialog or an unlocked async gap.
-    if (installAutomatically && state.phase === 'available') await install()
   }
   async function install() {
     if (busy || !update || installed) return
@@ -79,6 +80,13 @@ export function createUpdateController(state: UpdateState, dependencies: {
   return {
     check,
     install,
+    async reset() {
+      if (busy || installed) return
+      const previous = update
+      update = null
+      state.phase = 'idle'; state.version = state.notes = state.error = ''; state.lastCheckedAt = 0
+      if (previous) await previous.close()
+    },
     async restart() {
       if (busy || !installed) return
       busy = true

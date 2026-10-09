@@ -18,4 +18,4 @@ export {
   type NetworkProviderResult,
 } from "./types.js";
 
-export { probePublicService, waitForPublicService, NetworkHealthMonitor } from "./health.js";
+export { probePublicService, waitForPublicService, NetworkHealthMonitor, PublicRouteError } from "./health.js";

@@ -7,7 +7,7 @@ import type { RuntimeConfigurationUpdate, RuntimeControl, RuntimeSnapshot, Secre
 import { browserConfiguration, DesktopProxy, desktopPlatform, nativeHelperPath } from "@micromatrix/computer-use";
 import { McpHttpService } from "@micromatrix/mcp-server";
 import {
-  NetworkHealthMonitor, probePublicService, waitForPublicService, normalizeBaseUrl,
+  NetworkHealthMonitor, PublicRouteError, probePublicService, waitForPublicService, normalizeBaseUrl,
   CloudflareNetworkProvider,
   ExternalNetworkProvider,
   FrpNetworkProvider,
@@ -122,6 +122,7 @@ export class RuntimeSupervisor implements RuntimeControl {
   #transition: Promise<void> | undefined;
   #failureCleanup: Promise<void> | undefined;
   #exitReason = "";
+  #networkWarning = "";
   readonly #mcpAuth: McpAuthStore;
   readonly #mcpControllers = new Map<string, McpExtensionController>();
   readonly #mcpCatalogs = new Map<string, readonly string[]>();
@@ -148,7 +149,8 @@ export class RuntimeSupervisor implements RuntimeControl {
       host: this.#config.host,
       port: this.#config.port,
       running: this.#running,
-      publicMcpUrl: this.#running ? (this.#network?.publicMcpUrl ?? "") : "",
+      publicMcpUrl: this.#running && !this.#networkWarning ? (this.#network?.publicMcpUrl ?? "") : "",
+      networkWarning: this.#networkWarning,
       urlMode: this.#network?.modeLabel ?? "Local",
       exitReason: this.#exitReason,
       networkProvider: this.#config.network.provider,
@@ -181,6 +183,7 @@ export class RuntimeSupervisor implements RuntimeControl {
       if (this.#failureCleanup) await this.#failureCleanup;
       if (this.#running) return;
       this.#exitReason = "";
+      this.#networkWarning = "";
       const startup = new AbortController(); this.#startingAbort = startup;
       try {
         const workspace = await stat(this.#config.workspace).catch(() => undefined);
@@ -238,7 +241,20 @@ export class RuntimeSupervisor implements RuntimeControl {
         if (startingFailure) throw startingFailure;
         startup.signal.throwIfAborted();
         const publicBaseUrl = this.#network.publicBaseUrl;
-        this.#networkHealth = new NetworkHealthMonitor(signal => probePublicService(publicBaseUrl, service.instanceId, signal), error => this.#handleNetworkFailure(error));
+        this.#networkHealth = new NetworkHealthMonitor(signal => probePublicService(publicBaseUrl, service.instanceId, signal), () => {}, 15000, {
+          keepRunningOnFailure: true,
+          onProbeResult: ({ ok, failures, error }) => {
+            if (!this.#running) return;
+            if (ok) {
+              if (this.#networkWarning) this.#logger.log("info", "Public MCP route recovered; Runtime remained running");
+              this.#networkWarning = "";
+              return;
+            }
+            const code = error instanceof PublicRouteError ? error.code : "unknown";
+            if (failures <= 3 || failures % 20 === 0) this.#logger.log(failures >= 3 ? "warn" : "debug", "Public MCP health probe failed", { failures, code, message: error?.message });
+            if (failures >= 3) this.#networkWarning = `公网探活连续失败，本地 Runtime 和 Tunnel 保持运行，正在等待恢复。${error?.message ?? ""}`;
+          },
+        });
         this.#networkHealth.start();
         this.#running = true;
         starting = false;
@@ -296,6 +312,7 @@ export class RuntimeSupervisor implements RuntimeControl {
       this.#service = undefined;
       this.#running = false;
       this.#network = undefined;
+      this.#networkWarning = "";
       this.#logger.log("info", "Pi body stopped");
     });
   }
@@ -512,6 +529,7 @@ export class RuntimeSupervisor implements RuntimeControl {
     if (!this.#running || this.#failureCleanup) return;
     this.#running = false;
     this.#network = undefined;
+    this.#networkWarning = "";
     this.#exitReason = `Network provider stopped unexpectedly: ${error.message}`;
     this.approval.resetSession();
     this.#logger.log("error", this.#exitReason);

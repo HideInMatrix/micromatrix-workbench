@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { Button } from '@/components/ui/button'
+import { FormField } from '@/components/ui/form'
 import type { UpdateState } from '../api/updateController'
+const prefix = defineModel<string>('prefix', { required: true })
 defineProps<{ version: string; update: UpdateState; native: boolean; busy: boolean; progress: number | null }>()
-defineEmits<{ check: []; install: []; restart: [] }>()
+defineEmits<{ check: []; install: []; restart: []; savePrefix: [] }>()
 </script>
 
 <template>
@@ -17,7 +19,13 @@ defineEmits<{ check: []; install: []; restart: [] }>()
       <div class="flex justify-between gap-4 border-b border-border py-2.5 text-[11px]"><span>执行核心</span><strong>Pi Agent</strong></div>
       <div class="mt-4 space-y-3 text-xs" aria-live="polite">
         <template v-if="native">
-          <p class="text-muted-foreground">启动后自动检查正式版更新，每 6 小时复查；发现新版自动下载、安装并重启，无需确认。重启后不会自动启动 Runtime。</p>
+          <p class="text-muted-foreground">启动后自动检查正式版更新，每 24 小时复查；由你决定何时下载和安装。检测更新不会停止 Runtime 或重启应用。</p>
+          <p v-if="update.lastCheckedAt" class="text-muted-foreground">上次检查：{{ new Date(update.lastCheckedAt).toLocaleString('zh-CN') }}</p>
+          <FormField label="GitHub 下载加速前缀">
+            <input v-model="prefix" :disabled="busy || update.phase === 'installed'" placeholder="留空则直连 GitHub" />
+          </FormField>
+          <Button size="sm" variant="outline" :disabled="busy || update.phase === 'installed'" @click="$emit('savePrefix')">保存前缀</Button>
+          <p class="text-muted-foreground">默认 https://cdn.gh-proxy.org/；留空关闭加速。前缀用于版本检查及安装包下载，包签名仍须通过验证。</p>
           <p v-if="update.phase === 'checking'">正在检查更新…</p>
           <p v-else-if="update.phase === 'current'">当前已是最新正式版。</p>
           <p v-else-if="update.version">新版本：<strong>{{ update.version }}</strong></p>
@@ -27,10 +35,10 @@ defineEmits<{ check: []; install: []; restart: [] }>()
           <p v-if="update.error" class="text-destructive break-words">更新失败：{{ update.error }}</p>
           <div class="flex flex-wrap gap-2">
             <Button v-if="update.phase !== 'installed'" size="sm" variant="outline" :disabled="busy" @click="$emit('check')">检查更新</Button>
-            <Button v-if="update.version && update.phase === 'error'" size="sm" :disabled="busy" @click="$emit('install')">重试更新并重启</Button>
+            <Button v-if="update.version && ['available', 'error'].includes(update.phase)" size="sm" :disabled="busy" @click="$emit('install')">{{ update.phase === 'error' ? '重试更新并重启' : '下载更新并重启' }}</Button>
             <Button v-if="update.phase === 'installed'" size="sm" @click="$emit('restart')">重启应用</Button>
           </div>
-          <p v-if="update.version" class="text-muted-foreground">下载及签名验证成功后自动停止 Runtime 与 Tunnel，再安装并重启。系统需要的管理员授权仍须完成；重启后需手动启动 Runtime。</p>
+          <p v-if="update.version" class="text-muted-foreground">点击更新后，下载及签名验证成功才停止 Runtime 与 Tunnel，再安装并重启。请先保存工作；系统授权仍须完成，重启后需手动启动 Runtime。</p>
           <details v-if="update.notes"><summary class="cursor-pointer">版本说明</summary><pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-sans text-[11px]">{{ update.notes }}</pre></details>
         </template>
         <p v-else class="text-muted-foreground">Web 页面不支持安装桌面更新，请在桌面应用中检查更新。</p>

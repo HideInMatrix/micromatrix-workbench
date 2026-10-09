@@ -8,6 +8,7 @@ import AboutView from './AboutView.vue'
 const version = ref('')
 const updater = useAppUpdater()
 onMounted(async () => {
+  void updater.loadPreferences()
   try {
     version.value = await desktopApi.appVersion()
   } catch (error) {
@@ -18,6 +19,6 @@ onMounted(async () => {
 
 <template>
   <div class="grid gap-4">
-    <AboutView :version="version" :update="updater.state" :native="updater.native" :busy="updater.busy.value" :progress="updater.progress.value" @check="updater.check" @install="updater.install" @restart="updater.restart" />
+    <AboutView v-model:prefix="updater.prefixDraft.value" :version="version" :update="updater.state" :native="updater.native" :busy="updater.busy.value" :progress="updater.progress.value" @check="updater.check" @install="updater.install" @restart="updater.restart" @save-prefix="updater.savePrefix" />
   </div>
 </template>

@@ -14,7 +14,7 @@ onMounted(() => {
   // Never replace a development shell with a production release.
   if (!updater.native || import.meta.env.DEV) return
   void updater.check()
-  updateTimer = setInterval(() => void updater.check(), 6 * 60 * 60 * 1000)
+  updateTimer = setInterval(() => void updater.check(), 24 * 60 * 60 * 1000)
 })
 onBeforeUnmount(() => { if (updateTimer) clearInterval(updateTimer) })
 

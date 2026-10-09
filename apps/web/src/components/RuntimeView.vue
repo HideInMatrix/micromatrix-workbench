@@ -11,10 +11,11 @@ const manager = useRuntimeManager()
     <header class="flex min-h-8 items-center justify-between gap-4">
       <h1 class="m-0 text-xl leading-7 font-medium tracking-[-0.02em]">Runtime</h1>
       <span role="status" :class="['rounded-full px-2.5 py-1 text-xs font-medium', manager.running.value ? 'bg-success/10 text-success' : 'bg-secondary text-muted-foreground']">
-        {{ manager.ready.value ? (manager.running.value ? '运行中' : '已停止') : '加载中' }}
+        {{ manager.ready.value ? (manager.running.value ? (manager.runtime.value?.network_warning ? '运行中 · 公网异常' : '运行中') : '已停止') : '加载中' }}
       </span>
     </header>
     <p v-if="manager.runtime.value?.exit_reason" role="alert" class="whitespace-pre-wrap text-xs text-destructive">{{ manager.runtime.value.exit_reason }}</p>
+    <p v-if="manager.runtime.value?.network_warning" role="status" class="whitespace-pre-wrap text-xs text-muted-foreground">{{ manager.runtime.value.network_warning }}</p>
 
     <div v-if="!manager.ready.value" class="flex min-h-72 flex-col items-center justify-center gap-3 rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
       <template v-if="manager.initializationError.value">

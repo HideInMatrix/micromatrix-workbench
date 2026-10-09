@@ -43,6 +43,7 @@ export interface RuntimeSnapshot {
   readonly publicMcpUrl: string;
   readonly urlMode: string;
   readonly exitReason: string;
+  readonly networkWarning?: string;
   readonly networkProvider: "external" | "cloudflare" | "frp" | "ngrok" | "tailscale";
   readonly configuredPublicUrl: string;
   readonly enableShell: boolean;
