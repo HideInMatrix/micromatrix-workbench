@@ -2,6 +2,14 @@
 
 这些约束用于阻止代码重新退化成“两套 Agent”或把安全边界散落到 UI、Tunnel 和工具实现中。
 
+## Application boundaries
+
+- `apps/web`：Vite 页面与桌面 WebView 共用的界面。
+- `apps/daemon`：Node 控制面与 MCP 执行服务。
+- `apps/desktop`：Tauri 桌面宿主，包含 Rust 生命周期管理、原生权限引导、更新器、图标和安装包配置，不实现第二套 Agent。
+
+`npm run tauri -- <command>` 显式指定桌面目录和仓库根前端工作目录；开发、打包和 CI 统一使用这一入口，不依赖 Tauri 默认目录名。
+
 ## One brain
 
 网页 AI 模型负责推理与 tool selection。本地 Runtime 不调用模型，只暴露和执行 Pi `AgentTool`。

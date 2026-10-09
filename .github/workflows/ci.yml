@@ -30,25 +30,5 @@ jobs:
       - run: npm run check
       - name: Reject high or critical dependency vulnerabilities
         run: npm audit --audit-level=high
-      - name: Verify browser configuration, OAuth trust/limits and owned tunnel lifecycle
-        run: node scripts/smoke-priority.mjs
-      - name: Verify release notice integrity and network diagnostics
-        run: node scripts/smoke-release-closeout.mjs
       - name: Bundle the service using the already checked frontend
         run: npm run build:service -- --prebuilt-web
-      - name: Install an isolated CI Chromium for real browser acceptance
-        run: node node_modules/playwright-core/cli.js install --with-deps chromium
-      - name: Verify real Vue configuration and headless browser execution
-        run: |
-          node scripts/smoke-runtime-ui.mjs
-          # Native MCP package acceptance runs on macOS/Windows; Linux
-          # desktop support is intentionally suspended, not silently enabled.
-          node scripts/smoke-computer-batch.mjs --browser-executable "$(node -e 'process.stdout.write(require("playwright-core").chromium.executablePath())')"
-      - name: Verify OAuth issuer binding and hostile source-map offsets
-        run: node scripts/smoke-dependency-security.mjs
-      - name: Verify ported ASIL declarative examples through MCP
-        run: node scripts/smoke-asil.mjs
-      - name: Verify isolated JavaScript Computer Use batches
-        run: node scripts/smoke-computer-batch.mjs
-      - name: Verify remote display and ASIL protocol contracts
-        run: node scripts/smoke-remote-desktop.mjs

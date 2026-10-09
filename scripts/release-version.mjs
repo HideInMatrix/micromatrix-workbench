@@ -48,10 +48,10 @@ export function prepareReleaseVersion(root = process.cwd(), env = process.env) {
   const read = file => readFileSync(path.join(root, file), 'utf8')
   const pkg = JSON.parse(read('package.json'))
   const lock = JSON.parse(read('package-lock.json'))
-  const tauri = JSON.parse(read('src-tauri/tauri.conf.json'))
+  const tauri = JSON.parse(read('apps/desktop/tauri.conf.json'))
   pkg.version = lock.version = lock.packages[''].version = tauri.version = version
-  const cargo = cargoVersion(read('src-tauri/Cargo.toml'), version)
-  const cargoLock = read('src-tauri/Cargo.lock')
+  const cargo = cargoVersion(read('apps/desktop/Cargo.toml'), version)
+  const cargoLock = read('apps/desktop/Cargo.lock')
   const packageVersion = /(\[\[package\]\]\r?\nname = "micromatrix-pi-mcp"\r?\nversion = )"[^"]+"/
   if (!packageVersion.test(cargoLock)) throw new Error('Cargo.lock is missing the desktop application package')
   // Resolve all inputs first. CI changes only its checkout; no git commit/tag is
@@ -59,9 +59,9 @@ export function prepareReleaseVersion(root = process.cwd(), env = process.env) {
   const updates = [
     ['package.json', `${JSON.stringify(pkg, null, 2)}\n`],
     ['package-lock.json', `${JSON.stringify(lock, null, 2)}\n`],
-    ['src-tauri/tauri.conf.json', `${JSON.stringify(tauri, null, 2)}\n`],
-    ['src-tauri/Cargo.toml', cargo],
-    ['src-tauri/Cargo.lock', cargoLock.replace(packageVersion, `$1"${version}"`)],
+    ['apps/desktop/tauri.conf.json', `${JSON.stringify(tauri, null, 2)}\n`],
+    ['apps/desktop/Cargo.toml', cargo],
+    ['apps/desktop/Cargo.lock', cargoLock.replace(packageVersion, `$1"${version}"`)],
     ['apps/daemon/src/version.ts', `// Release builds overwrite this value from the Git tag before compiling.\nexport const APP_VERSION = "${version}";\n`],
   ]
   for (const [file, contents] of updates) writeFileSync(path.join(root, file), contents)

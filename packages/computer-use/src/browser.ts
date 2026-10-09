@@ -14,7 +14,7 @@ export type BrowserConfiguration=z.infer<typeof browserConfiguration>;
 function playwright() {
   const require=createRequire(import.meta.url);
   if(!isSea()&&!process.argv[1]?.endsWith("micromatrix-service.cjs")) return require("playwright-core") as typeof import("playwright-core");
-  const directory=isSea()?path.dirname(process.execPath):path.resolve(path.dirname(process.argv[1]!),"../src-tauri/resources");
+  const directory=isSea()?path.dirname(process.execPath):path.resolve(path.dirname(process.argv[1]!),"../apps/desktop/resources");
   const root=isSea()&&path.basename(directory)==="MacOS"?path.resolve(directory,"../Resources")
     :isSea()&&path.basename(directory)==="binaries"&&/^micromatrix-service-/.test(path.basename(process.execPath))?path.resolve(directory,"../resources"):directory;
   return require(path.join(root,"automation/playwright-core/index.js")) as typeof import("playwright-core");

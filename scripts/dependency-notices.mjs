@@ -107,7 +107,7 @@ export function generateDependencyNotices(root = process.cwd(), { cargo = true, 
   for (const entry of web.packages) if (!packages.some(pkg => pkg.ecosystem === entry.ecosystem && pkg.name === entry.name && pkg.version === entry.version)) packages.push(entry)
   if (cargo) {
     const target = process.env.MICROMATRIX_BUILD_TARGET ?? `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-${process.platform === 'darwin' ? 'apple-darwin' : process.platform === 'win32' ? 'pc-windows-msvc' : 'unknown-linux-gnu'}`
-    const data = JSON.parse(execFileSync('cargo', ['metadata', '--manifest-path', path.join(root, 'src-tauri/Cargo.toml'), '--locked', '--offline', '--format-version', '1', '--filter-platform', target], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }))
+    const data = JSON.parse(execFileSync('cargo', ['metadata', '--manifest-path', path.join(root, 'apps/desktop/Cargo.toml'), '--locked', '--offline', '--format-version', '1', '--filter-platform', target], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }))
     const active = new Set(data.resolve.nodes.map(node => node.id))
     for (const pkg of data.packages) if (pkg.source && active.has(pkg.id)) {
       const directory = path.dirname(pkg.manifest_path), existing = noticeFiles(directory)

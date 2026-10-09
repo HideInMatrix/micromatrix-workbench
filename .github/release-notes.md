@@ -1,41 +1,27 @@
-# micromatrix agent v0.5.26
+# micromatrix agent v0.5.27
 
-## Remote Desktop + ASIL
+## Changes
 
-- New remote-desktop provider returns an explicitly selected display image,
-  monitor topology, visible-window layout and the foreground AX/UIA tree over
-  the existing authenticated MCP. No VM, separate VNC/RDP listener or video loop.
-- AI can combine pixels with native structure, submit approved JavaScript
-  batches, click across observed windows and independently observe the result.
-  Native semantics, single-window capture, opt-in browser and approved ASIL
-  file/command/API providers remain available.
-- Display IDs, coordinate spaces and image revisions are validated. Stale
-  actions are refused without retry; keyboard input stays in the observed
-  foreground application. Secure-field checks are not general privacy redaction.
+- Relocate the Tauri desktop host from `src-tauri` to `apps/desktop`, alongside
+  the web UI and Node service. Update development, packaging, resource paths
+  and CI cache layout; keep the existing npm commands.
+- Simplify README to the application name, purpose, installation and open-source
+  acknowledgements. Detailed architecture and Computer Use documents remain.
+- Remove project-owned test directories, smoke scripts, fixtures and test-runner
+  dependencies. CI retains compilation, dependency/license checks and release
+  signature integrity, not automated behavioral regression.
 
-## Platforms and limits
+## Compatibility and distribution
 
-- macOS 14+ full-display capture uses ScreenCaptureKit and requires Screen
-  Recording plus Accessibility for micromatrix Computer Use.app. The fixed
-  certificate-bound identity and original icon are retained; no automatic grant.
-- Windows x64 uses bounded GDI display capture and UI Automation on the unlocked
-  interactive desktop. Protected/hardware-overlay pixels may be unavailable;
-  no UAC/secure-desktop access or elevation. Linux desktop support remains off.
-- Images are at most 1280px on the longest side and 384 KiB. Window layout and
-  foreground controls are bounded, non-atomic evidence, not full application
-  internal state. Animations/clocks may trigger stale-observation refusal.
-- Local MCP/QuickJS contracts and macOS compilation/permission-denial paths
-  passed. Native build gates run on all supported release runners; positive
-  whole-display capture/input and GUI installation still need real-machine
-  acceptance. Headless checks do not claim GUI success.
-
-## Distribution
-
-- Runtime/Tunnel still start only when the user clicks Start. Retains the latest
-  public-outage handling, startup cancellation and user-controlled update flow.
-  Stable updates are checked automatically; installation is initiated in About.
-- macOS uses a long-lived self-signed certificate, not Apple notarization;
-  Windows installers are not Authenticode-signed. Updater packages are signed
-  with the dedicated Tauri key. Installer notices preserve known review limits.
-- Releases contain desktop installers, macOS updater archives, latest.json and
-  a combined checksum file. Standalone services are not public release assets.
+- Retain application identifiers, original icons, saved configuration and pinned
+  macOS/helper and updater signing identities.
+- Runtime and tunnels still start only after clicking Start. Updates are checked
+  automatically; users initiate installation from About.
+- Existing Remote Desktop + ASIL capabilities are unchanged. macOS whole-display
+  capture requires macOS 14+, Screen Recording and helper Accessibility permission.
+  Windows x64 requires an unlocked interactive desktop; Linux desktop remains off.
+- macOS uses a long-lived self-signed certificate without Apple notarization;
+  Windows installers are not Authenticode-signed. Tauri update packages retain
+  their dedicated signatures. This release does not replace real-machine testing.
+- Public releases contain desktop installers, macOS updater archives, latest.json
+  and checksums, not standalone service archives.

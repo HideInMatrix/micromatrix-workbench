@@ -16,6 +16,6 @@ const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 execFileSync(npm, ['run', 'build:sidecar'], { stdio: 'inherit', env, ...(process.platform === 'win32' ? { shell: true } : {}) })
 execFileSync(npm, ['run', 'tauri', '--', 'build', ...process.argv.slice(2)], { stdio: 'inherit', env, ...(process.platform === 'win32' ? { shell: true } : {}) })
 if (process.platform === 'darwin' && !process.argv.includes('--no-bundle')) {
-  const { productName } = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8'))
-  verifyMacosSigning(path.resolve('src-tauri/target/release/bundle/macos', `${productName}.app`), env)
+  const { productName } = JSON.parse(readFileSync('apps/desktop/tauri.conf.json', 'utf8'))
+  verifyMacosSigning(path.resolve('apps/desktop/target/release/bundle/macos', `${productName}.app`), env)
 }

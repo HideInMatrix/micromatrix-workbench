@@ -26,7 +26,7 @@ export function prepareReleaseAssets(input = path.resolve('build-artifacts'), ou
   const version = versionFromTag(tag)
   const repository = options.repository ?? process.env.GITHUB_REPOSITORY ?? 'HideInMatrix/micromatrix-workbench'
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error('Invalid release repository')
-  const publicKey = options.publicKey ?? JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8')).plugins.updater.pubkey
+  const publicKey = options.publicKey ?? JSON.parse(readFileSync(new URL('../apps/desktop/tauri.conf.json', import.meta.url), 'utf8')).plugins.updater.pubkey
   const files = readdirSync(input, { withFileTypes: true }).filter(entry => entry.isFile()).map(entry => entry.name)
   const assets = []
   const platforms = {}

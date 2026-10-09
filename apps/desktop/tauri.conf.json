@@ -1,10 +1,10 @@
 {
-  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "$schema": "../../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "micromatrix agent",
-  "version": "0.5.26",
+  "version": "0.5.27",
   "identifier": "org.micromatrix.pi-mcp",
   "build": {
-    "frontendDist": "../apps/web/dist",
+    "frontendDist": "../web/dist",
     "devUrl": "http://127.0.0.1:5173",
     "beforeDevCommand": "npm run dev:desktop",
     "beforeBuildCommand": "npm run build:web"

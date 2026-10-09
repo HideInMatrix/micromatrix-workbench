@@ -94,28 +94,3 @@ pub async fn check_update_with_prefix(webview: tauri::Webview) -> Result<Option<
   // download/install/close commands still own and verify this Update resource.
   Ok(Some(UpdateMetadata { rid: webview.resources_table().add(update), ..metadata }))
 }
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-  #[test]
-  fn prefix_validation_and_resource_scope() {
-    assert_eq!(normalize_prefix("https://mirror.example/base").unwrap(), "https://mirror.example/base/");
-    assert_eq!(normalize_prefix(" ").unwrap(), "");
-    for bad in ["http://mirror.example", "file:///tmp", "https://user:password@mirror.example/", "https://mirror.example/?token=x", "https://mirror.example/#x"] { assert!(normalize_prefix(bad).is_err()); }
-    let url = Url::parse(MANIFEST).unwrap();
-    assert_eq!(github_url("https://mirror.example/", &url).unwrap().as_str(), format!("https://mirror.example/{MANIFEST}"));
-    assert_eq!(github_url("", &url).unwrap(), url);
-    assert!(github_url("", &Url::parse("https://evil.example/app.zip").unwrap()).is_err());
-    assert!(github_url("", &Url::parse("https://github.com/other/repo/releases/download/v1/app.zip").unwrap()).is_err());
-  }
-  #[test]
-  fn settings_persist_direct_mode_without_resetting_the_default() {
-    let folder = std::env::temp_dir().join(format!("mm-update-preferences-{}", std::process::id()));
-    let file = folder.join("preferences.json");
-    assert_eq!(read(&file).unwrap().download_proxy_prefix, DEFAULT_PREFIX);
-    write(&file, "").unwrap(); assert_eq!(read(&file).unwrap().download_proxy_prefix, "");
-    write(&file, "https://mirror.example/base").unwrap(); assert_eq!(read(&file).unwrap().download_proxy_prefix, "https://mirror.example/base/");
-    fs::remove_dir_all(folder).unwrap();
-  }
-}

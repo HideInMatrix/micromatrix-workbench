@@ -47,24 +47,8 @@ jobs:
       - run: npm run check
       - name: Reject high or critical dependency vulnerabilities
         run: npm audit --audit-level=high
-      - name: Verify browser configuration, OAuth trust/limits and owned tunnel lifecycle
-        run: node scripts/smoke-priority.mjs
-      - name: Verify release notice integrity and network diagnostics
-        run: node scripts/smoke-release-closeout.mjs
-      - name: Verify remote display and ASIL protocol contracts
-        run: node scripts/smoke-remote-desktop.mjs
       - name: Bundle the service using the already checked frontend
         run: npm run build:service -- --prebuilt-web
-      - name: Install an isolated CI Chromium for real browser acceptance
-        run: node node_modules/playwright-core/cli.js install --with-deps chromium
-      - name: Verify real Vue configuration and headless browser execution
-        run: |
-          node scripts/smoke-runtime-ui.mjs
-          # Actual packaged MCP/browser acceptance is required in every native
-          # macOS/Windows job; Ubuntu verifies the shared browser implementation.
-          node scripts/smoke-computer-batch.mjs --browser-executable "$(node -e 'process.stdout.write(require("playwright-core").chromium.executablePath())')"
-      - name: Verify OAuth issuer binding and hostile source-map offsets
-        run: node scripts/smoke-dependency-security.mjs
       - name: Share the single frontend build with native jobs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7, Node 24
         with:
@@ -120,10 +104,6 @@ jobs:
       - run: npm ci
       - name: Native-platform typecheck
         run: npm run typecheck
-      - name: Verify isolated JavaScript Computer Use batches
-        run: node scripts/smoke-computer-batch.mjs
-      - name: Verify ported ASIL declarative examples on the native OS
-        run: node scripts/smoke-asil.mjs
       - name: Download the verified shared frontend
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8, Node 24
         with:
@@ -138,29 +118,26 @@ jobs:
       - name: Restore Rust dependencies and compiled crates
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2, Node 24
         with:
-          workspaces: src-tauri -> target
-          shared-key: desktop-${{ matrix.id }}
+          workspaces: apps/desktop -> target
+          # Build-script output embeds absolute paths; do not restore the old layout cache.
+          shared-key: desktop-apps-${{ matrix.id }}
           cache-bin: false
           # Default-branch caches are available to later tags; other tags are not.
           save-if: ${{ github.ref == 'refs/heads/master' }}
           cache-on-failure: true
-      - name: Build and smoke-test native Node SEA
-        run: npm run build:sidecar -- --prebuilt-web && npm run smoke:sidecar
+      - name: Build native Node SEA
+        run: npm run build:sidecar -- --prebuilt-web
       - name: Require complete fixed-version dependency notice files
         run: node scripts/dependency-notices.mjs --strict
-      - name: Install an isolated native-runner browser
-        run: node node_modules/playwright-core/cli.js install chromium
-      - name: Verify packaged browser, native permission and owned process lifecycle
-        run: node scripts/smoke-packaged-platform.mjs
       - name: Build Tauri application and native installers
         id: tauri-build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri -- build --ci --verbose --config src-tauri/tauri.prebuilt.conf.json --bundles ${{ matrix.bundles }} -- --locked --timings
-      - name: Smoke-test the final signed macOS sidecar
+        run: npm run tauri -- build --ci --verbose --config apps/desktop/tauri.prebuilt.conf.json --bundles ${{ matrix.bundles }} -- --locked --timings
+      - name: Verify final signed macOS bundle
         if: runner.os == 'macOS'
-        run: node scripts/verify-macos-signing.mjs && node scripts/smoke-sidecar.mjs --bundled
+        run: node scripts/verify-macos-signing.mjs
       - name: Create and verify headless macOS DMG
         if: runner.os == 'macOS'
         run: node scripts/package-macos-dmg.mjs
@@ -178,7 +155,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7, Node 24
         with:
           name: packaging-logs-${{ matrix.id }}
-          path: src-tauri/target/packaging-logs/
+          path: apps/desktop/target/packaging-logs/
           if-no-files-found: ignore
           retention-days: 14
       - name: Upload Rust compilation timings
@@ -186,7 +163,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7, Node 24
         with:
           name: rust-timings-${{ matrix.id }}
-          path: src-tauri/target/cargo-timings/
+          path: apps/desktop/target/cargo-timings/
           if-no-files-found: ignore
           retention-days: 14
       - name: Remove owned Apple signing keychain

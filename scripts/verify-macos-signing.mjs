@@ -9,7 +9,7 @@ import { buildChannel, macReleaseRequirement } from './build-channel.mjs'
 export function verifyMacosSigning(application, env = process.env, run = execFileSync) {
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', application], { stdio: 'inherit' })
   if (buildChannel(env) !== 'release') return
-  const identifier = JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8')).identifier
+  const identifier = JSON.parse(readFileSync(new URL('../apps/desktop/tauri.conf.json', import.meta.url), 'utf8')).identifier
   const helper = path.join(application, 'Contents/Helpers/micromatrix Computer Use.app')
   for (const [target, id] of [[application, identifier], [helper, 'org.micromatrix.computer-use']]) {
     run('/usr/bin/codesign', ['--verify', '--strict', '--test-requirement', macReleaseRequirement(env, id), target], { stdio: 'inherit' })
@@ -22,6 +22,6 @@ export function verifyMacosSigning(application, env = process.env, run = execFil
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   if (process.platform !== 'darwin') throw new Error('macOS signature verification requires macOS')
-  const config = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8'))
-  verifyMacosSigning(path.resolve('src-tauri/target/release/bundle/macos', `${config.productName}.app`))
+  const config = JSON.parse(readFileSync('apps/desktop/tauri.conf.json', 'utf8'))
+  verifyMacosSigning(path.resolve('apps/desktop/target/release/bundle/macos', `${config.productName}.app`))
 }

@@ -14,15 +14,15 @@ export async function packageMacosDmg(root = process.cwd(), {
 } = {}) {
   if (platform !== 'darwin') throw new Error('DMG packaging requires a native macOS runner')
   nativeBuildTarget(platform, arch, env.MICROMATRIX_BUILD_TARGET)
-  const config = JSON.parse(readFileSync(path.join(root, 'src-tauri/tauri.conf.json'), 'utf8'))
+  const config = JSON.parse(readFileSync(path.join(root, 'apps/desktop/tauri.conf.json'), 'utf8'))
   const version = releaseVersion(root, env)
   const name = config.productName
   if (!name || /[/\\\x00-\x1f]/.test(name) || name === '.' || name === '..') throw new Error('Unsafe application productName')
   if (config.version !== version) throw new Error('Prepare the release version before creating the DMG')
-  const bundle = path.join(root, 'src-tauri/target/release/bundle')
+  const bundle = path.join(root, 'apps/desktop/target/release/bundle')
   const application = path.join(bundle, 'macos', `${name}.app`)
   if (!existsSync(path.join(application, 'Contents/Info.plist'))) throw new Error(`Signed application is missing: ${application}`)
-  const logs = path.join(root, 'src-tauri/target/packaging-logs')
+  const logs = path.join(root, 'apps/desktop/target/packaging-logs')
   mkdirSync(logs, { recursive: true })
   const logFile = path.join(logs, 'create-dmg.log')
   function log(message) {

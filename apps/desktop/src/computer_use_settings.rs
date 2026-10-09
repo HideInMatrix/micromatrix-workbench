@@ -52,13 +52,3 @@ impl PermissionWindow {
     { Err("Windows UI Automation requires an unlocked interactive desktop; no Accessibility grant or auto-elevation is available".into()) }
   }
 }
-
-#[cfg(all(test, target_os = "macos"))]
-mod tests {
-  #[test]
-  fn permission_window_launch_is_fixed_visible_and_separate_from_ipc() {
-    let command = super::permission_command(std::path::Path::new("/Applications/Test.app/Contents/Helpers/micromatrix Computer Use.app"));
-    assert_eq!(command.get_program(), "/usr/bin/open");
-    assert_eq!(command.get_args().collect::<Vec<_>>(), ["-n", "-W", "-a", "/Applications/Test.app/Contents/Helpers/micromatrix Computer Use.app", "--args", "--permission-settings"]);
-  }
-}

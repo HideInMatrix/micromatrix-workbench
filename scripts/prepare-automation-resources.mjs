@@ -10,7 +10,7 @@ export function prepareAutomationResources(root=process.cwd()) {
   const source=path.dirname(require.resolve('playwright-core/package.json'))
   const manifest=JSON.parse(readFileSync(path.join(source,'package.json'),'utf8'))
   if(manifest.version!=='1.63.0') throw Error('Unexpected Playwright runtime version; review resource binding before packaging')
-  const destination=path.join(root,'src-tauri/resources/automation/playwright-core')
+  const destination=path.join(root,'apps/desktop/resources/automation/playwright-core')
   rmSync(destination,{recursive:true,force:true});mkdirSync(path.dirname(destination),{recursive:true})
   cpSync(source,destination,{recursive:true,dereference:true})
   return destination

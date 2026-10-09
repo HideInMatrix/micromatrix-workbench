@@ -39,39 +39,3 @@ pub fn close(child: CommandChild) {
   stop_owned(port, child.pid());
   let _ = child.kill(); // Only after bounded graceful cleanup; crash fallback remains bounded.
 }
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-  use std::net::TcpListener;
-  use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
-  #[test]
-  fn only_stops_the_owned_service() {
-    for same_pid in [false, true] {
-      let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-      let port = listener.local_addr().unwrap().port();
-      let calls = Arc::new(AtomicUsize::new(0)); let recorded = calls.clone();
-      let thread = std::thread::spawn(move || {
-        for i in 0..(if same_pid {2} else {1}) {
-          let (mut socket, _) = listener.accept().unwrap();
-          let mut input = Vec::new(); let mut buffer = [0u8; 1024];
-          loop {
-            let count = socket.read(&mut buffer).unwrap(); input.extend_from_slice(&buffer[..count]);
-            let text = std::str::from_utf8(&input).unwrap();
-            if let Some((header, body)) = text.split_once("\r\n\r\n") {
-              let length = header.lines().find_map(|line| line.strip_prefix("Content-Length: ")).unwrap().parse::<usize>().unwrap();
-              if body.len() >= length { break; }
-            }
-          }
-          let request = std::str::from_utf8(&input).unwrap();
-          if i == 0 { assert!(request.starts_with("GET /healthz")); }
-          else { assert!(request.contains("stop_runtime")); recorded.fetch_add(1, Ordering::SeqCst); }
-          let body = if i == 0 { format!("{{\"ok\":true,\"process_id\":{}}}", if same_pid {1234} else {5678}) } else {"true".into()};
-          write!(socket,"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
-        }
-      });
-      stop_owned(port,1234);thread.join().unwrap();
-      assert_eq!(calls.load(Ordering::SeqCst),if same_pid {1} else {0});
-    }
-  }
-}

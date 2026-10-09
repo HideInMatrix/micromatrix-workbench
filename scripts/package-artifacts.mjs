@@ -33,11 +33,11 @@ export function packageArtifacts(root = process.cwd(), env = process.env) {
   const version = releaseVersion(root, env)
   const profile = `${{ darwin: 'macos', win32: 'windows' }[process.platform]}-${process.arch}`
   const extension = process.platform === 'win32' ? '.exe' : ''
-  const service = path.join(root, 'src-tauri/binaries', `micromatrix-service-${target}${extension}`)
+  const service = path.join(root, 'apps/desktop/binaries', `micromatrix-service-${target}${extension}`)
   if (!existsSync(service)) throw new Error(`Build the sidecar before packaging: ${service}`)
-  const cloudflared = path.join(root, 'src-tauri/binaries', `cloudflared-${target}${extension}`)
+  const cloudflared = path.join(root, 'apps/desktop/binaries', `cloudflared-${target}${extension}`)
   if (!existsSync(cloudflared)) throw new Error(`Missing bundled cloudflared: ${cloudflared}`)
-  const bundleRoot = path.join(root, 'src-tauri/target/release/bundle')
+  const bundleRoot = path.join(root, 'apps/desktop/target/release/bundle')
   const installers = collectInstallers(bundleRoot, process.platform)
   const updaterFiles = process.platform === 'darwin'
     ? readdirSync(path.join(bundleRoot, 'macos')).filter(name => name.endsWith('.app.tar.gz')).map(name => path.join(bundleRoot, 'macos', name))
@@ -58,21 +58,21 @@ export function packageArtifacts(root = process.cwd(), env = process.env) {
   // saved OAuth credentials, user workspaces or other repository state.
   copyFileSync(service, path.join(serviceDirectory, `micromatrix-service${extension}`))
   copyFileSync(cloudflared, path.join(serviceDirectory, `cloudflared${extension}`))
-  const automation=path.join(root,'src-tauri/resources/automation')
+  const automation=path.join(root,'apps/desktop/resources/automation')
   if(!existsSync(path.join(automation,'playwright-core/index.js')))throw new Error('Missing bundled Playwright runtime; rebuild the service')
   cpSync(automation,path.join(serviceDirectory,'automation'),{recursive:true})
   if (process.platform === 'darwin') {
-    const application = path.join(root, 'src-tauri/binaries/micromatrix Computer Use.app')
+    const application = path.join(root, 'apps/desktop/binaries/micromatrix Computer Use.app')
     if (!existsSync(path.join(application, 'Contents/MacOS/micromatrix-computer'))) throw new Error('Missing bundled Computer Use application')
     // Preserve the signed bundle in internal Actions archives too. The macOS
     // service now launches this application, not the intermediate bare helper.
     execFileSync('/usr/bin/ditto', [application, path.join(serviceDirectory, 'micromatrix Computer Use.app')], { stdio: 'inherit' })
   } else if (process.platform === 'win32') {
-    const computer = path.join(root, 'src-tauri/binaries', `micromatrix-computer-${target}${extension}`)
+    const computer = path.join(root, 'apps/desktop/binaries', `micromatrix-computer-${target}${extension}`)
     if (!existsSync(computer)) throw new Error('Missing bundled Computer Use native helper')
     copyFileSync(computer, path.join(serviceDirectory, `micromatrix-computer${extension}`))
   }
-  cpSync(path.join(root, 'src-tauri/resources/notices/dependencies'), path.join(serviceDirectory, 'notices/dependencies'), { recursive: true })
+  cpSync(path.join(root, 'apps/desktop/resources/notices/dependencies'), path.join(serviceDirectory, 'notices/dependencies'), { recursive: true })
   copyFileSync(nodeLicense, path.join(serviceDirectory, 'NODE_LICENSE'))
   for (const [source, destination] of [
     ['README.md', 'README.md'], ['.env.example', '.env.example'],

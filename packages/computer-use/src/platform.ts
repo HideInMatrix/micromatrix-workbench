@@ -42,8 +42,8 @@ export function nativeHelperPath(platform = desktopPlatform(), arch = process.ar
         ? path.join(directory, "../Helpers/micromatrix Computer Use.app")
         : path.join(directory, "micromatrix Computer Use.app");
     }
-    if (process.argv[1]?.endsWith("micromatrix-service.cjs")) return path.resolve(path.dirname(process.argv[1]), "../src-tauri/binaries/micromatrix Computer Use.app");
-    return fileURLToPath(new URL("../../../src-tauri/binaries/micromatrix Computer Use.app", import.meta.url));
+    if (process.argv[1]?.endsWith("micromatrix-service.cjs")) return path.resolve(path.dirname(process.argv[1]), "../apps/desktop/binaries/micromatrix Computer Use.app");
+    return fileURLToPath(new URL("../../../apps/desktop/binaries/micromatrix Computer Use.app", import.meta.url));
   }
   if (isSea()) {
     const name = path.basename(process.execPath);
@@ -54,6 +54,6 @@ export function nativeHelperPath(platform = desktopPlatform(), arch = process.ar
   const triple = ({ x64: "x86_64-pc-windows-msvc" } as Record<string,string>)[arch];
   if (!triple) fail("UNSUPPORTED_PLATFORM", `Computer Use native helper does not support ${platform.os}/${arch}`);
   const binary = `micromatrix-computer-${triple}${ext}`;
-  if (process.argv[1]?.endsWith("micromatrix-service.cjs")) return path.resolve(path.dirname(process.argv[1]), `../src-tauri/binaries/${binary}`);
-  return fileURLToPath(new URL(`../../../src-tauri/binaries/${binary}`, import.meta.url));
+  if (process.argv[1]?.endsWith("micromatrix-service.cjs")) return path.resolve(path.dirname(process.argv[1]), `../apps/desktop/binaries/${binary}`);
+  return fileURLToPath(new URL(`../../../apps/desktop/binaries/${binary}`, import.meta.url));
 }

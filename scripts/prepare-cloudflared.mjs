@@ -44,7 +44,7 @@ export async function prepareCloudflared(root = process.cwd()) {
       renameSync(pending, archive)
     } finally { rmSync(pending, { force: true }) }
   }
-  const output = path.join(root, 'src-tauri/binaries', `cloudflared-${target}${process.platform === 'win32' ? '.exe' : ''}`)
+  const output = path.join(root, 'apps/desktop/binaries', `cloudflared-${target}${process.platform === 'win32' ? '.exe' : ''}`)
   const temporary = mkdtempSync(path.join(os.tmpdir(), 'mm-cloudflared-'))
   try {
     mkdirSync(path.dirname(output), { recursive: true })

@@ -12,7 +12,7 @@ export function prepareComputerUse(root = process.cwd()) {
   const identity = windows ? null : macSigningIdentity()
   const source = path.join(root, `packages/computer-use/native/${windows ? 'windows.cs' : 'macos.swift'}`)
   const manifest = path.join(root, 'packages/computer-use/native/windows.manifest')
-  const output = path.join(root, `src-tauri/binaries/micromatrix-computer-${triple}${windows ? '.exe' : ''}`)
+  const output = path.join(root, `apps/desktop/binaries/micromatrix-computer-${triple}${windows ? '.exe' : ''}`)
   mkdirSync(path.dirname(output), { recursive: true })
   const buildScript = fileURLToPath(import.meta.url)
   const inputs = windows ? [source, manifest, buildScript] : [source, buildScript]
@@ -34,12 +34,12 @@ export function prepareComputerUse(root = process.cwd()) {
     }
   }
   if (!windows) {
-    const application = path.join(root, 'src-tauri/binaries/micromatrix Computer Use.app')
+    const application = path.join(root, 'apps/desktop/binaries/micromatrix Computer Use.app')
     const contents = path.join(application, 'Contents')
     mkdirSync(path.join(contents, 'MacOS'), { recursive: true })
     mkdirSync(path.join(contents, 'Resources'), { recursive: true })
     copyFileSync(output, path.join(contents, 'MacOS/micromatrix-computer'))
-    copyFileSync(path.join(root, 'src-tauri/icons/icon.icns'), path.join(contents, 'Resources/icon.icns'))
+    copyFileSync(path.join(root, 'apps/desktop/icons/icon.icns'), path.join(contents, 'Resources/icon.icns'))
     const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version
     writeFileSync(path.join(contents, 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>

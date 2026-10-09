@@ -11,7 +11,6 @@ secret redaction and mapping into the existing Pi/MCP approval/runtime contract.
 Upstream code is Apache-2.0; the complete license accompanies this notice.
 Upstream DATA_LICENSE describes the separate CC BY 4.0 data/documentation terms.
 
-softwaregen-examples/ contains unchanged upstream example JSON files, not a new
-application integration or a redistribution of benchmark/training datasets.
-Regressions explicitly rebind the Python reference command to a pinned Node
-fixture. No upstream Python runtime, agent loop or training code is bundled.
+Upstream example/fixture JSON files are not retained in this distribution.
+No upstream Python runtime, agent loop, training code or benchmark datasets
+are bundled. The ported modules and their source/license attribution remain.

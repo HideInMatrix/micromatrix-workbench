@@ -6,10 +6,10 @@ import os from 'node:os'
 import { buildChannel, macSigningIdentity, validateMacosCertificate } from './build-channel.mjs'
 
 // Owned temporary keychain only; no login/default keychain or trust changes.
-// CI imports once across job steps. Explicit local build/probe cleans in finally.
+// CI imports once across job steps. Explicit local build cleans in finally.
 const action = process.argv[2]
-const local = ['build', 'probe'].includes(action)
-if (process.platform !== 'darwin' || (!local && (process.env.GITHUB_ACTIONS !== 'true' || !process.env.RUNNER_TEMP))) throw new Error('Use a macOS Actions runner, or explicit local build/probe')
+const local = action === 'build'
+if (process.platform !== 'darwin' || (!local && (process.env.GITHUB_ACTIONS !== 'true' || !process.env.RUNNER_TEMP))) throw new Error('Use a macOS Actions runner, or explicit local build')
 const env = { ...process.env }
 if (local) {
   const directory = path.resolve('.local/macos-signing')
@@ -86,12 +86,12 @@ if (action === 'cleanup') {
     delete env.APPLE_ID; delete env.APPLE_PASSWORD; delete env.APPLE_TEAM_ID
     delete env.APPLE_API_KEY; delete env.APPLE_API_ISSUER; delete env.APPLE_API_KEY_PATH
     try {
-      execFileSync(process.execPath, [action === 'probe' ? 'scripts/smoke-macos-signing.mjs' : 'scripts/build-desktop.mjs', ...(action === 'build' ? process.argv.slice(3) : [])], { stdio: 'inherit', env })
+      execFileSync(process.execPath, ['scripts/build-desktop.mjs', ...process.argv.slice(3)], { stdio: 'inherit', env })
     } finally {
       cleanup()
       rmSync(temporary, { recursive: true, force: true })
     }
   }
 } else {
-  throw new Error('Use import/cleanup in CI, or build/probe locally')
+  throw new Error('Use import/cleanup in CI, or build locally')
 }

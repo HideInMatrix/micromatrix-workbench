@@ -3,6 +3,14 @@ dist/
 dist-types/
 coverage/
 **/tests/
+**/test/
+**/__tests__/
+**/__snapshots__/
+**/test-results/
+**/playwright-report/
+*.test.*
+*.spec.*
+vitest.config.*
 *.tsbuildinfo
 
 .env
@@ -18,6 +26,6 @@ coverage/
 /.micromatrix-workbench/
 /.tmp-nvmd-ci/
 /.pnpm-store/
-src-tauri/binaries/
-src-tauri/resources/notices/
-src-tauri/resources/automation/
+apps/desktop/binaries/
+apps/desktop/resources/notices/
+apps/desktop/resources/automation/

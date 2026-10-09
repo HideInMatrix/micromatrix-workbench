@@ -23,7 +23,7 @@ export function prepareDesktopResources(root = process.cwd()) {
   }
   const inventory = path.join(root, 'dist/dependency-notices')
   if (!existsSync(path.join(inventory, 'DEPENDENCIES.json'))) throw new Error('Dependency notice inventory is missing; rebuild the service first')
-  const output = path.join(root, 'src-tauri/resources/notices')
+  const output = path.join(root, 'apps/desktop/resources/notices')
   rmSync(output, { recursive: true, force: true })
   mkdirSync(output, { recursive: true })
   for (const [source, name] of sources) copyFileSync(source, path.join(output, name))

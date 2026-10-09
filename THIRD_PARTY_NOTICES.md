@@ -8,7 +8,7 @@
 - Code license: Apache-2.0
 - Changes: TS/Zod port of softwaregen contracts, declarative mapping, audit and deterministic generation; product-specific permission grants and bounded transports.
 
-Upstream license, data terms and attribution/modification notice are retained at `third_party/asil/` and included in desktop/internal service distributions. The reviewed JSON examples are preserved separately for regression; no upstream Python Agent/runtime or benchmark dataset is shipped.
+Upstream license, data terms and attribution/modification notice are retained at `third_party/asil/` and included in desktop/internal service distributions. Upstream JSON examples/fixtures are not retained; no upstream Python Agent/runtime or benchmark dataset is shipped.
 
 ## Pi Agent Harness
 

@@ -93,7 +93,7 @@ return {execution:r.execution, verification:r.verification, meta:r.observation.m
 
 整屏采集会包含其他可见窗口与系统 UI 的私密信息。只对已暴露的前台安全控件执行拒绝，不声称完整 DLP。macOS 14+ 使用 ScreenCaptureKit，需同一 helper 的辅助功能和屏幕录制权限；Windows 使用 GDI 显示器复制，捕获分配上限 16,777,216 源像素，受保护或硬件 overlay 内容可能缺失。输出仍限制到最长边 1280px / 384 KiB，必要时选择单窗口或原生语义通道。多屏逐一显式观察；隐藏、被遮挡或软件内部数据不能由像素完整恢复。
 
-本次交付是按需远程帧 + ASIL，不包含实时视频预览/人工接管 UI。复用当前 Pi 审批，依然在真实用户桌面执行；没有额外 OS 或后台常驻帧缓存。`npm run smoke:remote-desktop` 验证真实 SDK/QuickJS/image 合同，其原生后端明确使用测试替身，不能替代 macOS/Windows 整屏实机验收。
+本次交付是按需远程帧 + ASIL，不包含实时视频预览/人工接管 UI。复用当前 Pi 审批，依然在真实用户桌面执行；没有额外 OS 或后台常驻帧缓存。整屏采集和输入仍须 macOS/Windows 实机验收，编译通过不能证明控制任务成功。
 
 ### 可选浏览器接入
 
@@ -214,8 +214,6 @@ CLI probe 只读，不支持动作旗标。程序 API 的 `probeExtension` 仅�
 修改配置时先停止 Runtime；配置和启用开关不会读取目标状态、启动 MCP/目标程序/Tunnel 或弹出 OS 权限。点击启动后才加载；再在网页端刷新工具，通过 `computer_capabilities → computer_targets → computer_observe → computer_validate → computer_act` 使用。独立 MCP 配置也可显式传入 `--asil-registry ABSOLUTE_FILE`，配合已有环境引用和 `--allow-actions`。未启用控制始终只读。
 
 ### 验收与后续任务
-
-`npm run smoke:asil` 使用保留的官方 file_backed / native_script JSON 样例，明确将上游 Python 示例命令重绑定到隔离且哈希固定的 Node fixture；通过真实 MCP SDK、子进程和普通 Gitea-compatible HTTP 路由验证映射与修改。API 样例按官方 Gitea Profile 人工构造 Plan，验证仓库对象数量 `2 → 3 → 2` 并恢复原始内容；没有连接真实 Gitea 或运行 Blender。回归涵盖 marker 保留、只读、旧 token、外部状态变化、软件级目标、参数类型/白名单、注册表和脚本哈希、路径逃逸、重定向、输出限制、超时及取消；CI 和 macOS/Windows 构建矩阵使用同一入口。不把本机 Node 测试当成 Windows 实机 GUI 验收。
 
 后续优先验收通用批量执行和混合通道的 macOS/Windows 实机交互，再完善浏览器配置 UI；SVG/ODF、原生脚本、活跃 GUI 同步与适配包管理是可选结构化增强。官方 BlenderAdapter 的 `blender --background --python` 操作保存的 `.blend` 文件，本轮没有复制成“控制当前未保存窗口”的承诺；软件原生解释器与产品级 Python 服务是两回事。AX/UIA 仍不代表完整软件状态；通用视觉回退必须显式选择，Linux 客户端仍不支持。
 
@@ -363,21 +361,21 @@ npm run typecheck
 npm run prepare:computer-use  # 编译当前系统 helper；Linux 拒绝
 npm run dev:computer-use     # stdio MCP，默认只读，需 MCP Client 连接
 npm run dev:computer-use -- --allow-actions --workspace /absolute/path/to/workspace
-npm run check:sidecar        # SEA、Pi 接入与临时 JSON 的真实冒烟
+npm run build:sidecar        # 构建当前系统 SEA 与资源
 ```
 
-QuickJS WASM 嵌入 SEA；Playwright 静态 JS/资源/许可随桌面包放在 automation/playwright-core，不含浏览器。服务启动不安装依赖。Windows 编译使用系统 .NET Framework 4.8 的 csc/WPF/System.Drawing 引用，产物是固定 .exe，不在使用时运行 PowerShell 或编译模型代码。桌面构建自动准备当前 OS helper，经 tauri.macos.conf.json / tauri.windows.conf.json 加入应用；macOS 不引用 Windows .exe，Windows 不引用 Swift 二进制。scripts/smoke-computer-use.mjs 用 SDK 连接真实 SEA，保留随机 marker、修改 JSON、运行真实嵌入式 JS 批量代码、验证回读、拒绝旧 ID；macOS 只检查权限，不请求授权或操控用户桌面。Windows SEA 冒烟同样握手并检查原生桌面状态，在非交互 runner 上验证拒绝路径，不伪造 GUI 成功。既有 macOS smoke-sidecar --bundled 验证最终包内 helper 定位/执行与 Pi 注册。
+QuickJS WASM 嵌入 SEA；Playwright 静态 JS/资源/许可随桌面包放在 automation/playwright-core，不含浏览器。服务启动不安装依赖。Windows 编译使用系统 .NET Framework 4.8 的 csc/WPF/System.Drawing 引用，产物是固定 .exe，不在使用时运行 PowerShell 或编译模型代码。桌面构建自动准备当前 OS helper，经 tauri.macos.conf.json / tauri.windows.conf.json 加入应用；macOS 不引用 Windows .exe，Windows 不引用 Swift 二进制。发布时保留许可证、最终代码签名及升级包签名检查，不启动 GUI fixture、浏览器会话或模拟 MCP 动作。
 
-本地回归包括只读拒绝、审批拒绝不写入、过期/外部修改/重复执行、非法参数/越界/敏感文件、Pi 注册与清理、Vue 表单保存不启动。tests/ 按项目要求继续 Git 忽略；随源码保留的 SEA 冒烟继续在 CI 执行。
+项目不保留测试目录、smoke 脚本、fixture 或测试运行器；CI/发布仅执行类型检查、构建和发布完整性校验。
 
 ## 验收边界与后续
 
 授权交互参考 [OpenAI Work with Apps](https://help.openai.com/en/articles/10119604-work-with-apps-on-macos) 的启用/检查/引导方式和 [Apple 辅助功能授权说明](https://support.apple.com/guide/mac-help/allow-accessibility-apps-to-access-your-mac-mh43185/mac)，不是复刻其闭源实现或宣称支持其全部应用。
 
-- 本轮未申请新系统权限或操作用户桌面。macOS Swift 与 Windows C#5/.NET4.8 交叉编译通过；原生视觉路由回归使用明确的双平台测试替身，不能代替实机截图、DPI、TCC 或键鼠验收。真实隔离 Chromium 已完成 DOM/ARIA/截图 + JS fill/click/回读及跨域拒绝。`npm run smoke:computer-batch` 默认不启动浏览器；传 `--browser-executable ABSOLUTE_CHROME` 才创建隔离 headless 测试会话，不访问用户 profile。
+- macOS/Windows 的编译或打包成功不等于真实截图、DPI、TCC、键鼠或浏览器控制验收通过。操作需要用户授权及独立观察，不能把动作回执当作任务成功。
 - UI 文本/文档是不可信数据而非指令。敏感字段/命名值脱敏不是完整 DLP，普通标签和文本仍可能包含私密数据；只观察授权应用，公网保持认证与审批。
 - 路径校验、revision 和原子写入不是 OS 沙箱，不能完全消除本机恶意进程 TOCTOU race。
 - AX/UIA、DOM 与视觉是互补来源，不保证任意软件都能暴露完整内部数据。模型选通道，执行器不替它猜测任务；深层接口仍通过批准 Provider 归一化，不在核心按软件名称硬编码，也不靠宿主“万能 eval”。
 - 自定义适配器当前由产品源码实现并打包，不自动执行 Workspace 中未经审查的 TS 插件。
 
-两项原有高危依赖告警已修复：MCP SDK 升级到 1.32.1，source-map-js 固定到 1.2.2；`npm audit` 为 0。外部 MCP OAuth 凭据必须保留 SDK 的授权服务器 issuer 绑定；旧的无绑定凭据自动清除，需重新登录一次，其他秘密配置保留。CI 与发布验证实际 SDK 的 CIMD/PKCE、重启后 refresh、授权服务器切换不泄露旧 refresh token，以及有界子进程中的恶意 sourcemap offset。[SDK advisory](https://github.com/advisories/GHSA-6qxp-vccf-f47h)、[source-map-js advisory](https://github.com/advisories/GHSA-68fv-2mgg-jv7q)。
+两项原有高危依赖告警已修复：MCP SDK 升级到 1.32.1，source-map-js 固定到 1.2.2；`npm audit` 为 0。外部 MCP OAuth 凭据必须保留 SDK 的授权服务器 issuer 绑定；旧的无绑定凭据自动清除，需重新登录一次，其他秘密配置保留。CI 保留依赖漏洞扫描，但不再运行 OAuth 或 sourcemap 的功能回归；既有 issuer 绑定与输入限制继续由产品代码执行。[SDK advisory](https://github.com/advisories/GHSA-6qxp-vccf-f47h)、[source-map-js advisory](https://github.com/advisories/GHSA-68fv-2mgg-jv7q)。
