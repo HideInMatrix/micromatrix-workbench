@@ -74,6 +74,37 @@ try {
     await page.screenshot({ path: process.env.MM_SMOKE_UI_SCREENSHOT })
   }
   console.log('PASS: real packaged Vue UI + control service: save/deduplicate/persist/reload, reject remote endpoint without losing draft, clear, no Runtime/helper/browser startup')
+
+  // Loopback API contract fixture: hold Start like an unreachable public health
+  // check. Keep the real bundled UI; never start the user's or fixture's tunnel.
+  let releaseStart, notifyStart, startRequested = false, stopRequested = false
+  const heldStart = new Promise(resolve => { releaseStart = resolve })
+  const startArrived = new Promise(resolve => { notifyStart = resolve })
+  await page.route(base + '/api/desktop', async route => {
+    const method = route.request().postDataJSON()?.method
+    if (method === 'configure_runtime' || method === 'stop_runtime') {
+      if (method === 'stop_runtime') stopRequested = true
+      await route.fulfill({ json: services })
+      if (method === 'stop_runtime') releaseStart()
+    } else if (method === 'start_runtime') {
+      startRequested = true
+      notifyStart()
+      await heldStart
+      // Cancellation aborts this browser request; tolerate that closed route.
+      try { await route.fulfill({ json: { ...services, running: true } }) } catch {}
+    } else await route.continue()
+  })
+  await page.goto(base + '/#/runtime')
+  await page.getByRole('button', { name: '启动', exact: true }).click()
+  const cancel = page.getByRole('button', { name: '取消启动', exact: true })
+  await cancel.waitFor(); assert.equal(await cancel.isEnabled(), true)
+  await startArrived
+  await cancel.click()
+  await page.getByText('Runtime 已停止。', { exact: true }).waitFor()
+  await page.getByRole('button', { name: '启动', exact: true }).waitFor()
+  assert.ok(startRequested && stopRequested)
+  assert.deepEqual(errors, [])
+  console.log('PASS: bundled Runtime UI cancels held startup via local Stop, unlocks controls and ignores late startup success (API contract fixture, not physical WAN disconnect)')
 } finally {
   await browser?.close()
   if (child && child.exitCode === null && child.signalCode === null) {

@@ -32,6 +32,7 @@ const manager = useRuntimeManager()
       :locked="manager.locked.value"
       :busy="manager.busy.value"
       :lifecycle-busy="manager.lifecycleBusy.value"
+      :lifecycle-action="manager.lifecycleAction.value"
       :selected-running="manager.running.value"
       :copied-url="manager.copiedUrl.value"
       :runtime-url="manager.runtimeUrl.value"

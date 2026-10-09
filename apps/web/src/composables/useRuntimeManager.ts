@@ -21,6 +21,9 @@ const initializing = ref(false)
 const initializationError = ref('')
 const busy = ref(false)
 const lifecycleBusy = ref(false)
+const lifecycleAction = ref<'start' | 'stop' | null>(null)
+let lifecycleSequence = 0
+let startupAbort: AbortController | null = null
 const copiedUrl = ref('')
 const tunnelTokenVisible = ref(false)
 const oauthPasswordVisible = ref(false)
@@ -33,8 +36,11 @@ export function useRuntimeManager() {
   const locked = computed(() => running.value || lifecycleBusy.value || busy.value || updateInstallationLocked.value)
 
   async function refreshRuntime() {
+    const previous = runtime.value
+    const sequence = lifecycleSequence
     const wasRunning = Boolean(runtime.value?.running)
     const updated = await desktopApi.runtime()
+    if (sequence !== lifecycleSequence || runtime.value !== previous) return
     runtime.value = updated
     if (wasRunning && !updated.running && updated.exit_reason) {
       toast.error(updated.exit_reason, { id: 'runtime-unexpected-exit' })
@@ -79,22 +85,42 @@ export function useRuntimeManager() {
   }
 
   async function toggleRunning() {
-    if (busy.value || lifecycleBusy.value || updateInstallationLocked.value) return
+    const stopping = running.value || lifecycleAction.value === 'start'
+    if (busy.value || lifecycleAction.value === 'stop' || (!stopping && updateInstallationLocked.value)) return
+    const sequence = ++lifecycleSequence
+    lifecycleAction.value = stopping ? 'stop' : 'start'
     lifecycleBusy.value = true
+    if (stopping) startupAbort?.abort()
+    else startupAbort = new AbortController()
     try {
-      if (running.value) {
-        runtime.value = await desktopApi.stopRuntime()
+      let updated: RuntimeDto
+      if (stopping) {
+        updated = await desktopApi.stopRuntime()
       } else {
         await persistDraft()
-        runtime.value = await desktopApi.startRuntime()
+        if (sequence !== lifecycleSequence) return
+        updated = await desktopApi.startRuntime(startupAbort!.signal)
       }
+      if (sequence !== lifecycleSequence) return
+      runtime.value = updated
       if (runtime.value) draft.value = runtimeDraft(runtime.value, draft.value)
       toast.success(runtime.value?.running ? 'Runtime 已启动。' : 'Runtime 已停止。')
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error))
+      if (sequence !== lifecycleSequence) return
+      toast.error(error instanceof Error && error.name === 'TimeoutError'
+        ? '本机启停请求超时，结果尚未确认；正在重新读取状态。'
+        : error instanceof Error ? error.message : String(error))
+      // Aborting fetch alone does not cancel the server's startup transaction.
+      if (!stopping) {
+        try { await desktopApi.stopRuntime() } catch { /* status remains authoritative */ }
+      }
       try { await refreshRuntime() } catch { /* preserve the original error */ }
     } finally {
-      lifecycleBusy.value = false
+      if (sequence === lifecycleSequence) {
+        lifecycleBusy.value = false
+        lifecycleAction.value = null
+        startupAbort = null
+      }
     }
   }
 
@@ -118,7 +144,7 @@ export function useRuntimeManager() {
       await initialize()
       return
     }
-    if (busy.value || lifecycleBusy.value) return
+    if (busy.value) return
     try { await refreshRuntime() } catch { /* transient polling failure */ }
   }
 
@@ -175,6 +201,7 @@ export function useRuntimeManager() {
     initializationError,
     busy,
     lifecycleBusy,
+    lifecycleAction,
     copiedUrl,
     tunnelTokenVisible,
     oauthPasswordVisible,

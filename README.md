@@ -47,6 +47,8 @@ npm run dev:desktop
 
 应用启动只加载配置并启动控制 API，**不会自动运行 Runtime 或 Tunnel**。旧配置的 `enabled` 和旧环境变量 `MICROMATRIX_ENABLED` 不再生效；未完成的 Tunnel 配置不会在打开应用时执行或反复报错。配置保存失败会保留原配置和工具；启动失败不会清空工具。
 
+启动等待 Tunnel 公网探活时可以点击“取消启动”，通过本机控制 API 中断启动并清理资源；启停期间继续读取实际状态。停止请求最多等待 20 秒，超时会说明结果尚未确认并刷新状态，不把超时当作停止成功。更新下载锁定启动和配置时，仍允许停止正在运行的 Runtime。
+
 桌面 UI 会先等待控制服务就绪，再加载配置；这不是启动 MCP 或 Tunnel。sidecar 无法启动或退出时，页面显示具体诊断和“重新加载配置”，不再只显示 `Load failed` 或无限等待。软件名为 `micromatrix agent`；桌面 PNG/ICO/ICNS 使用旧版提供的原图标，侧栏标识保持不变。为保留现有配置，应用 identifier 与配置目录不改名。
 
 SEA 中 Pi 的资源目录默认固定在可执行文件所在目录，不向上扫描源码目录寻找 `package.json`；避免尚未点击启动就触发工作目录/Documents 的读取授权。显式配置的 `PI_PACKAGE_DIR` 仍保留。

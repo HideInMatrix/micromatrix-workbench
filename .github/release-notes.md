@@ -1,9 +1,21 @@
-# micromatrix agent v0.5.23
+# micromatrix agent v0.5.24
 
 Normal version tags publish automatically as stable releases and GitHub Latest;
 tags with a prerelease suffix remain prereleases. Review the known limitations
 and the release-readiness report before using these packages. A stable release
 label does not imply production signing or that all security work is complete.
+
+- Fix Runtime cancellation while startup is waiting for public Tunnel health:
+  the button now offers Cancel Start and sends Stop to the local control service.
+  Late startup responses cannot restore a Runtime that the user has stopped.
+- Local Stop requests have a 20-second deadline; timeout reports an unconfirmed
+  result and refreshes actual Runtime state rather than leaving the button locked.
+  State polling continues during Start/Stop, and update downloads no longer
+  prevent stopping existing work. An unreachable local control service still
+  reports a connection error; timeout does not claim successful cleanup.
+- Isolated offline startup and in-flight health-probe cancellation, lifecycle
+  races and control request deadlines passed seven focused regression tests.
+  This is not a claim of physical network-disconnect acceptance on every OS.
 
 - v0.5.21 was blocked before packaging by an Ubuntu CI attempt to start the
   unsupported native Linux MCP. v0.5.22 keeps real UI/browser checks on Ubuntu

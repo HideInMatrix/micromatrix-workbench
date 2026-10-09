@@ -49,13 +49,18 @@ async function waitForDesktopControl() {
 }
 
 async function call<T>(method: string, ...args: unknown[]): Promise<T> {
+  return request<T>(method, args)
+}
+
+async function request<T>(method: string, args: unknown[], signal?: AbortSignal): Promise<T> {
   await waitForDesktopControl()
   const request: DesktopApiRequest = { method, args }
+  const timeout = AbortSignal.timeout(method === 'start_runtime' ? 120_000 : method === 'stop_runtime' ? 20_000 : method === 'list_permission_requests' ? 5000 : 60_000)
   const response = await fetch(`${controlUrl}/api/desktop`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(request),
-    ...(method === 'list_permission_requests' ? { signal: AbortSignal.timeout(5000) } : {}),
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
   })
   if (!response.ok) {
     const body = await response.text()
@@ -78,7 +83,7 @@ export const desktopApi = {
   appVersion: () => isTauri() ? getVersion() : call<string>('get_app_version'),
   runtime: () => call<RuntimeDto>('get_runtime'),
   configureRuntime: (payload: RuntimeConfigurationDto) => call<RuntimeDto>('configure_runtime', payload),
-  startRuntime: () => call<RuntimeDto>('start_runtime'),
+  startRuntime: (signal?: AbortSignal) => request<RuntimeDto>('start_runtime', [], signal),
   stopRuntime: () => call<RuntimeDto>('stop_runtime'),
   listBodyPlugins: () => call<BodyPluginDto[]>('list_body_plugins'),
   setBodyPluginEnabled: (pluginId: string, enabled: boolean) =>

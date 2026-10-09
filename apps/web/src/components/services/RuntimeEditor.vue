@@ -14,6 +14,7 @@ const props = defineProps<{
   locked: boolean
   busy: boolean
   lifecycleBusy: boolean
+  lifecycleAction: 'start' | 'stop' | null
   selectedRunning: boolean
   copiedUrl: string
   runtimeUrl: string
@@ -210,12 +211,12 @@ const emit = defineEmits<{
         <Button
           :variant="selectedRunning ? 'destructiveOutline' : 'default'"
           size="sm"
-          :disabled="busy || lifecycleBusy"
+          :disabled="busy || lifecycleAction === 'stop'"
           @click="emit('toggleRunning')"
         >
-          <Square v-if="selectedRunning" :size="13" />
+          <Square v-if="selectedRunning || lifecycleAction === 'start'" :size="13" />
           <Play v-else :size="13" />
-          {{ lifecycleBusy ? (selectedRunning ? '停止中…' : '启动中…') : (selectedRunning ? '停止' : '启动') }}
+          {{ lifecycleAction === 'stop' ? '停止中…' : lifecycleAction === 'start' ? '取消启动' : selectedRunning ? '停止' : '启动' }}
         </Button>
         <Button variant="outline" size="sm" :disabled="busy || lifecycleBusy || locked" @click="emit('save')">
           保存
