@@ -1,6 +1,6 @@
 {
   "name": "micromatrix-pi-agent-mcp",
-  "version": "0.5.28",
+  "version": "0.5.30",
   "private": true,
   "type": "module",
   "packageManager": "npm@11",
