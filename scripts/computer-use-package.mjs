@@ -3,10 +3,10 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 
 // Resolve from the workspace declaring the dependency, even if npm nests it.
-export const daemonRequire = createRequire(new URL('../apps/daemon/package.json', import.meta.url))
+const daemonRequire = createRequire(new URL('../apps/daemon/package.json', import.meta.url))
 export const computerUsePackageRoot = path.dirname(daemonRequire.resolve('@ouvren/computer-use/package.json'))
 export const computerUseRequire = createRequire(path.join(computerUsePackageRoot, 'package.json'))
-export const computerUsePackage = JSON.parse(readFileSync(path.join(computerUsePackageRoot, 'package.json'), 'utf8'))
+const computerUsePackage = JSON.parse(readFileSync(path.join(computerUsePackageRoot, 'package.json'), 'utf8'))
 if (computerUsePackage.name !== '@ouvren/computer-use' || computerUsePackage.version !== '0.1.1') {
   throw new Error('Unexpected Computer Use package; review native/API/resource contracts before upgrading')
 }

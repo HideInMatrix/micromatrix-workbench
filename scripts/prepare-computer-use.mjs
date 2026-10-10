@@ -1,7 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, chmodSync, copyFileSync, cpSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { computerUsePackageRoot, computerUseNativeResource } from './computer-use-package.mjs'
 import { nativeBuildTarget } from './build-platform.mjs'
 import { buildChannel, macSigningIdentity, macReleaseRequirement } from './build-channel.mjs'
@@ -46,4 +45,3 @@ export function prepareComputerUse(root = process.cwd()) {
   console.log(`Prepared Computer Use native helper: ${path.relative(root,output)}`)
   return output
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) prepareComputerUse()

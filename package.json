@@ -21,7 +21,6 @@
     "build:web": "vite build --config apps/web/vite.config.ts",
     "build:service": "node scripts/build-service.mjs",
     "build:sidecar": "node scripts/build-sidecar.mjs",
-    "asil": "node scripts/asil.mjs",
     "tauri": "node scripts/tauri.mjs",
     "tauri:dev": "npm run prepare:version && npm run tauri -- dev",
     "tauri:build": "node scripts/build-desktop.mjs",
@@ -30,8 +29,6 @@
     "typecheck:web": "node scripts/check-web-types.mjs -p apps/web/tsconfig.sfc.json --pretty false",
     "check": "npm run typecheck && npm run typecheck:web && npm run build:web",
     "prepare:version": "node scripts/release-version.mjs",
-    "prepare:computer-use": "node scripts/prepare-computer-use.mjs",
-    "dev:computer-use": "node --import tsx apps/daemon/src/main.ts --computer-use-mcp",
     "notices": "node scripts/dependency-notices.mjs"
   },
   "dependencies": {

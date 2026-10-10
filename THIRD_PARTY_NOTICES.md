@@ -8,7 +8,7 @@
 - Code license: Apache-2.0
 - Changes: TS/Zod port of softwaregen contracts, declarative mapping, audit and deterministic generation; product-specific permission grants and bounded transports.
 
-Reference copies remain at `third_party/asil/`; desktop/internal service distributions carry the exact Computer Use npm dependency's upstream license, data terms and attribution/modification notice. Upstream JSON examples/fixtures are not retained; no upstream Python Agent/runtime or benchmark dataset is shipped.
+Desktop/internal service distributions carry the exact Computer Use npm dependency's upstream license, data terms and attribution/modification notice, copied from its `third_party/asil/` directory. No duplicate local notice copies are maintained. Upstream JSON examples/fixtures are not retained; no upstream Python Agent/runtime or benchmark dataset is shipped.
 
 ## Pi Agent Harness
 
@@ -39,7 +39,7 @@ Adapters and native helpers come from the locked npm package, not a local source
 
 ## Universal Computer Use dependencies
 
-The restricted JavaScript batch engine uses quickjs-emscripten 0.32.0 and its QuickJS WebAssembly runtime (MIT; notices in `third_party/automation/QUICKJS_LICENSE`). No Node.js host globals are exposed to scripts. Browser integration uses playwright-core 1.63.0 (Apache-2.0; `third_party/automation/PLAYWRIGHT_LICENSE` and the distributed package's third-party notices). The packaged runtime includes Playwright library assets but no browser binaries, user profiles or Python runtime. Tactile/UFO/OmniParser/Screen2AX were architectural references only; their code or model weights are not shipped.
+The restricted JavaScript batch engine uses quickjs-emscripten 0.32.0 and its QuickJS WebAssembly runtime (MIT; notice copied from the Computer Use npm dependency's `third_party/automation/QUICKJS_LICENSE`). No Node.js host globals are exposed to scripts. Browser integration uses playwright-core 1.63.0 (Apache-2.0; the Computer Use npm dependency's `third_party/automation/PLAYWRIGHT_LICENSE` and Playwright's distributed third-party notices). The packaged runtime includes Playwright library assets but no browser binaries, user profiles or Python runtime. Tactile/UFO/OmniParser/Screen2AX were architectural references only; their code or model weights are not shipped.
 
 ## Build-derived dependency notices
 

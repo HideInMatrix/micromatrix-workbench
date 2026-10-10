@@ -144,7 +144,7 @@ npm 包的 `src/softwaregen/` 已提供 TS/Zod 的 Profile / Plan / Bundle 模�
 | JSON 文件 | 按官方 View / Pointer 映射已存在的工作区 JSON；有界读取、真实路径检查、原始探测数据 revision | SVG / ODF 等非 JSON 格式；GUI 未保存编辑与同步 |
 | 结构化命令 / 原生脚本入口 | 直接解释固定程序与 argv/stdin 模板、JSON 输出；程序绝对路径绑定、通用解释器固定脚本前缀与哈希检查 | Blender 等真实软件适配、发现/版本兼容和活跃进程内桥接 |
 | 服务 API | 直接解释 GET / POST / PUT / PATCH / DELETE、query/body、类型化模板；支持空成功响应 | WebSocket、自动认证刷新、软件专有条件写入合同 |
-| 接入交付 | 本机 CLI 组装/审计/只读探测；显式批准注册表导入；现有内置 Computer Use 通过 Pi 加载 | 桌面适配包管理表单、AI 计划提议工具、Docker 探测与完整部署证据汇总 |
+| 接入交付 | 独立 Computer Use 项目负责组装/审计/探测；workbench 仅导入显式批准注册表，通过 Pi 加载内置插件 | 桌面适配包管理表单、AI 计划提议工具、Docker 探测与完整部署证据汇总 |
 
 保留 `micromatrix-asil/1` 的 MCP 包装，而不是声称逐字兼容上游 Observation：
 
@@ -156,16 +156,9 @@ npm 包的 `src/softwaregen/` 已提供 TS/Zod 的 Profile / Plan / Bundle 模�
 
 已删除未交付的 `SemanticBridgeAdapter / StructuredCommandBridge / ServiceApiBridge` 专有 RPC 实现及对应冒烟入口，改用官方声明式合同；共享 Registry、token、审批、缓存检索和状态回读继续保留。
 
-### 本机组装、批准与 Pi 接入
+### 外部适配包批准与 Pi 接入
 
-先人工准备/审查 Profile 和 Plan；`assemble` 不请求模型、不运行目标程序，也不授予候选包权限：
-
-```sh
-npm run asil -- assemble /absolute/profile.json /absolute/plan.json /absolute/private/new-extension
-npm run asil -- audit /absolute/private/new-extension/extension.json
-```
-
-输出 `extension.json / action_schema.json / generation_report.json`，拒绝覆盖已有输出目录。只有通过审计、用户审查并批准运行权限后，才加入独立的本机注册表：
+适配包组装、审计和探测由独立 Computer Use 项目负责，workbench 不再提供本机 ASIL CLI。宿主只接收外部生成的 `extension.json`；只有通过审计、用户审查并批准运行权限后，才加入独立的本机注册表：
 
 ```json
 {
@@ -173,7 +166,7 @@ npm run asil -- audit /absolute/private/new-extension/extension.json
   "extensions": [{
     "enabled": true,
     "bundle": "/absolute/private/new-extension/extension.json",
-    "sha256": "填写 assemble 返回的 artifact_sha256，64 位十六进制",
+    "sha256": "填写已审查 Bundle 文件的原始字节 SHA-256，64 位十六进制",
     "permissions": {
       "filesystem_root": "/absolute/document-workspace",
       "base_url": "https://approved-service.example"
@@ -191,12 +184,6 @@ npm run asil -- audit /absolute/private/new-extension/extension.json
 命令包还需 `permissions.executables`，按 Profile 的程序名绑定实际绝对路径。通用解释器需固定、无模板的脚本前缀，并在 `permissions.integrity` 中给出对应绝对脚本路径和 SHA-256；程序绑定及脚本由用户/宿主安装，不由网页 AI 下载。命令调用 shell=false，不继承全部服务秘密，限 argv/stdin/stdout/stderr、超时与取消；macOS 终止所属进程组，Windows 用 taskkill 终止所属 PID 树。它不是 OS 沙箱，批准前仍需审阅固定脚本和参数效果。
 
 HTTP 接入必须同时匹配 Profile 的 allowed_hosts、解析后的 base URL 与用户批准的精确 base URL；HTTPS 为默认，仅明确允许的 loopback HTTP 可用，不跟随重定向。路径参数单段编码，禁止 traversal/路径分隔符；敏感 Header 使用私有变量引用，不进能力/追踪/原始错误。映射结果脱敏私有运行变量及命名秘密字段。文件最多 1 MiB、观察最多 2000 个对象；超限返回错误而非隐藏截断成功。
-
-```sh
-npm run asil -- probe /absolute/private/registry.json SOFTWARE_ID
-```
-
-CLI probe 只读，不支持动作旗标。程序 API 的 `probeExtension` 仅供受信任宿主隔离验收，带动作时必须显式 allowActions；它不替代网页 MCP 的审批。
 
 内置 Computer Use 从现有运行配置中的 `computerUse.asilRegistry` 读取注册表路径；`computerUse.environmentRefs` 显式选择父服务向 MCP 子进程传递的变量名引用，注册表再通过 environment_refs 选择所需值，不写入秘密明文。例如在保留其他运行配置的前提下：
 
@@ -352,16 +339,15 @@ validate 的 revision 拒绝返回 `details`，只包含发生变化的节点 ID
 
 超时、控件消失、进程退出、原生错误均返回 MCP isError=true 与错误码，结果可能未知。**不要自动重试发送/删除/提交**，先重新观察。没有自动寻找 Shell 或改换交互通道的替代路径。
 
-## 运行和打包
+## 宿主集成和打包
 
 Computer Use 固定依赖 `@ouvren/computer-use@0.1.1`；lockfile 固定 npm tarball 和 integrity。npm 包已包含 macOS ARM64、macOS Intel x64 和 Windows x64 原生 helper，workbench 只复制对应二进制，不调用 Swift/C# builder，也不在应用启动时下载/编译。缺失或架构不符立即拒绝打包，无本地源码回退。macOS helper 的部署目标为 13.0，桌面最低版本同步为 13.0；显式窗口截图仍需 macOS 14.0+。这些版本声明不是低版本实机验收。开发版和正式版由宿主重新封装并签名，正式版仍要求固定长期证书。
 
+workbench 不保留独立 Computer Use 调试/手动准备命令。桌面构建会自动复制 helper、处理签名和资源；日常使用从应用内启用内置 Computer Use。
+
 ```bash
 npm run typecheck
-npm run prepare:computer-use  # 复制 npm 预编译 helper 并签名；Linux 拒绝
-npm run dev:computer-use     # stdio MCP，默认只读，需 MCP Client 连接
-npm run dev:computer-use -- --allow-actions --workspace /absolute/path/to/workspace
-npm run build:sidecar        # 构建当前系统 SEA 与资源
+npm run build:sidecar        # 构建当前系统 SEA 与资源，自动准备 npm helper
 ```
 
 QuickJS WASM 嵌入 SEA；Playwright 静态 JS/资源/许可随桌面包放在 automation/playwright-core，不含浏览器。服务启动不安装依赖。Windows 使用 npm 包预编译的固定 .NET Framework 4.8 x64 .exe，不在宿主构建/使用时运行 C# 编译器、PowerShell 或模型代码。宿主仅通过包的公开 API 组合 MCP 与固定安装路径；权限检测、MCP 和 SEA 使用同一个 helper，不读用户保存的可执行路径。桌面构建自动准备当前 OS helper，经 tauri.macos.conf.json / tauri.windows.conf.json 加入应用；macOS 不引用 Windows .exe，Windows 不引用 Swift 二进制。发布时保留许可证、最终代码签名及升级包签名检查，不启动 GUI fixture、浏览器会话或模拟 MCP 动作。

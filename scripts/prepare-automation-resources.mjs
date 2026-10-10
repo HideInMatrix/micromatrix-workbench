@@ -1,7 +1,6 @@
 import { computerUseRequire } from './computer-use-package.mjs'
 import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
 
 // Playwright includes reviewed static JS/assets, NOT a browser or user profile.
 // Lazy-load from installed resources because the Node SEA has no node_modules.
@@ -15,4 +14,3 @@ export function prepareAutomationResources(root=process.cwd()) {
   cpSync(source,destination,{recursive:true,dereference:true})
   return destination
 }
-if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href)prepareAutomationResources()
