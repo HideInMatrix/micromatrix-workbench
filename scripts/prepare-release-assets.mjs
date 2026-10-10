@@ -17,7 +17,8 @@ const updaterTargets = {
 }
 
 // Public: desktop installers, two macOS updater archives, latest.json and one
-// checksum file. Private service archives/metadata/notices remain in Artifacts.
+// checksum file. Metadata/notices remain in desktop Artifacts; opt-in service
+// archives are a separate internal artifact, never downloaded by this job.
 export function prepareReleaseAssets(input = path.resolve('build-artifacts'), output = path.resolve('release-assets'), options = {}) {
   input = path.resolve(input)
   output = path.resolve(output)

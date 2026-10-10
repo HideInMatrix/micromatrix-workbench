@@ -1,29 +1,40 @@
-# micromatrix agent v0.5.30
+# micromatrix agent v0.5.31
 
 ## Changes
 
-- Replace the local Computer Use source workspace with the locked
-  `@ouvren/computer-use@0.1.1` npm dependency. Desktop builds use its prebuilt
-  macOS ARM64, macOS Intel x64 and Windows x64 helpers; no Swift/C# source
-  compilation or local-source fallback is performed by workbench.
-- Remove legacy standalone ASIL and Computer Use development/manual commands.
-  Adapter generation and standalone usage belong to the separate Computer Use
-  project. The application retains its managed built-in MCP integration.
-- Copy Computer Use, ASIL and automation notices directly from the installed npm
-  dependency instead of maintaining duplicate local copies.
-- Retain the upstream Runtime Stop fixes, queued-start cancellation, process-tree
-  cleanup and WebKit request cancellation/error handling.
+- Warm native Rust dependency caches on relevant master pushes without signing
+  or compressing installers. Later release tags can reuse the default-branch
+  caches; native macOS ARM64, Intel x64 and Windows x64 runners remain separate.
+- Build only the desktop Rust library output and tune the release profile for
+  shorter compilation. Strip Rust symbols without stripping the Node SEA or
+  Computer Use native helpers; retain panic/unwind and signing safeguards.
+- Minify the embedded JavaScript service while retaining function/class names.
+- Store complete dependency license text once in the companion text inventory;
+  schema-2 JSON retains sources, hashes, review warnings and exact UTF-8 byte
+  ranges. No required license/copyright text is removed.
+- Stop producing redundant standalone service archives by default. Explicit
+  manual builds can request a separate internal artifact; public Release assets
+  remain desktop installers, signed updates, latest.json and checksums.
+- Retain `@ouvren/computer-use@0.1.1` prebuilt helpers, existing Runtime Stop and
+  process cleanup fixes, managed MCP integration and all permission boundaries.
 
 ## Validation
 
-- TypeScript and Vue checks, frontend and embedded service builds pass locally.
-- Source, compiled JS, bundled CJS and an isolated Node SEA were checked for MCP
-  initialization, nine tools, JSON observation, read-only gates, secret redaction,
-  action verification and/or QuickJS host-global isolation.
-- All three npm native artifacts were checked for their expected architectures;
-  both macOS bundles pass code-signature verification. The copied helper and
-  npm-owned notice files were verified, and the release-signing guard still
-  rejects an ad-hoc fallback.
+- TypeScript and Vue checks, frontend, service, native Rust and ARM64 development
+  installer builds pass locally. GitHub Actions configuration passes actionlint.
+- CI-matching Node 22.23.3 was used for bundled CJS, isolated SEA without
+  node_modules, and SEA inside the actual Tauri app: nine MCP tools, JSON
+  observation/actions, read-only gates, secret redaction, stale-observation
+  rejection, embedded QuickJS isolation and Playwright lazy loading were checked.
+- Control-plane/static frontend checks retain default-stopped Runtime and hostile
+  Origin rejection. Local app deep/strict codesign, DMG checksum and updater
+  signature/signed-version verification pass.
+- All 678 complete notice texts for 437 dependency records round-trip to their
+  original SHA-256 hashes. Packaging checks cover optional archive separation,
+  stale archive cleanup and checksum/signature/signed-version tamper rejection.
+- Warm-dependency host recompilation was about 23% faster on the local ARM64
+  machine. CI cache-hit rate, total duration and final signed package sizes are
+  platform-specific; no fixed release-time improvement is guaranteed.
 - Intel/Windows GUI interaction and low-version macOS behavior still require
   real-machine acceptance testing. Installer builds and production signing are
   performed by CI, not claimed complete by these local checks.

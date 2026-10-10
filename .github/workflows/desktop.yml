@@ -2,8 +2,25 @@ name: Desktop packages
 
 on:
   workflow_dispatch:
+    inputs:
+      standalone_service:
+        description: 'Also build an internal standalone service archive (not a public Release asset)'
+        type: boolean
+        default: false
   push:
     tags: ['v*']
+    # Seed dependency caches on the default branch, where later tags can read
+    # them. Tag-only caches cannot be shared with a different release tag.
+    branches: [master]
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'plugins/**'
+      - 'scripts/**'
+      - 'third_party/**'
+      - 'package*.json'
+      - 'tsconfig*.json'
+      - '.github/workflows/desktop.yml'
 
 permissions:
   contents: read
@@ -27,6 +44,7 @@ jobs:
       - name: Prepare application version from tag
         run: node scripts/release-version.mjs
       - name: Require updater signing secret before expensive native builds
+        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         shell: bash
@@ -88,6 +106,7 @@ jobs:
       APPLE_SIGNING_IDENTITY: ${{ github.ref_type == 'tag' && vars.APPLE_SIGNING_IDENTITY || '-' }}
       APPLE_SIGNING_CERTIFICATE_SHA1: ${{ vars.APPLE_SIGNING_CERTIFICATE_SHA1 }}
       NO_STRIP: 'true'
+      MICROMATRIX_PACKAGE_STANDALONE_SERVICE: ${{ github.event_name == 'workflow_dispatch' && inputs.standalone_service && '1' || '0' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7, Node 24
         with:
@@ -132,24 +151,45 @@ jobs:
       - name: Build Tauri application and native installers
         id: tauri-build
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri -- build --ci --verbose --config apps/desktop/tauri.prebuilt.conf.json --bundles ${{ matrix.bundles }} -- --locked --timings
+          TAURI_SIGNING_PRIVATE_KEY: ${{ (github.event_name != 'push' || github.ref != 'refs/heads/master') && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ (github.event_name != 'push' || github.ref != 'refs/heads/master') && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        shell: bash
+        run: |
+          args=(build --ci --verbose --config apps/desktop/tauri.prebuilt.conf.json)
+          if [ "${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}" = true ]; then
+            # Warm compiled dependency caches without signing/compressing
+            # installers that will never be published from a branch build.
+            args+=(--no-bundle)
+          else
+            args+=(--bundles '${{ matrix.bundles }}')
+          fi
+          npm run tauri -- "${args[@]}" -- --locked --timings
       - name: Verify final signed macOS bundle
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && (github.event_name != 'push' || github.ref != 'refs/heads/master')
         run: node scripts/verify-macos-signing.mjs
       - name: Create and verify headless macOS DMG
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && (github.event_name != 'push' || github.ref != 'refs/heads/master')
         run: node scripts/package-macos-dmg.mjs
-      - name: Collect installers, standalone service, notices and checksums
+      - name: Collect installers, signed updates, notices and checksums
+        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
         run: node scripts/package-artifacts.mjs
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7, Node 24
+        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
         with:
           name: micromatrix-${{ matrix.id }}
           path: dist/artifacts/*
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+      - name: Upload opt-in internal standalone service separately
+        if: github.event_name == 'workflow_dispatch' && inputs.standalone_service
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7, Node 24
+        with:
+          name: internal-service-${{ matrix.id }}
+          path: dist/internal-artifacts/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
       - name: Upload macOS packaging diagnostics
         if: always() && runner.os == 'macOS' && steps.tauri-build.outcome != 'skipped'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7, Node 24

@@ -51,6 +51,14 @@ distribution, with a version/commit/hash-bound rust-docs component fallback
 for minimal CI installations. These are installer/internal-service resources, not
 additional public Release assets.
 
+The installer inventory uses schema 2: full notice text is stored only in
+`DEPENDENCY_LICENSES.txt`, not repeated in JSON. Each notice retains its original
+file/source/SHA-256 and identifies `textFile`, `textOffset`, and `textBytes` in
+that companion file (UTF-8 byte ranges, not character offsets). All copyright
+and license text, selected-license declarations and review warnings are kept.
+The frontend build proof continues to carry complete notice texts for native
+jobs; it is not the compact installer inventory.
+
 The inventory uses actual esbuild/Vite npm modules, explicitly embedded QuickJS
 WASM/copied Playwright resources and a conservative target Cargo resolution
 graph. Notice files missing from upstream archives use reviewed, version/commit/hash-

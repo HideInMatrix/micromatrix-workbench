@@ -95,6 +95,29 @@ export function webDependencyNotices(root) {
     this.emitFile({ type: 'asset', fileName: 'third-party-notices.json', source: JSON.stringify({ schema: 1, packages: npmEntries(modules, root) }, null, 2) + '\n' })
   } }
 }
+/** Ship complete texts once. The manifest keeps provenance/hashes and exact
+ * UTF-8 byte ranges in the companion text file, without mutating Vite's proof. */
+export function renderDependencyLicenseFiles(manifest) {
+  const chunks = []
+  let offset = 0
+  const append = text => { chunks.push(text); offset += Buffer.byteLength(text, 'utf8') }
+  const packages = manifest.packages.map(pkg => {
+    append(`\n${'='.repeat(72)}\n${pkg.ecosystem}:${pkg.name}@${pkg.version} — ${pkg.license ?? 'UNDECLARED'}\nSource: ${pkg.source}\n`)
+    const notices = pkg.notices.map(notice => {
+      const { text, ...metadata } = notice
+      if (typeof text !== 'string' || digest(text) !== notice.sha256) throw Error(`Notice text/hash mismatch: ${pkg.name}@${pkg.version}/${notice.file}`)
+      append(`\n${notice.file} [SHA256 ${notice.sha256}]\n`)
+      const textOffset = offset
+      append(text)
+      append('\n')
+      return { ...metadata, textFile: 'DEPENDENCY_LICENSES.txt', textOffset, textBytes: Buffer.byteLength(text, 'utf8') }
+    })
+    if (!notices.length) append('NOTICE MISSING: requires upstream review before claiming complete compliance.\n')
+    append('\n')
+    return { ...pkg, notices }
+  })
+  return { manifest: { ...manifest, schema: 2, packages }, licenses: chunks.join('') }
+}
 export function generateDependencyNotices(root = process.cwd(), { cargo = true, strict = false } = {}) {
   const metadataFile = path.join(root, 'dist/service-metafile.json')
   if (!existsSync(metadataFile)) throw Error('Build the service first; notice inventory must use actual esbuild inputs')
@@ -125,10 +148,11 @@ export function generateDependencyNotices(root = process.cwd(), { cargo = true, 
   const manifest = { schema: 1, reviewWarnings: [...new Set(['Prebuilt cloudflared transitive modules and QuickJS WASM toolchain runtime still require separate notice review; package metadata and files alone do not establish full legal compliance.', ...packages.flatMap(pkg => pkg.notices.flatMap(notice => notice.reviewWarning ? [notice.reviewWarning] : []))])], rustStandardLibraryNotice: Boolean(rustNotice && existsSync(rustNotice)), scope: 'Actual esbuild/Vite npm modules and copied Playwright/WASM; Cargo target resolve graph is a conservative superset including build dependencies. Node, cloudflared, ASIL and reviewed automation notices are separately bundled. Native SDK obligations and opaque prebuilt dependencies are outside this graph.',
     inventoryNoticeFilesComplete: cargo && missing.length === 0 && Boolean(rustNotice && existsSync(rustNotice)), legalReviewComplete: false, cargoIncluded: cargo, missingNotices: missing, packages }
   // No build-machine paths or private registry credentials in shipped metadata.
-  writeFileSync(path.join(output, 'DEPENDENCIES.json'), JSON.stringify(manifest, null, 2) + '\n')
+  const rendered = renderDependencyLicenseFiles(manifest)
+  writeFileSync(path.join(output, 'DEPENDENCIES.json'), JSON.stringify(rendered.manifest, null, 2) + '\n')
   const sourceAvailable = packages.filter(pkg => /MPL-2.0/.test(pkg.license ?? ''))
   writeFileSync(path.join(output, 'SOURCE_AVAILABILITY.txt'), 'Unmodified MPL-2.0 dependencies: the exact upstream source archives are available below. Their original notices are included in DEPENDENCY_LICENSES.txt when present. Missing notices still require review; this inventory is not a legal-compliance guarantee.\n\n' + sourceAvailable.map(pkg => `${pkg.name}@${pkg.version}: https://static.crates.io/crates/${pkg.name}/${pkg.name}-${pkg.version}.crate\n`).join(''))
-  writeFileSync(path.join(output, 'DEPENDENCY_LICENSES.txt'), packages.map(pkg => `\n${'='.repeat(72)}\n${pkg.ecosystem}:${pkg.name}@${pkg.version} — ${pkg.license ?? 'UNDECLARED'}\nSource: ${pkg.source}\n${pkg.notices.map(notice => `\n${notice.file} [SHA256 ${notice.sha256}]\n${notice.text}`).join('\n') || 'NOTICE MISSING: requires upstream review before claiming complete compliance.'}\n`).join(''))
+  writeFileSync(path.join(output, 'DEPENDENCY_LICENSES.txt'), rendered.licenses)
   console.log(`Dependency inventory: ${packages.length} packages, ${missing.length} missing notice/license records; Cargo ${cargo ? 'included' : 'not yet included'}`)
   if (strict && !manifest.inventoryNoticeFilesComplete) throw Error('Dependency notices are incomplete; inspect dist/dependency-notices/DEPENDENCIES.json')
   return output

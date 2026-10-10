@@ -82,6 +82,8 @@ Authorization codes、access tokens、refresh tokens 和工具会话审批仍只
 
 `build:service` 编译 TypeScript、构建 Vite、内嵌静态资源并生成单文件 CJS。`build:sidecar` 把它注入当前平台的 Node SEA。Tauri 以 external sidecar 启动服务，并在应用退出时终止它。
 
+默认服务 bundle 开启 minify，但保留 function/class names；Rust 桌面库仅生成 `rlib`，release 使用 opt-level 2、关闭 LTO、16 codegen units，并仅剥离 Rust 符号。SEA 与原生 helper 不做通用 strip，正式签名与 updater 校验不变。默认只收集安装包/更新包；独立服务压缩包需显式开启，并放在单独的 internal artifact。master 的相关源码 push 仅编译并预热 Rust 依赖缓存，不生成安装包、不发布。具体行为、复测方法与本机测量见 [构建优化](build-optimization.md)。
+
 内嵌网页连接同源控制 API；Vite/Tauri 使用显式配置或默认的独立控制 API。Origin 许可由实际控制监听地址/端口决定，不能直接信任请求中的 Host。
 
 Pi 包使用精确版本，不跟踪上游 `main`。升级必须重新运行类型、tool schema、审批和打包回归。

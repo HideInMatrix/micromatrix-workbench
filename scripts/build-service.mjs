@@ -11,6 +11,9 @@ const root = process.cwd()
 const webDist = path.join(root, 'apps/web/dist')
 const output = path.join(root, 'dist/micromatrix-service.cjs')
 const prebuiltWeb = process.argv.includes('--prebuilt-web')
+// Keep upstream function/class names for reflection and useful error messages.
+// Opt out only for a local diagnostic/A-B build; releases default to minified.
+const minify = process.env.MICROMATRIX_SERVICE_MINIFY !== '0'
 const quickjsWasm = (await readFile(computerUseRequire.resolve('@jitl/quickjs-wasmfile-release-sync/wasm'))).toString('base64')
 prepareAutomationResources(root)
 
@@ -72,6 +75,8 @@ const result = await build({
   target: 'node22',
   format: 'cjs',
   sourcemap: false,
+  minify,
+  keepNames: true,
   banner: { js: '#!/usr/bin/env node\nconst __micromatrix_import_meta_url = require("node:url").pathToFileURL(__filename).href;\n// SEA has no node_modules package tree. Never walk outside the bundled executable\n// looking for Pi metadata (which can prompt for Documents access before Start).\nif (require("node:sea").isSea() && !process.env.PI_PACKAGE_DIR) process.env.PI_PACKAGE_DIR = require("node:path").dirname(process.execPath);' },
   define: { 'import.meta.url': '__micromatrix_import_meta_url', '__MICROMATRIX_RELEASE_BUILD__': String(buildChannel() === 'release'), '__MICROMATRIX_QUICKJS_WASM__':JSON.stringify(quickjsWasm) },
   plugins: [{
@@ -88,4 +93,4 @@ const result = await build({
 await writeFile(path.join(root, 'dist/service-metafile.json'), JSON.stringify(result.metafile))
 generateDependencyNotices(root, { cargo: false })
 await chmod(output, 0o755)
-console.log(`Built ${path.relative(root, output)} with ${Object.keys(assets).length} embedded web assets`)
+console.log(`Built ${path.relative(root, output)} with ${Object.keys(assets).length} embedded web assets (minify=${minify}, keepNames=true)`)
