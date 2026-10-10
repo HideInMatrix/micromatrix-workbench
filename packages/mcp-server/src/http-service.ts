@@ -36,6 +36,7 @@ export class McpHttpService {
   readonly #options: McpHttpServiceOptions;
   readonly #server;
   readonly #protocols = new Set<ReturnType<typeof createProtocolServer>>();
+  #stopping: Promise<void> | undefined;
 
   constructor(options: McpHttpServiceOptions) {
     if (!isLoopback(options.host) && !options.authorization.protectsRequests) {
@@ -53,6 +54,8 @@ export class McpHttpService {
   }
 
   async start(): Promise<void> {
+    await this.#stopping;
+    this.#stopping = undefined;
     if (!isLoopback(this.#options.host) && !this.#publicBaseUrl) throw new Error("Non-loopback MCP binding requires an explicit public HTTPS origin before Start");
     await new Promise<void>((resolve, reject) => {
       this.#server.once("error", reject);
@@ -100,21 +103,28 @@ export class McpHttpService {
     catch { return false; }
   }
 
-  async stop(): Promise<void> {
-    if (!this.#server.listening) return;
-    await Promise.all([...this.#protocols].map(protocol => protocol.close().catch(() => {})));
-    await new Promise<void>((resolve, reject) => {
+  stop(): Promise<void> {
+    if (this.#stopping) return this.#stopping;
+    if (!this.#server.listening) return Promise.resolve();
+    const listenerClosed = new Promise<void>((resolve, reject) => {
       this.#server.close((error) => (error ? reject(error) : resolve()));
       // Stop ingress before destroying remaining sockets: a stalled OAuth body
       // must not hold Runtime Stop/update hostage until Node's body timeout.
       this.#server.closeAllConnections();
     });
+    // Disconnect ingress before waiting for protocol cleanup or active calls.
+    this.#stopping = Promise.all([
+      listenerClosed,
+      ...[...this.#protocols].map(protocol => protocol.close().catch(() => {})),
+    ]).then(() => undefined);
+    return this.#stopping;
   }
 
   async #handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     if (!this.#allowedRequest(request)) { writeJson(response, 403, { error: "host_or_origin_not_allowed" }); return; }
     const url = new URL(request.url ?? "/", this.localBaseUrl);
     if (await this.#options.authorization.handle(request, response, url)) return;
+    if (this.#stopping || response.destroyed) return;
     if (url.pathname === "/") {
       response.setHeader("cache-control", "no-store");
       if (request.method !== "GET" && request.method !== "HEAD") {
@@ -164,6 +174,7 @@ export class McpHttpService {
     }
 
     const principal = await this.#options.authorization.authorize(request, "/mcp");
+    if (this.#stopping || response.destroyed) return;
     if (!principal) {
       response.setHeader("www-authenticate", this.#options.authorization.challenge(request, "/mcp"));
       writeJson(response, 401, { error: "unauthorized" });

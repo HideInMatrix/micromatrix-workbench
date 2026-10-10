@@ -101,7 +101,7 @@ export class ManagedProcess {
     });
   }
 
-  async stop(): Promise<void> {
+  async stop(force = false): Promise<void> {
     const child = this.#child;
     this.#child = undefined;
     this.#stopping = true;
@@ -113,10 +113,11 @@ export class ManagedProcess {
     }
     const exited = new Promise<void>(resolve => {
       const done = () => { clearTimeout(timer); child.off("exit", done); resolve(); };
-      const timer = setTimeout(done, 3000); child.once("exit", done);
+      const timer = setTimeout(done, force ? 1000 : 3000); child.once("exit", done);
     });
-    await this.#terminate(child, false);
+    await this.#terminate(child, force);
     await exited;
+    if (force) return;
     if (process.platform !== "win32" || child.exitCode === null && child.signalCode === null) {
       await this.#terminate(child, true);
       if (child.exitCode !== null || child.signalCode !== null) return;

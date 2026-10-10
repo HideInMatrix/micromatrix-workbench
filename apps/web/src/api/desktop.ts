@@ -55,27 +55,42 @@ async function call<T>(method: string, ...args: unknown[]): Promise<T> {
 async function request<T>(method: string, args: unknown[], signal?: AbortSignal): Promise<T> {
   await waitForDesktopControl()
   const request: DesktopApiRequest = { method, args }
-  const timeout = AbortSignal.timeout(method === 'start_runtime' ? 120_000 : method === 'stop_runtime' ? 20_000 : method === 'list_permission_requests' ? 5000 : 60_000)
-  const response = await fetch(`${controlUrl}/api/desktop`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(request),
-    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-  })
-  if (!response.ok) {
-    const body = await response.text()
-    let message = body
-    try {
-      const parsed: unknown = JSON.parse(body)
-      if (parsed && typeof parsed === 'object' && typeof Reflect.get(parsed, 'error') === 'string') {
-        message = Reflect.get(parsed, 'error') as string
+  const timeout = AbortSignal.timeout(method === 'start_runtime' ? 120_000 : method === 'stop_runtime' ? 5000 : method === 'list_permission_requests' ? 5000 : 60_000)
+  const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout
+  try {
+    const response = await fetch(`${controlUrl}/api/desktop`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+      signal: requestSignal,
+    })
+    if (!response.ok) {
+      const body = await response.text()
+      let message = body
+      try {
+        const parsed: unknown = JSON.parse(body)
+        if (parsed && typeof parsed === 'object' && typeof Reflect.get(parsed, 'error') === 'string') {
+          message = Reflect.get(parsed, 'error') as string
+        }
+      } catch {
+        // Preserve a non-JSON response as the diagnostic message.
       }
-    } catch {
-      // Preserve a non-JSON response as the diagnostic message.
+      throw new Error(message || `Desktop API ${method} failed: HTTP ${response.status}`)
     }
-    throw new Error(message || `Desktop API ${method} failed: HTTP ${response.status}`)
+    return await response.json() as T
+  } catch (error) {
+    // WebKit may report "Fetch is aborted" for a deadline, including while
+    // reading the response body. The signal records the actual abort reason.
+    if (requestSignal.aborted) {
+      if (timeout.aborted && requestSignal.reason === timeout.reason) {
+        const failure = new Error(`Desktop API ${method} timed out`, { cause: timeout.reason })
+        failure.name = 'TimeoutError'
+        throw failure
+      }
+      throw requestSignal.reason
+    }
+    throw error
   }
-  return response.json() as Promise<T>
 }
 
 export const desktopApi = {

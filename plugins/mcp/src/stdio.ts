@@ -1,6 +1,5 @@
 import spawn from "cross-spawn";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { setTimeout as delay } from "node:timers/promises";
 import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
@@ -52,13 +51,16 @@ export class OwnedStdioTransport implements Transport {
         killer.once("exit", () => { clearTimeout(timer); resolve(); });
       });
     } else if (pid) {
-      const kill = (signal: NodeJS.Signals) => { try { process.kill(-pid, signal); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; } };
-      child.stdin.end();
-      // Graceful stdin drain, then terminate the entire exclusively owned group.
-      await delay(100);
-      kill("SIGTERM");
-      await delay(200);
-      kill("SIGKILL");
+      // This group belongs exclusively to Runtime. Do not wait for stdin drain
+      // or an upstream tool call before terminating it.
+      try { process.kill(-pid, "SIGKILL"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+    }
+    if (child.pid && child.exitCode === null && child.signalCode === null) {
+      await new Promise<void>(resolve => {
+        const done = () => { clearTimeout(timer); child.off("exit", done); resolve(); };
+        const timer = setTimeout(done, 1000);
+        child.once("exit", done);
+      });
     }
     child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy();
     this.#process = undefined;

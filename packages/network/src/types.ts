@@ -18,7 +18,8 @@ export interface NetworkProvider {
   readonly key: string;
   preflight?(): Promise<void>;
   start(context: NetworkProviderContext): Promise<NetworkProviderResult>;
-  stop(): Promise<void>;
+  /** Force applies only to processes owned by this provider. */
+  stop(force?: boolean): Promise<void>;
 }
 
 export interface ExternalProviderOptions {

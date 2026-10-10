@@ -137,9 +137,6 @@ const emit = defineEmits<{
               @click="toggleNetworkSecretClear(field.key)"
             ><RotateCcw v-if="draft.network.secret_actions[field.key] === 'clear'" :size="15" /><Trash2 v-else :size="15" /></InputGroupButton>
           </InputGroup>
-          <span class="text-xs text-muted-foreground">
-            {{ draft.network.secret_actions[field.key] === 'clear' ? '保存后清除' : draft.network.secret_actions[field.key] === 'set' ? '保存后替换' : secretConfigured(field.key) ? '已配置 · 留空保留' : '未配置' }}
-          </span>
         </div>
         <select
           v-else-if="field.choices"
@@ -188,9 +185,6 @@ const emit = defineEmits<{
               @click="toggleOAuthPasswordClear"
             ><RotateCcw v-if="draft.oauth_password_action === 'clear'" :size="15" /><Trash2 v-else :size="15" /></InputGroupButton>
           </InputGroup>
-          <span class="text-xs text-muted-foreground">
-            {{ draft.oauth_password_action === 'clear' ? '保存后清除' : draft.oauth_password_action === 'set' ? '保存后替换' : draft.oauth_password_configured ? '已配置 · 留空保留' : '未配置' }}
-          </span>
         </div>
       </FormField>
 
