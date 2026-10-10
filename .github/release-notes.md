@@ -1,15 +1,28 @@
-# micromatrix agent v0.5.27
+# micromatrix agent v0.5.28
 
 ## Changes
 
-- Relocate the Tauri desktop host from `src-tauri` to `apps/desktop`, alongside
-  the web UI and Node service. Update development, packaging, resource paths
-  and CI cache layout; keep the existing npm commands.
-- Simplify README to the application name, purpose, installation and open-source
-  acknowledgements. Detailed architecture and Computer Use documents remain.
-- Remove project-owned test directories, smoke scripts, fixtures and test-runner
-  dependencies. CI retains compilation, dependency/license checks and release
-  signature integrity, not automated behavioral regression.
+- Stop disconnects MCP ingress and active connections immediately, cancels Bash
+  and pending approvals, and force terminates owned MCP process trees and tunnel
+  processes before waiting for cleanup. The local control service remains
+  available to start Runtime again.
+- Cancel queued startup requests when Stop is requested, preventing a delayed
+  Start from running after cancellation. Stopping also works during an offline
+  public health check or an unfinished MCP handshake.
+- Normalize WebKit fetch deadline errors, including response-body cancellation.
+  If the Stop response is lost, confirm Runtime state before showing an error.
+  The local Stop response deadline is reduced from 20 seconds to 5 seconds;
+  it does not delay termination.
+
+## Validation
+
+- TypeScript and Vue type checks, frontend build and embedded service build pass.
+- Twelve local regression checks cover offline startup and running Stop, queued
+  startup cancellation, active Bash cancellation, listener teardown, owned
+  process trees, and fetch cancellation/error reporting.
+- Production web UI checks confirm a real 30-second Bash command is terminated,
+  the MCP port closes, Start becomes available again, and a lost Stop response
+  is confirmed from server state. macOS and Windows installers are built by CI.
 
 ## Compatibility and distribution
 

@@ -42,7 +42,7 @@ export function useRuntimeManager() {
     const updated = await desktopApi.runtime()
     if (sequence !== lifecycleSequence || runtime.value !== previous) return
     runtime.value = updated
-    if (wasRunning && !updated.running && updated.exit_reason) {
+    if (wasRunning && !updated.running && updated.exit_reason && lifecycleAction.value !== 'stop') {
       toast.error(updated.exit_reason, { id: 'runtime-unexpected-exit' })
     }
   }
@@ -107,6 +107,17 @@ export function useRuntimeManager() {
       toast.success(runtime.value?.running ? 'Runtime 已启动。' : 'Runtime 已停止。')
     } catch (error) {
       if (sequence !== lifecycleSequence) return
+      if (stopping) {
+        // A lost stop response does not mean Stop failed. Confirm the local
+        // Runtime state before presenting a transport error to the user.
+        try {
+          await refreshRuntime()
+          if (runtime.value && !runtime.value.running) {
+            toast.success('Runtime 已停止。')
+            return
+          }
+        } catch { /* Report the original failure if state cannot be confirmed. */ }
+      }
       toast.error(error instanceof Error && error.name === 'TimeoutError'
         ? '本机启停请求超时，结果尚未确认；正在重新读取状态。'
         : error instanceof Error ? error.message : String(error))
@@ -114,7 +125,7 @@ export function useRuntimeManager() {
       if (!stopping) {
         try { await desktopApi.stopRuntime() } catch { /* status remains authoritative */ }
       }
-      try { await refreshRuntime() } catch { /* preserve the original error */ }
+      if (!stopping) try { await refreshRuntime() } catch { /* preserve the original error */ }
     } finally {
       if (sequence === lifecycleSequence) {
         lifecycleBusy.value = false

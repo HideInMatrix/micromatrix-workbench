@@ -85,8 +85,8 @@ export class CloudflareNetworkProvider implements NetworkProvider {
     }
   }
 
-  async stop(): Promise<void> {
-    await this.#process?.stop();
+  async stop(force = false): Promise<void> {
+    await this.#process?.stop(force);
     this.#process = undefined;
   }
 }

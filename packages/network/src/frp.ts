@@ -37,8 +37,8 @@ export class FrpNetworkProvider implements NetworkProvider {
     return providerResult(this.key, this.#options.publicUrl, "FRP");
   }
 
-  async stop(): Promise<void> {
-    await this.#process?.stop();
+  async stop(force = false): Promise<void> {
+    await this.#process?.stop(force);
     this.#process = undefined;
   }
 }

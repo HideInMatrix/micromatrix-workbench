@@ -117,6 +117,7 @@ export class RuntimeSupervisor implements RuntimeControl {
   #network: NetworkProviderResult | undefined;
   #networkHealth: NetworkHealthMonitor | undefined;
   #running = false;
+  #stopGeneration = 0;
   #startingAbort: AbortController | undefined;
   #testingMcp: McpConnection | undefined;
   #transition: Promise<void> | undefined;
@@ -179,8 +180,11 @@ export class RuntimeSupervisor implements RuntimeControl {
   }
 
   async start(): Promise<void> {
+    const generation = this.#stopGeneration;
     return this.#exclusive(async () => {
+      if (generation !== this.#stopGeneration) throw new DOMException("Runtime start cancelled", "AbortError");
       if (this.#failureCleanup) await this.#failureCleanup;
+      if (generation !== this.#stopGeneration) throw new DOMException("Runtime start cancelled", "AbortError");
       if (this.#running) return;
       this.#exitReason = "";
       this.#networkWarning = "";
@@ -285,29 +289,37 @@ export class RuntimeSupervisor implements RuntimeControl {
   async stop(): Promise<void> {
     // Stop must interrupt a hanging MCP handshake before waiting for the serial
     // lifecycle queue; desktop exit cannot leave an initializing npx tree alive.
+    this.#stopGeneration++;
     this.#mcpAuth.cancelPending();
     this.#startingAbort?.abort();
+    this.#host?.cancel();
+    this.approval.resetSession();
     const healthCleanup = this.#networkHealth?.stop(); this.#networkHealth = undefined;
-    const earlyCleanup = Promise.all([
+    // Sever ingress and owned processes before waiting for lifecycle cleanup.
+    const earlyCleanup = Promise.allSettled([
+      this.#service?.stop(),
+      this.#provider?.stop(true).catch((error) => this.#logger.log("warn", "Tunnel stop failed", { error: String(error) })),
       ...[...this.#mcpControllers.values()].map(controller => controller.close().catch(() => {})),
       this.#testingMcp?.close().catch(() => {}),
-      ...(this.#startingAbort ? [this.#provider?.stop().catch(() => {})] : []),
     ]);
     return this.#exclusive(async () => {
       await healthCleanup;
-      await earlyCleanup;
+      const results = await earlyCleanup;
+      for (const result of results) if (result.status === "rejected") throw result.reason;
       if (this.#failureCleanup) await this.#failureCleanup;
       this.#mcpAuth.cancelPending();
+      this.#exitReason = "";
       if (!this.#running) {
         this.approval.resetSession();
         return;
       }
-      // Release pending tool calls before closing the HTTP service; otherwise
-      // server.close() can wait on an approval that the stopped UI cannot answer.
-      this.approval.resetSession();
+      // A queued configuration/start may have created resources since the
+      // immediate stop phase. Close those as well before unloading the host.
+      await Promise.all([
+        this.#service?.stop(),
+        this.#provider?.stop(true).catch((error) => this.#logger.log("warn", "Tunnel stop failed", { error: String(error) })),
+      ]);
       await this.#unloadHost();
-      await this.#provider?.stop().catch((error) => this.#logger.log("warn", "Tunnel stop failed", { error: String(error) }));
-      await this.#service?.stop();
       this.#provider = undefined;
       this.#service = undefined;
       this.#running = false;

@@ -47,8 +47,8 @@ export class NgrokNetworkProvider implements NetworkProvider {
     return providerResult(this.key, publicUrl, "ngrok");
   }
 
-  async stop(): Promise<void> {
-    await this.#process?.stop();
+  async stop(force = false): Promise<void> {
+    await this.#process?.stop(force);
     this.#process = undefined;
   }
 }
