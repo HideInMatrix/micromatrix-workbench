@@ -3,16 +3,15 @@ import { chmod, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { build } from 'esbuild'
 import { buildChannel } from './build-channel.mjs'
-import { createRequire } from 'node:module'
 import { generateDependencyNotices } from './dependency-notices.mjs'
 import { prepareAutomationResources } from './prepare-automation-resources.mjs'
+import { computerUseRequire } from './computer-use-package.mjs'
 
 const root = process.cwd()
 const webDist = path.join(root, 'apps/web/dist')
 const output = path.join(root, 'dist/micromatrix-service.cjs')
 const prebuiltWeb = process.argv.includes('--prebuilt-web')
-const require = createRequire(import.meta.url)
-const quickjsWasm = (await readFile(require.resolve('@jitl/quickjs-wasmfile-release-sync/wasm'))).toString('base64')
+const quickjsWasm = (await readFile(computerUseRequire.resolve('@jitl/quickjs-wasmfile-release-sync/wasm'))).toString('base64')
 prepareAutomationResources(root)
 
 if (prebuiltWeb) {

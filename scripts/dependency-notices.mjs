@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { createRequire } from 'node:module'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { computerUseRequire } from './computer-use-package.mjs'
 
 const digest = value => createHash('sha256').update(value).digest('hex')
 const json = file => JSON.parse(readFileSync(file, 'utf8'))
@@ -96,12 +96,11 @@ export function webDependencyNotices(root) {
   } }
 }
 export function generateDependencyNotices(root = process.cwd(), { cargo = true, strict = false } = {}) {
-  const require = createRequire(path.join(root, 'package.json'))
   const metadataFile = path.join(root, 'dist/service-metafile.json')
   if (!existsSync(metadataFile)) throw Error('Build the service first; notice inventory must use actual esbuild inputs')
   const metadata = json(metadataFile)
   const inputs = Object.keys(metadata.inputs).map(file => path.resolve(root, file))
-  inputs.push(require.resolve('@jitl/quickjs-wasmfile-release-sync/wasm'), require.resolve('playwright-core/package.json'))
+  inputs.push(computerUseRequire.resolve('@jitl/quickjs-wasmfile-release-sync/wasm'), computerUseRequire.resolve('playwright-core/package.json'))
   const packages = npmEntries(inputs, root)
   const web = json(path.join(root, 'apps/web/dist/third-party-notices.json'))
   for (const entry of web.packages) if (!packages.some(pkg => pkg.ecosystem === entry.ecosystem && pkg.name === entry.name && pkg.version === entry.version)) packages.push(entry)

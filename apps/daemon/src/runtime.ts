@@ -4,7 +4,8 @@ import { dirname, join } from "node:path";
 
 import { ApprovalPolicy } from "@micromatrix/approval";
 import type { RuntimeConfigurationUpdate, RuntimeControl, RuntimeSnapshot, SecretUpdate, BuiltinComputerUseStatus, ComputerUsePermissionStatus } from "@micromatrix/control-plane";
-import { browserConfiguration, DesktopProxy, desktopPlatform, nativeHelperPath } from "@micromatrix/computer-use";
+import { browserConfiguration, DesktopProxy, desktopPlatform } from "@ouvren/computer-use";
+import { computerUseHelperPath } from "./computer-use-host.js";
 import { McpHttpService } from "@micromatrix/mcp-server";
 import {
   NetworkHealthMonitor, PublicRouteError, probePublicService, waitForPublicService, normalizeBaseUrl,
@@ -40,7 +41,7 @@ export class RuntimeSupervisor implements RuntimeControl {
   computerUseStatus(): BuiltinComputerUseStatus {
     const supported = process.platform === "darwin" || process.platform === "win32";
     let helperPath = "";
-    try { if (supported) helperPath = nativeHelperPath(); } catch { /* Unsupported CPU. */ }
+    try { if (supported) helperPath = computerUseHelperPath(); } catch { /* Unsupported CPU. */ }
     const conflict = parseExtensions(this.#config.extensions).mcp.some(connection => connection.id === "computer_use");
     return { enabled: this.#config.computerUse?.enabled ?? false, allowActions: this.#config.computerUse?.allowActions ?? true,
       supported: supported && Boolean(helperPath), available: Boolean(helperPath && existsSync(helperPath)),
@@ -88,7 +89,7 @@ export class RuntimeSupervisor implements RuntimeControl {
     if (!status.enabled) throw new Error("Enable Computer Use before checking its system permission");
     if (!status.supported || !status.available) throw new Error("Computer Use native helper unavailable");
     if (request && (!status.allowActions || status.platform !== "macos")) throw new Error("Explicit Accessibility requests require enabled macOS control");
-    const desktop = new DesktopProxy();
+    const desktop = new DesktopProxy(desktopPlatform(), computerUseHelperPath());
     try {
       // Check only the fixed helper's trust/desktop status; never read app contents.
       const result = await desktop.permissions(request) as Record<string, unknown>;

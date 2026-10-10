@@ -21,7 +21,7 @@
     "build:web": "vite build --config apps/web/vite.config.ts",
     "build:service": "node scripts/build-service.mjs",
     "build:sidecar": "node scripts/build-sidecar.mjs",
-    "asil": "npm run typecheck && node scripts/asil.mjs",
+    "asil": "node scripts/asil.mjs",
     "tauri": "node scripts/tauri.mjs",
     "tauri:dev": "npm run prepare:version && npm run tauri -- dev",
     "tauri:build": "node scripts/build-desktop.mjs",

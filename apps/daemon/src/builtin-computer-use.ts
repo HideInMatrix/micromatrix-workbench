@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { isSea } from "node:sea";
 import { createRequire } from "node:module";
 import { parseExtensions, type ExtensionConfiguration, type McpConnectionConfig } from "@micromatrix/plugin-kit";
-import { browserConfiguration, type BrowserConfiguration } from "@micromatrix/computer-use";
+import { browserConfiguration, type BrowserConfiguration } from "@ouvren/computer-use";
 
 export interface ComputerUseConfiguration { readonly enabled: boolean; readonly allowActions: boolean; readonly asilRegistry?: string; readonly environmentRefs?: Readonly<Record<string,string>>; readonly browser?: BrowserConfiguration }
 

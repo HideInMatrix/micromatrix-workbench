@@ -3,7 +3,7 @@ Authors: Rui Xie and Lu Chen, Shanghai Jiao Tong University
 Source: https://github.com/sharryXR/ASIL
 Reference commit: ca7706c87a0b1184c99623691adafed7693e25d3
 
-packages/computer-use/src/softwaregen/{models,templates,audit,runtime,generation}.ts
+@ouvren/computer-use src/softwaregen/{models,templates,audit,runtime,generation}.ts
 adapt the corresponding upstream Python softwaregen modules to TypeScript/Zod.
 Changes include explicit separate host permission grants, pinned registry/support
 files, bounded async I/O, stricter path/command/header validation, cancellation,

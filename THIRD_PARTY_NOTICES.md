@@ -8,7 +8,7 @@
 - Code license: Apache-2.0
 - Changes: TS/Zod port of softwaregen contracts, declarative mapping, audit and deterministic generation; product-specific permission grants and bounded transports.
 
-Upstream license, data terms and attribution/modification notice are retained at `third_party/asil/` and included in desktop/internal service distributions. Upstream JSON examples/fixtures are not retained; no upstream Python Agent/runtime or benchmark dataset is shipped.
+Reference copies remain at `third_party/asil/`; desktop/internal service distributions carry the exact Computer Use npm dependency's upstream license, data terms and attribution/modification notice. Upstream JSON examples/fixtures are not retained; no upstream Python Agent/runtime or benchmark dataset is shipped.
 
 ## Pi Agent Harness
 
@@ -28,6 +28,14 @@ The complete upstream license is stored at `third_party/pi/LICENSE`.
 
 The upstream license is stored at `third_party/cloudflared/LICENSE` and included in desktop resources.
 Official release assets and their SHA-256 digests are pinned in `scripts/cloudflared-manifest.json`.
+
+## Computer Use npm package
+
+- Package: `@ouvren/computer-use@0.1.1`
+- Project: <https://github.com/HideInMatrix/computer-use>
+- License: Apache-2.0
+
+Adapters and native helpers come from the locked npm package, not a local source workspace. Desktop/internal-service packaging copies its LICENSE, THIRD_PARTY_NOTICES and ASIL/automation notices directly from the installed dependency. macOS helpers are rewrapped/re-signed with the host's build-channel identity; there is no local native-source fallback.
 
 ## Universal Computer Use dependencies
 

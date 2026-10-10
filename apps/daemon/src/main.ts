@@ -1,6 +1,7 @@
 import { BufferedPluginLogger, ControlPlaneHttpService } from "@micromatrix/control-plane";
 import { webAssets } from "@micromatrix/web-assets";
-import { startComputerUseMcp, browserConfiguration } from "@micromatrix/computer-use";
+import { browserConfiguration } from "@ouvren/computer-use";
+import { startHostedComputerUseMcp } from "./computer-use-host.js";
 import path from "node:path";
 
 import { loadConfig } from "./config.js";
@@ -52,7 +53,7 @@ async function entry(): Promise<void> {
   if (registryIndex >= 0 && (!asilRegistry || !path.isAbsolute(asilRegistry))) throw new Error("--asil-registry requires an absolute registry file path");
   const browserIndex=process.argv.indexOf("--browser-configuration");
   const browser=browserIndex<0?undefined:browserConfiguration.parse(JSON.parse(process.argv[browserIndex+1]??"null"));
-  await startComputerUseMcp({ workspace: path.resolve(index >= 0 ? process.argv[index+1]! : process.cwd()),
+  await startHostedComputerUseMcp({ workspace: path.resolve(index >= 0 ? process.argv[index+1]! : process.cwd()),
     allowActions: process.argv.includes("--allow-actions"), version: APP_VERSION, ...(asilRegistry ? {asilRegistry} : {}), ...(browser?{browser}:{}) });
 }
 void entry().catch((error) => {

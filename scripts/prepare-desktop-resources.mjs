@@ -1,6 +1,7 @@
 import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { computerUseNoticeSources } from './computer-use-package.mjs'
 
 export function prepareDesktopResources(root = process.cwd()) {
   const nodeDirectory = path.dirname(process.execPath)
@@ -10,11 +11,7 @@ export function prepareDesktopResources(root = process.cwd()) {
     [nodeLicense, 'NODE_LICENSE.txt'],
     [path.join(root, 'third_party/pi/LICENSE'), 'PI_LICENSE.txt'],
     [path.join(root, 'third_party/cloudflared/LICENSE'), 'CLOUDFLARED_LICENSE.txt'],
-    [path.join(root, 'third_party/asil/LICENSE'), 'ASIL_LICENSE.txt'],
-    [path.join(root, 'third_party/asil/DATA_LICENSE'), 'ASIL_DATA_LICENSE.txt'],
-    [path.join(root, 'third_party/asil/NOTICE'), 'ASIL_NOTICE.txt'],
-    [path.join(root, 'third_party/automation/QUICKJS_LICENSE'), 'QUICKJS_LICENSE.txt'],
-    [path.join(root, 'third_party/automation/PLAYWRIGHT_LICENSE'), 'PLAYWRIGHT_LICENSE.txt'],
+    ...computerUseNoticeSources,
     [path.join(root, 'THIRD_PARTY_NOTICES.md'), 'THIRD_PARTY_NOTICES.md'],
     [path.join(root, '.github/release-notes.md'), 'KNOWN_LIMITS.md'],
   ]

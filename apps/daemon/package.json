@@ -3,20 +3,25 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "dependencies": {
     "@micromatrix/approval": "0.1.0",
     "@micromatrix/control-plane": "0.1.0",
     "@micromatrix/mcp-server": "0.1.0",
     "@micromatrix/network": "0.1.0",
     "@micromatrix/oauth": "0.1.0",
+    "@micromatrix/pi-body": "0.1.0",
     "@micromatrix/plugin-kit": "0.1.0",
+    "@micromatrix/plugin-mcp": "0.1.0",
     "@micromatrix/plugin-shell": "0.1.0",
+    "@micromatrix/plugin-skills": "0.1.0",
     "@micromatrix/plugin-workspace": "0.1.0",
     "@micromatrix/web-assets": "0.1.0",
-    "@micromatrix/plugin-mcp": "0.1.0",
-    "@micromatrix/plugin-skills": "0.1.0",
-    "@micromatrix/pi-body": "0.1.0",
-    "@micromatrix/computer-use": "0.1.0"
+    "@ouvren/computer-use": "0.1.1"
   }
 }

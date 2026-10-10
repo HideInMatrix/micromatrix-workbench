@@ -2,7 +2,7 @@
   "$schema": "../../node_modules/@tauri-apps/cli/config.schema.json",
   "bundle": {
     "macOS": {
-      "minimumSystemVersion": "11.0",
+      "minimumSystemVersion": "13.0",
       "files": {
         "Helpers/micromatrix Computer Use.app": "binaries/micromatrix Computer Use.app"
       }

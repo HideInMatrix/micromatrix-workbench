@@ -20,7 +20,7 @@
     → DeclarativeAdapter → JSON 文件 / 固定原生命令 / 已批准服务 API
 ```
 
-`packages/computer-use` 拥有适配器、共享协议、状态校验、生命周期和有限追踪。应用 UI 只管理 Pi 插件配置，不维护第二套执行目录。
+`@ouvren/computer-use@0.1.1` npm 依赖拥有适配器、共享协议、状态校验、生命周期和有限追踪；workbench 不再保留本地 Computer Use 源码 workspace。应用 UI 只管理 Pi 插件配置，不维护第二套执行目录。
 
 核心按能力而不是软件名称分支。默认 Provider 是 remote-desktop、desktop、desktop-visual 和 json；browser 必须由本地用户显式配置，ASIL 声明式软件包是可选增强，不是控制通用 GUI 的前置条件。配置后加载经过审计与哈希批准的声明式软件适配包，不扫描 Workspace、不执行生成代码或自动安装软件。
 
@@ -137,7 +137,7 @@ macOS 窗口截图只在显式请求时读取，要求该 Computer Use helper �
 
 ### 已移植范围与协议映射
 
-`packages/computer-use/src/softwaregen/` 已提供 TS/Zod 的 Profile / Plan / Bundle 模型、资格判定、确定性组装、静态审计、声明式 Runtime、批准注册表和主机探测。`models / templates / audit / runtime / generation` 按上述官方源码移植；`bindings / io / registry` 是产品运行边界。上游许可、来源版本和变更声明保留在 `third_party/asil/`，打包进桌面通知资源及内部服务归档，不增加公开 Release 的独立服务资产。
+npm 包的 `src/softwaregen/` 已提供 TS/Zod 的 Profile / Plan / Bundle 模型、资格判定、确定性组装、静态审计、声明式 Runtime、批准注册表和主机探测。`models / templates / audit / runtime / generation` 按上述官方源码移植；`bindings / io / registry` 是产品运行边界。上游许可、来源版本和变更声明随 npm 包发布，打包时从该依赖的 `third_party/asil/` 复制进桌面通知资源及内部服务归档，不增加公开 Release 的独立服务资产。
 
 | 接入机制 | 本轮实现 | 仍未实现 |
 | --- | --- | --- |
@@ -354,17 +354,17 @@ validate 的 revision 拒绝返回 `details`，只包含发生变化的节点 ID
 
 ## 运行和打包
 
-macOS 原生编译需要 Xcode Command Line Tools / Swift，AX-only 以 macOS 11.0 为部署目标，显式窗口截图需 macOS 14.0+，低版本返回能力错误；不继承构建机器的系统版本；平台配置同步声明最低 11.0。构建时编译和签名，不在打开应用时下载/编译。最低版本声明不是 macOS 11 实机验收。
+Computer Use 固定依赖 `@ouvren/computer-use@0.1.1`；lockfile 固定 npm tarball 和 integrity。npm 包已包含 macOS ARM64、macOS Intel x64 和 Windows x64 原生 helper，workbench 只复制对应二进制，不调用 Swift/C# builder，也不在应用启动时下载/编译。缺失或架构不符立即拒绝打包，无本地源码回退。macOS helper 的部署目标为 13.0，桌面最低版本同步为 13.0；显式窗口截图仍需 macOS 14.0+。这些版本声明不是低版本实机验收。开发版和正式版由宿主重新封装并签名，正式版仍要求固定长期证书。
 
 ```bash
 npm run typecheck
-npm run prepare:computer-use  # 编译当前系统 helper；Linux 拒绝
+npm run prepare:computer-use  # 复制 npm 预编译 helper 并签名；Linux 拒绝
 npm run dev:computer-use     # stdio MCP，默认只读，需 MCP Client 连接
 npm run dev:computer-use -- --allow-actions --workspace /absolute/path/to/workspace
 npm run build:sidecar        # 构建当前系统 SEA 与资源
 ```
 
-QuickJS WASM 嵌入 SEA；Playwright 静态 JS/资源/许可随桌面包放在 automation/playwright-core，不含浏览器。服务启动不安装依赖。Windows 编译使用系统 .NET Framework 4.8 的 csc/WPF/System.Drawing 引用，产物是固定 .exe，不在使用时运行 PowerShell 或编译模型代码。桌面构建自动准备当前 OS helper，经 tauri.macos.conf.json / tauri.windows.conf.json 加入应用；macOS 不引用 Windows .exe，Windows 不引用 Swift 二进制。发布时保留许可证、最终代码签名及升级包签名检查，不启动 GUI fixture、浏览器会话或模拟 MCP 动作。
+QuickJS WASM 嵌入 SEA；Playwright 静态 JS/资源/许可随桌面包放在 automation/playwright-core，不含浏览器。服务启动不安装依赖。Windows 使用 npm 包预编译的固定 .NET Framework 4.8 x64 .exe，不在宿主构建/使用时运行 C# 编译器、PowerShell 或模型代码。宿主仅通过包的公开 API 组合 MCP 与固定安装路径；权限检测、MCP 和 SEA 使用同一个 helper，不读用户保存的可执行路径。桌面构建自动准备当前 OS helper，经 tauri.macos.conf.json / tauri.windows.conf.json 加入应用；macOS 不引用 Windows .exe，Windows 不引用 Swift 二进制。发布时保留许可证、最终代码签名及升级包签名检查，不启动 GUI fixture、浏览器会话或模拟 MCP 动作。
 
 项目不保留测试目录、smoke 脚本、fixture 或测试运行器；CI/发布仅执行类型检查、构建和发布完整性校验。
 

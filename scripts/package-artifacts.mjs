@@ -5,6 +5,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { nativeBuildTarget } from './build-platform.mjs'
 import { releaseVersion } from './release-version.mjs'
+import { computerUseNoticeSources } from './computer-use-package.mjs'
 
 const installerFormats = {
   darwin: [['dmg', '.dmg']],
@@ -79,9 +80,8 @@ export function packageArtifacts(root = process.cwd(), env = process.env) {
     ['THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_NOTICES.md'],
     ['third_party/pi/LICENSE', 'PI_LICENSE'], ['.github/release-notes.md', 'KNOWN_LIMITS.md'],
     ['third_party/cloudflared/LICENSE', 'CLOUDFLARED_LICENSE'],
-    ['third_party/asil/LICENSE', 'ASIL_LICENSE'], ['third_party/asil/DATA_LICENSE', 'ASIL_DATA_LICENSE'], ['third_party/asil/NOTICE', 'ASIL_NOTICE'],
-    ['third_party/automation/QUICKJS_LICENSE', 'QUICKJS_LICENSE'], ['third_party/automation/PLAYWRIGHT_LICENSE', 'PLAYWRIGHT_LICENSE'],
   ]) copyFileSync(path.join(root, source), path.join(serviceDirectory, destination))
+  for (const [source, name] of computerUseNoticeSources) copyFileSync(source, path.join(serviceDirectory, name))
 
   const label = env.GITHUB_REF_TYPE === 'tag' ? env.GITHUB_REF_NAME : `v${version}`
   const archive = path.join(output, `micromatrix-service-${label}-${profile}.${process.platform === 'win32' ? 'zip' : 'tar.gz'}`)
